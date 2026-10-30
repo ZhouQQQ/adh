@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.data/
+apps/server/public/
+*.log
+.env
+.env.local
+.DS_Store
+Thumbs.db
+.vite/
+*.tsbuildinfo

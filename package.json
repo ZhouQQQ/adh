@@ -1,0 +1,24 @@
+{
+  "name": "an-device-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.11.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @adh/server --filter @adh/web dev",
+    "dev:server": "pnpm --filter @adh/server dev",
+    "dev:web": "pnpm --filter @adh/web dev",
+    "dev:agent": "pnpm --filter @adh/agent dev",
+    "build": "pnpm -r --filter @adh/protocol --filter @adh/agent --filter @adh/server build && pnpm --filter @adh/web build",
+    "typecheck": "pnpm -r typecheck",
+    "start": "pnpm --filter @adh/server start"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
