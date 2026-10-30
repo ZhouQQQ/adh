@@ -3,16 +3,15 @@
 把散落在多台机器上的 Android / iOS 真机集中到一个 Web 控制台：实时查看屏幕、直接操作、批量安装应用。
 
 - `adh-server`：Web 控制台 + 设备/节点管理，一个进程搞定
-- `adh-agent`：部署在设备宿主机上，主动外连 server，自动上报本机设备
-
-架构、协议与阶段计划见本文末尾。
+- `adh-agent`：部署在设备宿主机上，主动外连 server，自动发现并上报本机设备
 
 ## 当前进度
 
 | 阶段 | 状态 |
 | --- | --- |
 | M0 脚手架 · 节点接入 · 设备发现 · 实时看板 | ✅ 完成 |
-| M1 完整设备信息 / iOS 发现 | ⬜ 待开始 |
+| M1 Agent 管理 · 设备硬件信息 · 筛选 · 缩略图 | ✅ 完成 |
+| M1b iOS 设备发现 | ⬜ 待开始 |
 | M2 Android scrcpy 投屏 + 控制 | ⬜ 待开始 |
 | M3 iOS WDA 投屏 + 控制 | ⬜ 待开始 |
 | M4 APK / IPA 安装 | ⬜ 待开始 |
@@ -25,7 +24,7 @@
 - Android 设备宿主机：安装 [Android Platform Tools](https://developer.android.com/studio/releases/platform-tools)，确保 `adb` 在 PATH 中
 - iOS 设备宿主机：Windows 需安装 iTunes / Apple Devices（提供 Apple Mobile Device Service），并安装 [go-ios](https://github.com/danielpaulus/go-ios)
 
-先自检节点环境：
+先在宿主机自检环境：
 
 ```bash
 pnpm --filter @adh/agent dev doctor
@@ -35,37 +34,60 @@ pnpm --filter @adh/agent dev doctor
 
 ```bash
 pnpm install
-
-# 启动 server + web（server: 8080，web: 5173）
-pnpm dev
+pnpm dev            # server: 8080，web: 5173
 ```
 
-server 启动后会打印一次性注册码：
+打开 http://localhost:5173
 
-```
-agent code   : ADH-XXXX-XXXX
-connect      : adh-agent connect --server ws://<此机IP>:8080 --code ADH-XXXX-XXXX
-```
+### 1. 新建 Agent
 
-在设备宿主机上接入：
+左侧菜单进入 **Agent 管理 → 新建 Agent**，填写名称（例如「上海机房-01」）。
+
+创建后会生成一个 **接入 Key** 和对应的命令，Key 只展示一次：
 
 ```bash
-# 首次接入（--code 只在第一次需要）
-pnpm --filter @adh/agent dev connect --server ws://192.168.1.10:8080 --code ADH-XXXX-XXXX
-
-# 之后直接用保存的 token
-pnpm --filter @adh/agent dev connect --server ws://192.168.1.10:8080
+adh-agent connect --server ws://<hub地址>:8080 --key adh_xxxxxxxx
 ```
 
-token 保存在 `~/.adh/agent.json`。
+当前源码运行方式：
 
-打开 http://localhost:5173 ，节点与设备会在接入后自动出现，USB 插拔 5 秒内反映到页面。
+```bash
+pnpm --filter @adh/agent dev connect --server ws://<hub地址>:8080 --key adh_xxxxxxxx
+```
+
+Key 会保存在宿主机的 `~/.adh/agent.json`，之后重启 agent 只需带 `--server`。
+
+### 2. 连接设备
+
+Agent 启动后每 5 秒扫描一次 `adb devices`，检测到新设备会立即采集硬件信息：
+
+- 型号 / 品牌 / 系统版本 / SDK
+- CPU 型号、核心数
+- 内存总量
+- 屏幕分辨率
+
+随后每 30 秒截取一次屏幕缩略图上传到 server。
+
+### 3. 在控制台筛选设备
+
+设备管理页顶部支持组合筛选：
+
+| 筛选项 | 说明 |
+| --- | --- |
+| 关键字 | 名称 / 型号 / 品牌 / UDID / CPU |
+| 类型 | Android / iOS |
+| 状态 | 在线 / 离线 / 未授权 |
+| 系统版本 | 多选，选项从在线设备动态聚合，带数量 |
+| CPU | 多选，按芯片型号聚合 |
+| 内存 | 多选，按标称容量聚合（7.4GB → 8GB） |
+
+所有筛选项都显示当前匹配数量，组合生效。
 
 ### 生产模式
 
 ```bash
-pnpm build                 # 前端产物输出到 apps/server/public
-pnpm start                 # 单进程托管 API + 前端
+pnpm build          # 前端产物输出到 apps/server/public
+pnpm start          # 单进程托管 API + 前端
 ```
 
 ## 常用命令
@@ -75,28 +97,42 @@ pnpm start                 # 单进程托管 API + 前端
 | `pnpm dev` | 同时启动 server 与 web |
 | `pnpm dev:server` | 只启动 server |
 | `pnpm dev:web` | 只启动 web |
-| `pnpm --filter @adh/agent dev connect --server ...` | 启动节点 |
+| `pnpm --filter @adh/agent dev connect --server ... --key ...` | 启动节点 |
 | `pnpm --filter @adh/agent dev doctor` | 检查 adb / go-ios / Apple 服务 |
 | `pnpm -r typecheck` | 全量类型检查 |
 | `pnpm build` | 构建前端 |
 
-server 可用参数：`--port` `--host` `--data` `--code` `--log-level`，对应环境变量 `ADH_PORT` `ADH_HOST` `ADH_DATA_DIR` `ADH_REGISTRATION_CODE` `ADH_LOG_LEVEL`。
+server 可用参数：`--port` `--host` `--data` `--log-level`，对应环境变量 `ADH_PORT` `ADH_HOST` `ADH_DATA_DIR` `ADH_LOG_LEVEL`。
+
+## 技术栈
+
+| 层 | 选型 |
+| --- | --- |
+| 协议 | TypeScript + zod，两端共享 schema |
+| Server | Fastify 5 + WebSocket + Drizzle ORM + SQLite |
+| Agent | Node 22+、`adb` CLI、`sharp`（缩略图压缩） |
+| Web | Vue 3 + Naive UI + Vue Router + Vite |
 
 ## 目录结构
 
 ```
 an-device-hub/
-├─ packages/protocol/          两端共享的消息 schema（zod）与二进制帧格式
+├─ packages/protocol/          两端共享的消息 schema 与二进制帧格式
 ├─ apps/server/
 │  ├─ src/db/                  Drizzle schema + SQL 迁移
+│  ├─ src/http/routes.ts       REST + 缩略图接口
 │  ├─ src/ws/agent.ts          Agent 主通道：握手、心跳、设备同步
 │  ├─ src/ws/web-hub.ts        浏览器实时事件 fan-out
-│  └─ src/http/routes.ts       REST API
+│  └─ src/storage/thumbnails.ts 设备缩略图落盘
 ├─ apps/agent/
 │  ├─ src/client.ts            长连接、心跳、重连、设备 diff 上报
-│  ├─ src/android/discover.ts  adb 设备发现
-│  └─ src/ios/                 iOS 发现（M1 实现）
-└─ apps/web/                   React 控制台
+│  ├─ src/android/discover.ts  adb 发现 + 硬件信息采集
+│  ├─ src/android/screenshot.ts 截图并压缩
+│  └─ src/ios/                 iOS 发现（M1b 实现）
+└─ apps/web/                   Vue 3 + Naive UI 控制台
+   ├─ src/views/DevicesView.vue  设备网格 + 组合筛选
+   ├─ src/views/AgentsView.vue   Agent 列表 + 新建/重置 Key/删除
+   └─ src/stores/fleet.ts        实时设备/节点状态
 ```
 
 ## 架构
@@ -104,7 +140,7 @@ an-device-hub/
 ```
 浏览器 ──► adh-server ──◄── adh-agent ──► adb / go-ios ──► 设备
              │
-             └─ SQLite + 安装包存储
+             └─ SQLite + 缩略图 + 安装包存储
 ```
 
 所有连接均由 agent 主动外连，因此 server 可以部署在公网，设备宿主机处于 NAT 后无需端口映射。
@@ -117,20 +153,17 @@ an-device-hub/
 | `/ws/web` | 向浏览器推送节点/设备变更 |
 | `/ws/stream/:id` | 投屏流中继（M2 启用） |
 
-### 设备按需连接
+### 接入流程
 
-只有打开控制页时才启动设备的投屏进程，页面关闭 30 秒后回收，避免宿主机长时间为多台设备编码。
-
-## M0 验收项
-
-- [x] `pnpm dev` 启动 server 与 web
-- [x] server 启动打印一次性注册码
-- [x] agent 用注册码接入并持久化 token，断线自动重连
-- [x] `doctor` 报告 adb / go-ios / libimobiledevice / Apple 设备服务状态
-- [x] Web 实时显示节点在线状态与设备数量变化
+1. Web 控制台创建 Agent → server 生成 `adh_` 前缀的 Key
+2. 宿主机执行命令 → agent 用 Key 握手
+3. Server 校验 Key → 绑定 Agent 记录、下发 welcome
+4. Agent 每 5 秒上报设备 diff，每 30 秒上传缩略图
+5. 浏览器通过 WebSocket 接收增量，无需轮询
 
 ## 已知限制
 
-- Web 端目前只做展示，控制页在 M2 提供
-- iOS 设备发现留到 M1（需要真实设备确认 go-ios 输出格式）
+- 设备缩略图目前只支持 Android（iOS 缩略图随 M3 提供）
+- iOS 设备发现留到 M1b（需要真实设备确认 go-ios 输出格式）
 - Web 端无鉴权，仅适合内网部署
+- 前端未做路由级代码分割，首屏包体约 224KB（gzip）

@@ -42,3 +42,33 @@ export async function commandExists(
   const result = await runCommand(command, args, 5_000);
   return !result.failedToStart;
 }
+
+/** 需要二进制输出的场景，例如 `adb exec-out screencap -p`。 */
+export function runCommandBuffer(
+  command: string,
+  args: string[],
+  timeoutMs = 20_000,
+): Promise<{ code: number; stdout: Buffer; stderr: string }> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      {
+        timeout: timeoutMs,
+        windowsHide: true,
+        maxBuffer: 32 * 1024 * 1024,
+        encoding: 'buffer',
+      },
+      (error, stdout, stderr) => {
+        const errno = error as NodeJS.ErrnoException | null;
+        const rawCode: unknown = errno?.code;
+        const code = typeof rawCode === 'number' ? rawCode : error ? 1 : 0;
+        resolve({
+          code,
+          stdout: stdout as Buffer,
+          stderr: (stderr as Buffer).toString('utf8'),
+        });
+      },
+    );
+  });
+}

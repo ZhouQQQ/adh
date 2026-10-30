@@ -10,6 +10,7 @@ import { createQueries } from './db/queries.js';
 import { registerHttpRoutes } from './http/routes.js';
 import { createLogger } from './log.js';
 import { AgentRegistry } from './registry.js';
+import { ThumbnailStore } from './storage/thumbnails.js';
 import { registerAgentChannel } from './ws/agent.js';
 import { WebHub } from './ws/web-hub.js';
 
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   const queries = createQueries(db);
   const registry = new AgentRegistry();
   const hub = new WebHub();
+  const thumbnails = new ThumbnailStore(config.thumbnailDir);
 
   const app = Fastify({
     loggerInstance: logger as FastifyBaseLogger,
@@ -35,7 +37,7 @@ async function main(): Promise<void> {
     queries,
     registry,
     hub,
-    registrationCode: config.registrationCode,
+    thumbnails,
     serverVersion: SERVER_VERSION,
     logger,
   });
@@ -45,7 +47,13 @@ async function main(): Promise<void> {
     socket.on('close', () => hub.remove(socket));
   });
 
-  await registerHttpRoutes(app, { queries, registry });
+  await registerHttpRoutes(app, {
+    queries,
+    registry,
+    hub,
+    thumbnails,
+    port: config.port,
+  });
 
   // 静态资源与 SPA 回退：Vite 构建产物输出到 apps/server/public
   const indexHtml = path.join(config.publicDir, 'index.html');
@@ -70,10 +78,7 @@ async function main(): Promise<void> {
   logger.info(`adh-server v${SERVER_VERSION} ready`);
   logger.info(`data dir     : ${config.dataDir}`);
   logger.info(`web console  : http://127.0.0.1:${config.port}`);
-  logger.info(`agent code   : ${config.registrationCode}`);
-  logger.info(
-    `connect      : adh-agent connect --server ws://<此机IP>:${config.port} --code ${config.registrationCode}`,
-  );
+  logger.info('下一步：打开控制台 → Agent 管理 → 新建 Agent，复制生成的接入命令');
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutting down');

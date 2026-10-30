@@ -1,0 +1,93 @@
+<script setup lang="ts">
+import { ref, watch } from 'vue';
+import {
+  NButton,
+  NForm,
+  NFormItem,
+  NInput,
+  NModal,
+  NSpace,
+  useMessage,
+} from 'naive-ui';
+import type { AgentSummary } from '@adh/protocol';
+import { api } from '../api';
+
+const props = defineProps<{ show: boolean }>();
+const emit = defineEmits<{
+  'update:show': [value: boolean];
+  created: [agent: AgentSummary, key: string];
+}>();
+
+const message = useMessage();
+const name = ref('');
+const submitting = ref(false);
+
+watch(
+  () => props.show,
+  (visible) => {
+    if (visible) name.value = '';
+  },
+);
+
+async function submit(): Promise<void> {
+  const value = name.value.trim();
+  if (!value) {
+    message.warning('请填写 Agent 名称');
+    return;
+  }
+  submitting.value = true;
+  try {
+    const result = await api.createAgent(value);
+    emit('update:show', false);
+    emit('created', result.agent, result.key);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '创建失败');
+  } finally {
+    submitting.value = false;
+  }
+}
+</script>
+
+<template>
+  <n-modal
+    :show="show"
+    preset="card"
+    title="新建 Agent"
+    style="width: 460px"
+    @update:show="emit('update:show', $event)"
+  >
+    <n-form label-placement="top" @submit.prevent="submit">
+      <n-form-item label="名称">
+        <n-input
+          v-model:value="name"
+          placeholder="例如：上海机房-01"
+          maxlength="40"
+          show-count
+          @keyup.enter="submit"
+        />
+      </n-form-item>
+      <p class="hint">
+        名称用于区分不同的设备宿主机。创建后会生成一个接入 Key，
+        在对应宿主机上执行命令即可接入。
+      </p>
+    </n-form>
+
+    <template #footer>
+      <n-space justify="end">
+        <n-button quaternary @click="emit('update:show', false)">取消</n-button>
+        <n-button type="primary" :loading="submitting" @click="submit">
+          创建并生成 Key
+        </n-button>
+      </n-space>
+    </template>
+  </n-modal>
+</template>
+
+<style scoped>
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #6f6f78;
+}
+</style>

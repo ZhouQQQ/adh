@@ -1,19 +1,33 @@
 import type { DeviceInfo, Resolution } from '@adh/protocol';
 import { runCommand } from '../util/exec.js';
 
-export async function isAdbAvailable(): Promise<boolean> {
-  const result = await runCommand('adb', ['version'], 5_000);
-  return !result.failedToStart && result.code === 0;
-}
-
 interface AndroidDetail {
   model?: string;
+  brand?: string;
   osVersion?: string;
+  sdk?: number;
+  cpu?: string;
+  cpuCores?: number;
+  memoryMb?: number;
   resolution?: Resolution;
 }
 
 /** 设备信息查询较慢，只在设备首次出现时执行。 */
 const detailCache = new Map<string, AndroidDetail>();
+
+export async function isAdbAvailable(): Promise<boolean> {
+  const result = await runCommand('adb', ['version'], 5_000);
+  return !result.failedToStart && result.code === 0;
+}
+
+function parseGetprop(raw: string): Map<string, string> {
+  const props = new Map<string, string>();
+  for (const line of raw.split(/\r?\n/)) {
+    const match = /^\[(.+?)\]:\s*\[(.*)\]$/.exec(line.trim());
+    if (match) props.set(match[1] as string, match[2] ?? '');
+  }
+  return props;
+}
 
 function parseWmSize(raw: string): Resolution | undefined {
   const matches = [...raw.matchAll(/(\d+)\s*x\s*(\d+)/g)];
@@ -22,24 +36,64 @@ function parseWmSize(raw: string): Resolution | undefined {
   return { width: Number(last[1]), height: Number(last[2]) };
 }
 
+/** Android 12+ 有 ro.soc.model，更早的机型只能退到 board platform / ABI。 */
+function buildCpuName(props: Map<string, string>): string | undefined {
+  const socModel = props.get('ro.soc.model')?.trim();
+  const socVendor = props.get('ro.soc.manufacturer')?.trim();
+  if (socModel) {
+    if (socVendor && !socModel.toLowerCase().includes(socVendor.toLowerCase())) {
+      return `${socVendor} ${socModel}`;
+    }
+    return socModel;
+  }
+  const board = props.get('ro.board.platform')?.trim();
+  if (board) return board;
+  const abi = props.get('ro.product.cpu.abi')?.trim();
+  return abi || undefined;
+}
+
+function parseCores(cpuInfo: string): number | undefined {
+  const count = (cpuInfo.match(/^processor\s*:/gm) ?? []).length;
+  return count > 0 ? count : undefined;
+}
+
+function parseMemoryMb(memInfo: string): number | undefined {
+  const match = /MemTotal:\s*(\d+)\s*kB/i.exec(memInfo);
+  if (!match) return undefined;
+  const kb = Number(match[1]);
+  return Number.isFinite(kb) ? Math.round(kb / 1024) : undefined;
+}
+
 async function queryDetails(udid: string): Promise<AndroidDetail> {
-  const [model, version, size] = await Promise.all([
-    runCommand('adb', ['-s', udid, 'shell', 'getprop', 'ro.product.model'], 6_000),
-    runCommand(
-      'adb',
-      ['-s', udid, 'shell', 'getprop', 'ro.build.version.release'],
-      6_000,
-    ),
+  const [propsResult, sizeResult, memResult, cpuResult] = await Promise.all([
+    runCommand('adb', ['-s', udid, 'shell', 'getprop'], 8_000),
     runCommand('adb', ['-s', udid, 'shell', 'wm', 'size'], 6_000),
+    runCommand('adb', ['-s', udid, 'shell', 'cat', '/proc/meminfo'], 6_000),
+    runCommand('adb', ['-s', udid, 'shell', 'cat', '/proc/cpuinfo'], 6_000),
   ]);
 
+  const props = parseGetprop(propsResult.stdout);
   const detail: AndroidDetail = {};
-  const modelText = model.stdout.trim();
-  if (modelText) detail.model = modelText;
-  const versionText = version.stdout.trim();
-  if (versionText) detail.osVersion = versionText;
-  const resolution = parseWmSize(size.stdout);
+
+  const model = props.get('ro.product.model')?.trim();
+  if (model) detail.model = model;
+  const brand = props.get('ro.product.brand')?.trim();
+  if (brand) detail.brand = brand;
+  const release = props.get('ro.build.version.release')?.trim();
+  if (release) detail.osVersion = release;
+  const sdk = Number(props.get('ro.build.version.sdk'));
+  if (Number.isFinite(sdk) && sdk > 0) detail.sdk = sdk;
+
+  const cpu = buildCpuName(props);
+  if (cpu) detail.cpu = cpu;
+  const cores = parseCores(cpuResult.stdout);
+  if (cores) detail.cpuCores = cores;
+  const memoryMb = parseMemoryMb(memResult.stdout);
+  if (memoryMb) detail.memoryMb = memoryMb;
+
+  const resolution = parseWmSize(sizeResult.stdout);
   if (resolution) detail.resolution = resolution;
+
   return detail;
 }
 
@@ -100,7 +154,12 @@ export async function discoverAndroid(): Promise<AndroidScanResult> {
       tags: [],
     };
     if (detail.model) info.model = detail.model;
+    if (detail.brand) info.brand = detail.brand;
     if (detail.osVersion) info.osVersion = detail.osVersion;
+    if (detail.sdk) info.sdk = detail.sdk;
+    if (detail.cpu) info.cpu = detail.cpu;
+    if (detail.cpuCores) info.cpuCores = detail.cpuCores;
+    if (detail.memoryMb) info.memoryMb = detail.memoryMb;
     if (detail.resolution) info.resolution = detail.resolution;
     devices.push(info);
   }

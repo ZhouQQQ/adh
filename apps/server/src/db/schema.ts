@@ -29,7 +29,12 @@ export const devices = sqliteTable(
     platform: text('platform').notNull(),
     name: text('name').notNull(),
     model: text('model'),
+    brand: text('brand'),
     osVersion: text('os_version'),
+    sdk: integer('sdk'),
+    cpu: text('cpu'),
+    cpuCores: integer('cpu_cores'),
+    memoryMb: integer('memory_mb'),
     /** JSON: { width, height } */
     resolution: text('resolution'),
     status: text('status').notNull().default('online'),
@@ -38,6 +43,8 @@ export const devices = sqliteTable(
     /** JSON: string[] */
     tags: text('tags').notNull().default('[]'),
     lastSeen: integer('last_seen').notNull().default(0),
+    /** 缩略图最后更新时间（毫秒），0 表示没有。 */
+    thumbnailAt: integer('thumbnail_at').notNull().default(0),
   },
   (t) => [
     uniqueIndex('devices_agent_udid_idx').on(t.agentId, t.udid),

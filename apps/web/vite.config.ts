@@ -1,11 +1,10 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
+import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 
 const SERVER = process.env.ADH_SERVER_URL ?? 'http://127.0.0.1:8080';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [vue()],
   server: {
     port: 5173,
     proxy: {

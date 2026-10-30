@@ -29,7 +29,15 @@ export const DeviceInfoSchema = z.object({
   platform: PlatformSchema,
   name: z.string(),
   model: z.string().optional(),
+  brand: z.string().optional(),
   osVersion: z.string().optional(),
+  /** Android API level，用于精确筛版本。 */
+  sdk: z.number().int().optional(),
+  /** CPU 展示名，如 "Qualcomm SM8550"。 */
+  cpu: z.string().optional(),
+  cpuCores: z.number().int().optional(),
+  /** 物理内存总量（MB）。 */
+  memoryMb: z.number().int().optional(),
   resolution: ResolutionSchema.optional(),
   status: DeviceStatusSchema.default('online'),
   /** 该设备当前可用的能力，如 scrcpy / wda / shell。 */
@@ -43,6 +51,8 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   id: z.string(),
   agentId: z.string(),
   lastSeen: z.number(),
+  /** 缩略图最后更新时间，0 表示暂无。 */
+  thumbnailAt: z.number().default(0),
 });
 export type DeviceSummary = z.infer<typeof DeviceSummarySchema>;
 
@@ -67,10 +77,22 @@ export const AgentSummarySchema = z.object({
   arch: z.string(),
   version: z.string(),
   capabilities: z.array(z.string()),
+  /** token 掩码，用于界面展示。 */
+  keyPreview: z.string(),
+  deviceCount: z.number().int().default(0),
   lastSeen: z.number(),
   online: z.boolean(),
+  /** 已创建但从未接入过。 */
+  pending: z.boolean().default(false),
 });
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
+
+/** 创建 Agent 的响应，key 只在创建/重置时返回一次。 */
+export const CreateAgentResponseSchema = z.object({
+  agent: AgentSummarySchema,
+  key: z.string(),
+});
+export type CreateAgentResponse = z.infer<typeof CreateAgentResponseSchema>;
 
 /* ------------------------------------------------------------------ */
 /* Agent 主通道：agent -> server                                       */

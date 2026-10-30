@@ -1,5 +1,5 @@
-import { and, eq } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+import { and, eq, sql } from 'drizzle-orm';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type {
   AgentRuntimeInfo,
   AgentSummary,
@@ -35,7 +35,17 @@ function parseResolution(raw: string | null): Resolution | undefined {
   return undefined;
 }
 
-export function rowToAgent(row: AgentRow): AgentSummary {
+export function maskKey(key: string): string {
+  if (key.length <= 18) return key;
+  return `${key.slice(0, 12)}...${key.slice(-4)}`;
+}
+
+/** Agent 接入凭证：adh_ 前缀 + 32 位 hex。 */
+export function generateAgentKey(): string {
+  return `adh_${randomBytes(16).toString('hex')}`;
+}
+
+export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
   return {
     id: row.id,
     name: row.name,
@@ -43,8 +53,11 @@ export function rowToAgent(row: AgentRow): AgentSummary {
     arch: row.arch,
     version: row.version,
     capabilities: parseStringArray(row.capabilities),
+    keyPreview: maskKey(row.token),
+    deviceCount,
     lastSeen: row.lastSeen,
     online: false,
+    pending: row.lastSeen === 0,
   };
 }
 
@@ -59,59 +72,95 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
     capabilities: parseStringArray(row.capabilities),
     tags: parseStringArray(row.tags),
     lastSeen: row.lastSeen,
+    thumbnailAt: row.thumbnailAt ?? 0,
   };
   if (row.model) summary.model = row.model;
+  if (row.brand) summary.brand = row.brand;
   if (row.osVersion) summary.osVersion = row.osVersion;
+  if (row.sdk != null) summary.sdk = row.sdk;
+  if (row.cpu) summary.cpu = row.cpu;
+  if (row.cpuCores != null) summary.cpuCores = row.cpuCores;
+  if (row.memoryMb != null) summary.memoryMb = row.memoryMb;
   const resolution = parseResolution(row.resolution);
   if (resolution) summary.resolution = resolution;
   return summary;
 }
 
-export interface CreateAgentInput {
-  name: string;
-  os: string;
-  arch: string;
-  version: string;
-  capabilities: string[];
-  token: string;
-}
-
 export function createQueries(db: Db) {
+  const deviceCounts = (): Map<string, number> => {
+    const rows = db
+      .select({
+        agentId: devices.agentId,
+        count: sql<number>`count(*)`,
+      })
+      .from(devices)
+      .groupBy(devices.agentId)
+      .all();
+    return new Map(rows.map((row) => [row.agentId, Number(row.count)]));
+  };
+
   return {
     listAgents(): AgentSummary[] {
-      return db.select().from(agents).all().map(rowToAgent);
+      const counts = deviceCounts();
+      return db
+        .select()
+        .from(agents)
+        .all()
+        .map((row) => rowToAgent(row, counts.get(row.id) ?? 0));
+    },
+
+    getAgentSummary(id: string): AgentSummary | undefined {
+      const row = db.select().from(agents).where(eq(agents.id, id)).get();
+      if (!row) return undefined;
+      const count = db
+        .select({ count: sql<number>`count(*)` })
+        .from(devices)
+        .where(eq(devices.agentId, id))
+        .get();
+      return rowToAgent(row, Number(count?.count ?? 0));
     },
 
     findAgentByToken(token: string): AgentRow | undefined {
       return db.select().from(agents).where(eq(agents.token, token)).get();
     },
 
-    findAgentByName(name: string, os: string): AgentRow | undefined {
-      return db
-        .select()
-        .from(agents)
-        .where(and(eq(agents.name, name), eq(agents.os, os)))
-        .get();
+    findAgentByName(name: string): AgentRow | undefined {
+      return db.select().from(agents).where(eq(agents.name, name)).get();
     },
 
     getAgent(id: string): AgentRow | undefined {
       return db.select().from(agents).where(eq(agents.id, id)).get();
     },
 
-    createAgent(input: CreateAgentInput): AgentRow {
+    /** 由 Web 控制台创建，os/arch/version 在首次接入时补齐。 */
+    createAgent(name: string): AgentRow {
+      const now = Date.now();
       const row: AgentRow = {
         id: randomUUID(),
-        name: input.name,
-        os: input.os,
-        arch: input.arch,
-        version: input.version,
-        capabilities: JSON.stringify(input.capabilities),
-        token: input.token,
-        lastSeen: Date.now(),
-        createdAt: Date.now(),
+        name,
+        os: '',
+        arch: '',
+        version: '',
+        capabilities: '[]',
+        token: generateAgentKey(),
+        lastSeen: 0,
+        createdAt: now,
       };
       db.insert(agents).values(row).run();
       return row;
+    },
+
+    rotateAgentToken(id: string): AgentRow | undefined {
+      const token = generateAgentKey();
+      db.update(agents).set({ token }).where(eq(agents.id, id)).run();
+      return this.getAgent(id);
+    },
+
+    deleteAgent(id: string): boolean {
+      const existing = this.getAgent(id);
+      if (!existing) return false;
+      db.delete(agents).where(eq(agents.id, id)).run();
+      return true;
     },
 
     updateAgentRuntime(id: string, info: AgentRuntimeInfo): void {
@@ -126,10 +175,6 @@ export function createQueries(db: Db) {
         })
         .where(eq(agents.id, id))
         .run();
-    },
-
-    updateAgentToken(id: string, token: string): void {
-      db.update(agents).set({ token }).where(eq(agents.id, id)).run();
     },
 
     touchAgent(id: string, at = Date.now()): void {
@@ -165,7 +210,12 @@ export function createQueries(db: Db) {
         platform: info.platform,
         name: info.name,
         model: info.model ?? null,
+        brand: info.brand ?? null,
         osVersion: info.osVersion ?? null,
+        sdk: info.sdk ?? null,
+        cpu: info.cpu ?? null,
+        cpuCores: info.cpuCores ?? null,
+        memoryMb: info.memoryMb ?? null,
         resolution: info.resolution ? JSON.stringify(info.resolution) : null,
         status: info.status,
         capabilities: JSON.stringify(info.capabilities),
@@ -178,7 +228,7 @@ export function createQueries(db: Db) {
         return rowToDevice({ ...existing, ...values });
       }
 
-      const row: DeviceRow = { id: randomUUID(), ...values };
+      const row: DeviceRow = { id: randomUUID(), thumbnailAt: 0, ...values };
       db.insert(devices).values(row).run();
       return rowToDevice(row);
     },
@@ -193,7 +243,12 @@ export function createQueries(db: Db) {
       const set: Partial<DeviceRow> = { lastSeen: Date.now() };
       if (patch.name !== undefined) set.name = patch.name;
       if (patch.model !== undefined) set.model = patch.model ?? null;
+      if (patch.brand !== undefined) set.brand = patch.brand ?? null;
       if (patch.osVersion !== undefined) set.osVersion = patch.osVersion ?? null;
+      if (patch.sdk !== undefined) set.sdk = patch.sdk ?? null;
+      if (patch.cpu !== undefined) set.cpu = patch.cpu ?? null;
+      if (patch.cpuCores !== undefined) set.cpuCores = patch.cpuCores ?? null;
+      if (patch.memoryMb !== undefined) set.memoryMb = patch.memoryMb ?? null;
       if (patch.status !== undefined) set.status = patch.status;
       if (patch.capabilities !== undefined)
         set.capabilities = JSON.stringify(patch.capabilities);
@@ -210,6 +265,15 @@ export function createQueries(db: Db) {
       if (!existing) return undefined;
       db.delete(devices).where(eq(devices.id, existing.id)).run();
       return rowToDevice(existing);
+    },
+
+    markThumbnail(deviceId: string, at = Date.now()): DeviceSummary | undefined {
+      db.update(devices)
+        .set({ thumbnailAt: at })
+        .where(eq(devices.id, deviceId))
+        .run();
+      const row = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+      return row ? rowToDevice(row) : undefined;
     },
 
     markAgentDevicesOffline(agentId: string): DeviceSummary[] {

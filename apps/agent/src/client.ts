@@ -15,8 +15,6 @@ export interface AgentClientOptions {
   logger: Logger;
   /** 设备扫描函数，便于测试替换。 */
   discover: () => Promise<DeviceInfo[]>;
-  /** server 下发新 token 时回调（注册码首次接入）。 */
-  onToken?: (token: string) => void;
   syncIntervalMs?: number;
 }
 
@@ -64,6 +62,11 @@ export class AgentClient {
     this.connect();
   }
 
+  /** 当前已上报的设备快照，供缩略图循环使用。 */
+  currentDevices(): DeviceInfo[] {
+    return [...this.synced.values()];
+  }
+
   stop(): void {
     this.stopped = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -105,10 +108,6 @@ export class AgentClient {
   private handleServerMessage(message: ServerToAgentMessage): void {
     if (message.t === 'welcome') {
       this.reconnectAttempt = 0;
-      if (message.token) {
-        this.token = message.token;
-        this.options.onToken?.(message.token);
-      }
       this.options.logger.info(
         { agentId: message.agentId, serverVersion: message.serverVersion },
         'registered',

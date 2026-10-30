@@ -7,19 +7,22 @@ import {
   type DeviceInfo,
 } from '@adh/protocol';
 import { discoverAndroid, isAdbAvailable } from './android/discover.js';
+import { captureThumbnail } from './android/screenshot.js';
 import { AgentClient } from './client.js';
 import { runDoctor } from './doctor.js';
 import { discoverIos } from './ios/discover.js';
 import { configFilePath, loadLocalConfig, saveLocalConfig } from './local-config.js';
-import { createLogger } from './log.js';
+import { createLogger, type Logger } from './log.js';
+import { ThumbnailUploader } from './thumbnail-uploader.js';
 
 const AGENT_VERSION = '0.1.0';
+const THUMBNAIL_INTERVAL_MS = 30_000;
 
 const HELP = `
 adh-agent v${AGENT_VERSION}
 
 用法:
-  adh-agent connect --server <ws://host:8080> [--code <注册码>] [--name <宿主机名>]
+  adh-agent connect --server <ws://host:8080> [--key <接入Key>] [--name <宿主机名>]
   adh-agent doctor
   adh-agent version
 
@@ -27,8 +30,8 @@ adh-agent v${AGENT_VERSION}
   connect  连接 adh-server 并持续上报本机设备
   doctor   检查 adb / go-ios / Apple 设备服务是否就绪
 
-首次接入需要使用 server 启动时打印的注册码；
-接入成功后 token 会保存在 ${configFilePath()}
+接入 Key 在 Web 控制台的「Agent 管理 → 新建 Agent」中生成；
+接入成功后 Key 会保存在 ${configFilePath()}
 `.trim();
 
 function parseCli() {
@@ -38,6 +41,8 @@ function parseCli() {
     strict: false,
     options: {
       server: { type: 'string', short: 's' },
+      key: { type: 'string', short: 'k' },
+      // 兼容旧参数名
       code: { type: 'string', short: 'c' },
       name: { type: 'string', short: 'n' },
       'log-level': { type: 'string' },
@@ -47,9 +52,7 @@ function parseCli() {
   });
 }
 
-function printDoctor(
-  report: Awaited<ReturnType<typeof runDoctor>>,
-): void {
+function printDoctor(report: Awaited<ReturnType<typeof runDoctor>>): void {
   console.log(`\nadh-agent doctor · ${report.platform}\n`);
   for (const check of report.checks) {
     const mark = check.ok ? '[ OK ]' : '[FAIL]';
@@ -64,6 +67,37 @@ function printDoctor(
   );
 }
 
+function startThumbnailLoop(
+  client: AgentClient,
+  uploader: ThumbnailUploader,
+  logger: Logger,
+): NodeJS.Timeout {
+  let running = false;
+
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const targets = client
+        .currentDevices()
+        .filter((device) => device.platform === 'android' && device.status === 'online')
+        .slice(0, 4);
+      for (const device of targets) {
+        const jpeg = await captureThumbnail(device.udid);
+        if (!jpeg) continue;
+        await uploader.upload(device.udid, jpeg);
+      }
+    } catch (error) {
+      logger.debug({ err: String(error) }, 'thumbnail loop error');
+    } finally {
+      running = false;
+    }
+  };
+
+  setTimeout(() => void tick(), 4_000);
+  return setInterval(() => void tick(), THUMBNAIL_INTERVAL_MS);
+}
+
 async function commandConnect(values: Record<string, unknown>): Promise<void> {
   const serverUrl = values.server as string | undefined;
   if (!serverUrl) {
@@ -72,10 +106,13 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
   }
 
   const local = loadLocalConfig();
-  const token = (values.code as string | undefined) ?? local.token;
-  if (!token) {
+  const key =
+    (values.key as string | undefined) ??
+    (values.code as string | undefined) ??
+    local.token;
+  if (!key) {
     console.error(
-      '缺少凭证：首次接入请使用 --code <注册码>，注册码在 adh-server 启动日志中。',
+      '缺少接入 Key：打开 Web 控制台 → Agent 管理 → 新建 Agent，复制生成的命令执行。',
     );
     process.exit(1);
   }
@@ -90,8 +127,7 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
   const iosDevices = await discoverIos();
   if (iosDevices.length > 0) capabilities.push('ios');
 
-  const name =
-    (values.name as string | undefined) ?? local.name ?? os.hostname();
+  const name = (values.name as string | undefined) ?? local.name ?? os.hostname();
 
   const runtime: AgentRuntimeInfo = {
     name,
@@ -102,11 +138,11 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     protocolVersion: PROTOCOL_VERSION,
   };
 
-  saveLocalConfig({ serverUrl, name });
+  saveLocalConfig({ serverUrl, name, token: key });
 
   const client = new AgentClient({
     serverUrl,
-    token,
+    token: key,
     runtime,
     logger,
     discover: async (): Promise<DeviceInfo[]> => {
@@ -114,17 +150,20 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
       const ios = await discoverIos();
       return [...android.devices, ...ios];
     },
-    onToken: (newToken) => {
-      saveLocalConfig({ token: newToken });
-      logger.info({ path: configFilePath() }, 'token saved');
-    },
   });
 
   client.start();
+  const thumbnailTimer = startThumbnailLoop(
+    client,
+    new ThumbnailUploader(serverUrl, key, logger),
+    logger,
+  );
+
   logger.info({ name, capabilities }, 'adh-agent started');
 
   const shutdown = (): void => {
     logger.info('shutting down');
+    clearInterval(thumbnailTimer);
     client.stop();
     setTimeout(() => process.exit(0), 200);
   };

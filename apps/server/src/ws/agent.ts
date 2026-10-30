@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import { randomUUID } from 'node:crypto';
 import {
   AGENT_HEARTBEAT_SEC,
   AGENT_TIMEOUT_SEC,
@@ -12,15 +11,15 @@ import {
 } from '@adh/protocol';
 import type { Logger } from '../log.js';
 import type { Queries } from '../db/queries.js';
-import { rowToAgent } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
+import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { WebHub } from './web-hub.js';
 
 export interface AgentChannelDeps {
   queries: Queries;
   registry: AgentRegistry;
   hub: WebHub;
-  registrationCode: string;
+  thumbnails: ThumbnailStore;
   serverVersion: string;
   logger: Logger;
 }
@@ -43,6 +42,11 @@ export function registerAgentChannel(
       if (socket.readyState === 1) socket.send(JSON.stringify(message));
     };
 
+    const broadcastAgent = (id: string, online: boolean): void => {
+      const summary = queries.getAgentSummary(id);
+      if (summary) hub.broadcast({ t: 'agent.updated', agent: { ...summary, online } });
+    };
+
     const heartbeat = setInterval(() => {
       if (!agentId) {
         if (Date.now() - connectedAt > HANDSHAKE_TIMEOUT_MS) {
@@ -60,42 +64,17 @@ export function registerAgentChannel(
     }, AGENT_HEARTBEAT_SEC * 1000);
     heartbeat.unref?.();
 
-    const handleHello = (
-      token: string,
-      runtime: AgentRuntimeInfo,
-    ): void => {
-      let row = queries.findAgentByToken(token);
-      let issuedToken: string | undefined;
-
-      // 用一次性注册码接入：复用同宿主机记录或新建
-      if (!row && token === deps.registrationCode) {
-        issuedToken = randomUUID();
-        const sameHost = queries.findAgentByName(runtime.name, runtime.os);
-        if (sameHost) {
-          queries.updateAgentToken(sameHost.id, issuedToken);
-          queries.updateAgentRuntime(sameHost.id, runtime);
-          row = queries.getAgent(sameHost.id);
-        } else {
-          row = queries.createAgent({
-            name: runtime.name,
-            os: runtime.os,
-            arch: runtime.arch,
-            version: runtime.version,
-            capabilities: runtime.capabilities,
-            token: issuedToken,
-          });
-        }
-      }
-
+    const handleHello = (token: string, runtime: AgentRuntimeInfo): void => {
+      const row = queries.findAgentByToken(token);
       if (!row) {
-        logger.warn({ host: runtime.name }, 'rejected agent: invalid token');
-        send({ t: 'stop', reason: 'invalid token' });
-        socket.close(4001, 'invalid token');
+        logger.warn({ host: runtime.name }, 'rejected agent: unknown key');
+        send({ t: 'stop', reason: 'invalid key' });
+        socket.close(4001, 'invalid key');
         return;
       }
 
       agentId = row.id;
-      queries.touchAgent(agentId);
+      queries.updateAgentRuntime(agentId, runtime);
       registry.attach(agentId, socket);
 
       send({
@@ -103,18 +82,11 @@ export function registerAgentChannel(
         agentId,
         heartbeatSec: AGENT_HEARTBEAT_SEC,
         serverVersion: deps.serverVersion,
-        ...(issuedToken ? { token: issuedToken } : {}),
       });
 
-      const fresh = queries.getAgent(agentId);
-      if (fresh) {
-        hub.broadcast({
-          t: 'agent.updated',
-          agent: { ...rowToAgent(fresh), online: true },
-        });
-      }
+      broadcastAgent(agentId, true);
       logger.info(
-        { agentId, name: row.name, os: row.os, registered: Boolean(issuedToken) },
+        { agentId, name: runtime.name, os: runtime.os },
         'agent connected',
       );
     };
@@ -125,7 +97,10 @@ export function registerAgentChannel(
     ): void => {
       for (const udid of message.remove) {
         const removed = queries.removeDevice(currentAgentId, udid);
-        if (removed) hub.broadcast({ t: 'device.removed', deviceId: removed.id });
+        if (removed) {
+          deps.thumbnails.remove(removed.id);
+          hub.broadcast({ t: 'device.removed', deviceId: removed.id });
+        }
       }
       for (const info of message.add) {
         const device = queries.upsertDevice(currentAgentId, info);
@@ -170,13 +145,7 @@ export function registerAgentChannel(
       for (const device of offline) {
         hub.broadcast({ t: 'device.updated', device });
       }
-      const row = queries.getAgent(agentId);
-      if (row) {
-        hub.broadcast({
-          t: 'agent.updated',
-          agent: { ...rowToAgent(row), online: false },
-        });
-      }
+      broadcastAgent(agentId, false);
       logger.info({ agentId }, 'agent disconnected');
     });
 
