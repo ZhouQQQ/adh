@@ -24,6 +24,7 @@ async function main(): Promise<void> {
   const app = Fastify({
     loggerInstance: logger as FastifyBaseLogger,
     bodyLimit: 32 * 1024 * 1024,
+    disableRequestLogging: true,
   });
 
   await app.register(websocket, {
