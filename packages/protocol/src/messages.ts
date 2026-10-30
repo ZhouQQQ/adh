@@ -84,6 +84,8 @@ export const AgentSummarySchema = z.object({
   online: z.boolean(),
   /** 已创建但从未接入过。 */
   pending: z.boolean().default(false),
+  /** server 自带的本机 Agent。 */
+  builtin: z.boolean().default(false),
 });
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 

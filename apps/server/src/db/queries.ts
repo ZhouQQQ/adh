@@ -9,6 +9,7 @@ import type {
   Platform,
   Resolution,
 } from '@adh/protocol';
+import { BUILTIN_AGENT_ID } from '@adh/protocol';
 import type { Db } from './index.js';
 import { agents, devices, type AgentRow, type DeviceRow } from './schema.js';
 
@@ -58,6 +59,7 @@ export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
     lastSeen: row.lastSeen,
     online: false,
     pending: row.lastSeen === 0,
+    builtin: row.id === BUILTIN_AGENT_ID,
   };
 }
 
@@ -144,6 +146,42 @@ export function createQueries(db: Db) {
         capabilities: '[]',
         token: generateAgentKey(),
         lastSeen: 0,
+        createdAt: now,
+      };
+      db.insert(agents).values(row).run();
+      return row;
+    },
+
+    /** server 内置的本机 Agent，每次启动刷新名称与能力。 */
+    ensureBuiltinAgent(
+      name: string,
+      version: string,
+      capabilities: string[],
+    ): AgentRow {
+      const now = Date.now();
+      const existing = this.getAgent(BUILTIN_AGENT_ID);
+      if (existing) {
+        db.update(agents)
+          .set({
+            name,
+            version,
+            capabilities: JSON.stringify(capabilities),
+            lastSeen: now,
+          })
+          .where(eq(agents.id, BUILTIN_AGENT_ID))
+          .run();
+        return { ...existing, name, version, lastSeen: now };
+      }
+
+      const row: AgentRow = {
+        id: BUILTIN_AGENT_ID,
+        name,
+        os: process.platform === 'win32' ? 'windows' : process.platform,
+        arch: process.arch,
+        version,
+        capabilities: JSON.stringify(capabilities),
+        token: generateAgentKey(),
+        lastSeen: now,
         createdAt: now,
       };
       db.insert(agents).values(row).run();

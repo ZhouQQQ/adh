@@ -3,11 +3,12 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyBaseLogger } from 'fastify';
 import fs from 'node:fs';
 import path from 'node:path';
-import { WS_PATHS } from '@adh/protocol';
+import { WS_PATHS, BUILTIN_AGENT_ID } from '@adh/protocol';
 import { loadConfig, SERVER_VERSION } from './config.js';
 import { openDatabase } from './db/index.js';
 import { createQueries } from './db/queries.js';
 import { registerHttpRoutes } from './http/routes.js';
+import { LocalAgent } from './local-agent.js';
 import { createLogger } from './log.js';
 import { AgentRegistry } from './registry.js';
 import { ThumbnailStore } from './storage/thumbnails.js';
@@ -22,6 +23,19 @@ async function main(): Promise<void> {
   const registry = new AgentRegistry();
   const hub = new WebHub();
   const thumbnails = new ThumbnailStore(config.thumbnailDir);
+
+  const localAgent = new LocalAgent({
+    queries,
+    hub,
+    thumbnails,
+    logger,
+    version: SERVER_VERSION,
+  });
+  if (config.localAgent) {
+    await localAgent.start();
+  } else {
+    logger.info('builtin local agent disabled (ADH_LOCAL_AGENT=0)');
+  }
 
   const app = Fastify({
     loggerInstance: logger as FastifyBaseLogger,
@@ -78,10 +92,18 @@ async function main(): Promise<void> {
   logger.info(`adh-server v${SERVER_VERSION} ready`);
   logger.info(`data dir     : ${config.dataDir}`);
   logger.info(`web console  : http://127.0.0.1:${config.port}`);
-  logger.info('下一步：打开控制台 → Agent 管理 → 新建 Agent，复制生成的接入命令');
+  logger.info(
+    config.localAgent
+      ? '本机设备已由内置 Agent 接管，其他宿主机请在控制台新建 Agent 接入'
+      : '内置 Agent 已关闭，所有宿主机请在控制台新建 Agent 接入',
+  );
+  if (config.localAgent) {
+    logger.info(`builtin agent: ${BUILTIN_AGENT_ID}`);
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutting down');
+    localAgent.stop();
     await app.close();
     sqlite.close();
     process.exit(0);

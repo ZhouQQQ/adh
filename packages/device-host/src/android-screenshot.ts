@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { runCommandBuffer } from '../util/exec.js';
+import { runCommandBuffer } from './exec.js';
 
 /** 截屏并压缩成适合卡片展示的小图。 */
 export async function captureThumbnail(udid: string): Promise<Buffer | null> {

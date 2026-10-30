@@ -55,7 +55,23 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     title: '名称',
     key: 'name',
     minWidth: 150,
-    render: (row) => h(NText, { strong: true }, { default: () => row.name }),
+    render: (row) =>
+      h(
+        NSpace,
+        { size: 6, align: 'center', wrap: false },
+        {
+          default: () => [
+            h(NText, { strong: true }, { default: () => row.name }),
+            row.builtin
+              ? h(
+                  NTag,
+                  { size: 'tiny', type: 'info', bordered: false, round: true },
+                  { default: () => '内置' },
+                )
+              : null,
+          ],
+        },
+      ),
   },
   {
     title: '状态',
@@ -134,33 +150,35 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     key: 'actions',
     width: 150,
     render: (row) =>
-      h(
-        NSpace,
-        { size: 0, justify: 'end' },
-        {
-          default: () => [
-            h(
-              NButton,
-              {
-                size: 'tiny',
-                quaternary: true,
-                onClick: () => void rotateKey(row),
-              },
-              { default: () => '重置 Key' },
-            ),
-            h(
-              NButton,
-              {
-                size: 'tiny',
-                quaternary: true,
-                type: 'error',
-                onClick: () => confirmDelete(row),
-              },
-              { default: () => '删除' },
-            ),
-          ],
-        },
-      ),
+      row.builtin
+        ? h('span', { style: 'color:#5c5c66;font-size:12px' }, '随 server 自动管理')
+        : h(
+            NSpace,
+            { size: 0, justify: 'end' },
+            {
+              default: () => [
+                h(
+                  NButton,
+                  {
+                    size: 'tiny',
+                    quaternary: true,
+                    onClick: () => void rotateKey(row),
+                  },
+                  { default: () => '重置 Key' },
+                ),
+                h(
+                  NButton,
+                  {
+                    size: 'tiny',
+                    quaternary: true,
+                    type: 'error',
+                    onClick: () => confirmDelete(row),
+                  },
+                  { default: () => '删除' },
+                ),
+              ],
+            },
+          ),
   },
 ]);
 

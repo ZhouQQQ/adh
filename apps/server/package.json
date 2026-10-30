@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@adh/device-host": "workspace:*",
     "@adh/protocol": "workspace:*",
     "@fastify/static": "^8.0.3",
     "@fastify/websocket": "^11.0.2",

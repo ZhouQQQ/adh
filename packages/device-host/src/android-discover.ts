@@ -1,5 +1,5 @@
 import type { DeviceInfo, Resolution } from '@adh/protocol';
-import { runCommand } from '../util/exec.js';
+import { runCommand } from './exec.js';
 
 interface AndroidDetail {
   model?: string;
@@ -12,12 +12,22 @@ interface AndroidDetail {
   resolution?: Resolution;
 }
 
-/** 设备信息查询较慢，只在设备首次出现时执行。 */
-const detailCache = new Map<string, AndroidDetail>();
+export interface AndroidScanResult {
+  /** adb 是否可用；不可用时 agent 仍在线，只是没有设备。 */
+  adbAvailable: boolean;
+  devices: DeviceInfo[];
+}
 
 export async function isAdbAvailable(): Promise<boolean> {
   const result = await runCommand('adb', ['version'], 5_000);
   return !result.failedToStart && result.code === 0;
+}
+
+/** 设备信息查询较慢，只在设备首次出现时执行。 */
+const detailCache = new Map<string, AndroidDetail>();
+
+export function clearAndroidDetailCache(): void {
+  detailCache.clear();
 }
 
 function parseGetprop(raw: string): Map<string, string> {
@@ -95,12 +105,6 @@ async function queryDetails(udid: string): Promise<AndroidDetail> {
   if (resolution) detail.resolution = resolution;
 
   return detail;
-}
-
-export interface AndroidScanResult {
-  /** adb 是否可用；不可用时 server 会显示 agent 在线但无设备。 */
-  adbAvailable: boolean;
-  devices: DeviceInfo[];
 }
 
 export async function discoverAndroid(): Promise<AndroidScanResult> {

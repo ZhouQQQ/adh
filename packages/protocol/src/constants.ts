@@ -18,3 +18,6 @@ export const WS_PATHS = {
   web: '/ws/web',
   stream: '/ws/stream',
 } as const;
+
+/** server 自带的本机 Agent，直接进程内采集，不经过 WebSocket。 */
+export const BUILTIN_AGENT_ID = 'builtin-local';

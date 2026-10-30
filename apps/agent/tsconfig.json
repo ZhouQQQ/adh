@@ -4,7 +4,8 @@
     "baseUrl": ".",
     "types": ["node"],
     "paths": {
-      "@adh/protocol": ["../../packages/protocol/src/index.ts"]
+      "@adh/protocol": ["../../packages/protocol/src/index.ts"],
+      "@adh/device-host": ["../../packages/device-host/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

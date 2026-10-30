@@ -52,6 +52,8 @@ function connect(): void {
 
   ws.addEventListener('open', () => {
     connection.value = 'online';
+    // server 可能重启过，用快照校正一次
+    void refresh();
   });
   ws.addEventListener('message', (event: MessageEvent<string>) => {
     try {

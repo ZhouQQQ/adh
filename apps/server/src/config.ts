@@ -19,6 +19,8 @@ export interface ServerConfig {
   thumbnailDir: string;
   publicDir: string;
   logLevel: string;
+  /** 是否启用 server 内置的本机 Agent。默认开启，ADH_LOCAL_AGENT=0 关闭。 */
+  localAgent: boolean;
 }
 
 function readCliOptions() {
@@ -54,5 +56,6 @@ export function loadConfig(): ServerConfig {
     thumbnailDir,
     publicDir: path.join(APP_DIR, 'public'),
     logLevel: cli['log-level'] ?? process.env.ADH_LOG_LEVEL ?? 'info',
+    localAgent: process.env.ADH_LOCAL_AGENT !== '0',
   };
 }

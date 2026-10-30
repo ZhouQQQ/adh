@@ -1,5 +1,5 @@
 import net from 'node:net';
-import { runCommand } from './util/exec.js';
+import { runCommand } from '@adh/device-host';
 
 export interface DoctorCheck {
   name: string;

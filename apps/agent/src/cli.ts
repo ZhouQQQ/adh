@@ -1,16 +1,19 @@
 import os from 'node:os';
 import { parseArgs } from 'node:util';
 import {
+  captureThumbnail,
+  discoverAndroid,
+  discoverIos,
+  isAdbAvailable,
+} from '@adh/device-host';
+import {
   PROTOCOL_VERSION,
   type AgentCapability,
   type AgentRuntimeInfo,
   type DeviceInfo,
 } from '@adh/protocol';
-import { discoverAndroid, isAdbAvailable } from './android/discover.js';
-import { captureThumbnail } from './android/screenshot.js';
 import { AgentClient } from './client.js';
 import { runDoctor } from './doctor.js';
-import { discoverIos } from './ios/discover.js';
 import { configFilePath, loadLocalConfig, saveLocalConfig } from './local-config.js';
 import { createLogger, type Logger } from './log.js';
 import { ThumbnailUploader } from './thumbnail-uploader.js';

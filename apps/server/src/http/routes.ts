@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { AgentSummary, DeviceSummary } from '@adh/protocol';
+import { BUILTIN_AGENT_ID, type AgentSummary, type DeviceSummary } from '@adh/protocol';
 import { SERVER_VERSION } from '../config.js';
 import type { Queries } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
@@ -29,6 +29,8 @@ function withOnline(
   summary: AgentSummary,
   registry: AgentRegistry,
 ): AgentSummary {
+  // 内置 Agent 的生命周期与 server 进程一致
+  if (summary.builtin) return { ...summary, online: true };
   return { ...summary, online: registry.isOnline(summary.id) };
 }
 
@@ -87,6 +89,9 @@ export async function registerHttpRoutes(
 
   app.post('/api/agents/:id/rotate', async (request, reply) => {
     const { id } = request.params as { id: string };
+    if (id === BUILTIN_AGENT_ID) {
+      return reply.code(400).send({ error: '内置 Agent 由 server 自动管理，无法重置 Key' });
+    }
     const row = deps.queries.rotateAgentToken(id);
     if (!row) return reply.code(404).send({ error: 'agent not found' });
 
@@ -99,6 +104,9 @@ export async function registerHttpRoutes(
 
   app.delete('/api/agents/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
+    if (id === BUILTIN_AGENT_ID) {
+      return reply.code(400).send({ error: '内置 Agent 由 server 自动管理，无法删除' });
+    }
     const agentDevices = deps.queries.listDevices(id);
     if (!deps.queries.deleteAgent(id)) {
       return reply.code(404).send({ error: 'agent not found' });
@@ -117,9 +125,11 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices', async () => {
     const online = new Set(deps.registry.ids());
+    const isOnline = (agentId: string): boolean =>
+      agentId === BUILTIN_AGENT_ID || online.has(agentId);
     const devices: DeviceSummary[] = deps.queries.listDevices();
     return devices.map((device) =>
-      online.has(device.agentId) ? device : { ...device, status: 'offline' },
+      isOnline(device.agentId) ? device : { ...device, status: 'offline' },
     );
   });
 
