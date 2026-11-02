@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { NButton, NEmpty, NIcon, NInput, useDialog, useMessage } from 'naive-ui';
+import {
+  NButton,
+  NCollapseTransition,
+  NEmpty,
+  NIcon,
+  NInput,
+  NTag,
+  useDialog,
+  useMessage,
+} from 'naive-ui';
 import { SearchOutline } from '@vicons/ionicons5';
 import type { DeviceStatus, DeviceSummary, Platform } from '@adh/protocol';
 import DeviceCard from '../components/DeviceCard.vue';
@@ -22,6 +31,7 @@ const version = ref<string | 'all'>('all');
 const cpu = ref<string | 'all'>('all');
 const cores = ref<number | 'all'>('all');
 const memory = ref<number | 'all'>('all');
+const collapsed = ref(false);
 
 /** 固定候选，保证没有设备时也能看到完整筛选项。 */
 const DEFAULT_VERSIONS = ['11', '12', '13', '14', '15', '16'];
@@ -154,6 +164,74 @@ const agentNames = computed(
   () => new Map(agents.value.map((agent) => [agent.id, agent.name])),
 );
 
+const STATUS_LABEL: Record<DeviceStatus, string> = {
+  online: '在线',
+  offline: '离线',
+  unauthorized: '未授权',
+};
+
+/** 折叠后显示的已选条件摘要，可单独移除。 */
+const activeFilters = computed(() => {
+  const list: { key: string; label: string }[] = [];
+
+  if (keyword.value.trim()) {
+    list.push({ key: 'keyword', label: `关键字: ${keyword.value.trim()}` });
+  }
+  if (platform.value !== 'all') {
+    list.push({
+      key: 'platform',
+      label: platform.value === 'android' ? 'Android' : 'iOS',
+    });
+  }
+  if (status.value !== 'all') {
+    list.push({ key: 'status', label: STATUS_LABEL[status.value] });
+  }
+  if (version.value !== 'all') {
+    const owner = versionPlatform.value.get(version.value);
+    list.push({
+      key: 'version',
+      label: `${owner === 'ios' ? 'iOS' : 'Android'} ${version.value}`,
+    });
+  }
+  if (cpu.value !== 'all') {
+    list.push({ key: 'cpu', label: cpu.value });
+  }
+  if (cores.value !== 'all') {
+    list.push({ key: 'cores', label: `${cores.value} 核` });
+  }
+  if (memory.value !== 'all') {
+    list.push({ key: 'memory', label: `${memory.value} GB` });
+  }
+
+  return list;
+});
+
+function removeFilter(key: string): void {
+  switch (key) {
+    case 'keyword':
+      keyword.value = '';
+      break;
+    case 'platform':
+      platform.value = 'all';
+      break;
+    case 'status':
+      status.value = 'all';
+      break;
+    case 'version':
+      version.value = 'all';
+      break;
+    case 'cpu':
+      cpu.value = 'all';
+      break;
+    case 'cores':
+      cores.value = 'all';
+      break;
+    case 'memory':
+      memory.value = 'all';
+      break;
+  }
+}
+
 const offlineCount = computed(
   () => devices.value.filter((device) => device.status === 'offline').length,
 );
@@ -230,6 +308,34 @@ function resetFilters(): void {
 <template>
   <div class="devices-page">
     <div class="filters">
+      <div class="filter-header">
+        <span class="filter-title">筛选</span>
+        <div class="active-filters">
+          <template v-if="activeFilters.length > 0">
+            <n-tag
+              v-for="item in activeFilters"
+              :key="item.key"
+              size="small"
+              :bordered="false"
+              closable
+              @close="removeFilter(item.key)"
+            >
+              {{ item.label }}
+            </n-tag>
+          </template>
+          <span v-else class="filter-hint">全部设备</span>
+        </div>
+        <button
+          type="button"
+          class="opt toggle"
+          @click="collapsed = !collapsed"
+        >
+          {{ collapsed ? '展开' : '收起' }}
+        </button>
+      </div>
+
+      <n-collapse-transition :show="!collapsed">
+        <div class="filter-body">
       <div class="filter-row">
         <span class="filter-label">关键字:</span>
         <div class="filter-options">
@@ -440,6 +546,8 @@ function resetFilters(): void {
           </span>
         </div>
       </div>
+        </div>
+      </n-collapse-transition>
     </div>
 
     <div v-if="filtered.length > 0" class="grid">
@@ -487,6 +595,43 @@ function resetFilters(): void {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 2px 16px;
+}
+
+.filter-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.filter-title {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.active-filters {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.toggle {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.filter-body {
+  border-top: 1px dashed var(--border);
 }
 
 .filter-row {

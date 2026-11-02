@@ -230,12 +230,6 @@ onBeforeUnmount(() => {
             发送到设备
           </n-button>
         </section>
-
-        <section class="section tips">
-          <p>· 鼠标点击即触屏，按住拖动为滑动</p>
-          <p>· 延迟约 80–150ms</p>
-          <p>· 离开页面 30 秒后自动释放设备</p>
-        </section>
       </aside>
     </div>
   </div>
@@ -285,8 +279,8 @@ onBeforeUnmount(() => {
 .stage {
   flex: 1;
   min-width: 0;
-  height: 100%;
-  max-height: 680px;
+  height: 680px;
+  max-height: 100%;
   position: relative;
   background: #0b0b0d;
   border-radius: 10px;
@@ -309,8 +303,8 @@ onBeforeUnmount(() => {
 .side {
   width: 200px;
   flex: none;
-  height: 100%;
-  max-height: 680px;
+  height: 680px;
+  max-height: 100%;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px;
@@ -347,17 +341,6 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
-.tips {
-  margin-top: auto;
-  font-size: 11px;
-  line-height: 1.8;
-  color: var(--text-faint);
-}
-
-.tips p {
-  margin: 0;
-}
-
 @media (max-width: 900px) {
   .body {
     flex-direction: column;
@@ -367,6 +350,7 @@ onBeforeUnmount(() => {
 
   .side {
     width: 100%;
+    height: auto;
     border: 1px solid var(--border);
     flex-direction: row;
     flex-wrap: wrap;
@@ -376,10 +360,6 @@ onBeforeUnmount(() => {
 
   .section {
     min-width: 180px;
-  }
-
-  .tips {
-    display: none;
   }
 }
 </style>
