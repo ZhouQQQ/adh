@@ -468,6 +468,8 @@ export async function registerHttpRoutes(
       for (const entry of entries) {
         if (!pattern.test(entry)) continue;
         const stat = fs.statSync(path.join(deps.agentDistDir, entry));
+        // 跳过中断打包留下的 0 字节文件
+        if (stat.size < 1024) continue;
         if (!newest || stat.mtimeMs > newest.updatedAt) {
           newest = { file: entry, size: stat.size, updatedAt: stat.mtimeMs };
         }

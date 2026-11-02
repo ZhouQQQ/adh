@@ -174,7 +174,13 @@ function zipDir(dir, zipPath) {
       ['-NoProfile', '-Command', `Compress-Archive -Path '${dir}' -DestinationPath '${zipPath}' -Force`],
       { stdio: 'inherit' },
     );
-    return result.status === 0;
+    if (result.status !== 0) return false;
+    // 中途中断会留下 0 字节文件，直接清掉
+    if (fs.existsSync(zipPath) && fs.statSync(zipPath).size < 1024) {
+      fs.rmSync(zipPath, { force: true });
+      return false;
+    }
+    return true;
   }
   const result = spawnSync('zip', ['-qr', zipPath, path.basename(dir)], {
     cwd: path.dirname(dir),
