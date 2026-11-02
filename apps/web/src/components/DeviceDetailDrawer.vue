@@ -7,6 +7,7 @@ import {
   NDrawer,
   NDrawerContent,
   NIcon,
+  NImage,
   NSpace,
   NTag,
 } from 'naive-ui';
@@ -71,6 +72,14 @@ const capabilitiesText = computed(() =>
   props.device?.capabilities.join(', ') ?? '',
 );
 
+const bodyStyle = {
+  height: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '12px',
+  padding: '4px 20px 16px',
+} as const;
+
 const canControl = computed(
   () => props.device?.platform === 'android' && props.device.status === 'online',
 );
@@ -83,13 +92,19 @@ function openControl(): void {
 
 <template>
   <n-drawer :show="show" :width="460" @update:show="emit('update:show', $event)">
-    <n-drawer-content title="设备详情" closable>
+    <n-drawer-content
+      title="设备详情"
+      closable
+      :body-content-style="bodyStyle"
+    >
       <template v-if="device">
         <div class="preview">
-          <img
+          <n-image
             v-if="device.thumbnailAt > 0"
             :src="thumbnailUrl(device)"
-            alt=""
+            object-fit="contain"
+            :img-props="{ style: 'max-height: 100%; max-width: 100%; object-fit: contain' }"
+            show-toolbar
           />
           <div v-else class="preview-empty">
             <n-icon :size="26"><PhonePortraitOutline /></n-icon>
@@ -104,8 +119,12 @@ function openControl(): void {
           >
             {{ statusMeta.label }}
           </n-tag>
+          <span v-if="device.thumbnailAt > 0" class="preview-tip">
+            点击图片可放大 / 缩放 / 全屏
+          </span>
         </div>
 
+        <div class="detail-scroll">
         <n-descriptions
           :column="1"
           label-placement="left"
@@ -173,6 +192,7 @@ function openControl(): void {
             </div>
           </n-descriptions-item>
         </n-descriptions>
+        </div>
       </template>
 
       <template #footer>
@@ -189,20 +209,43 @@ function openControl(): void {
 <style scoped>
 .preview {
   position: relative;
+  flex: 1;
+  min-height: 160px;
   display: grid;
   place-items: center;
-  height: 190px;
-  margin-bottom: 14px;
   background: #000;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
 
-.preview img {
-  max-width: 100%;
+.preview :deep(.n-image) {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview :deep(.n-image img) {
   max-height: 100%;
+  max-width: 100%;
   object-fit: contain;
+  cursor: zoom-in;
+}
+
+.detail-scroll {
+  flex: none;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.preview-tip {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  pointer-events: none;
 }
 
 .preview-empty {

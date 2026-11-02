@@ -102,11 +102,6 @@ function sendText(): void {
   text.value = '';
 }
 
-function rotate(): void {
-  if (!requireController()) return;
-  playerRef.value?.sendRotate();
-}
-
 function deviceFileName(extension: string): string {
   const name = safeFileName(device.value?.name ?? 'device');
   return `${name}-${fileTimestamp()}.${extension}`;
@@ -240,7 +235,6 @@ onBeforeUnmount(() => {
           <button type="button" class="bar-btn" @click="sendKey('volumeDown')">音量−</button>
           <button type="button" class="bar-btn" @click="sendKey('volumeUp')">音量+</button>
           <button type="button" class="bar-btn" @click="sendKey('power')">电源</button>
-          <button type="button" class="bar-btn" @click="rotate">旋转</button>
           <span class="bar-divider" />
           <button type="button" class="bar-btn" @click="toggleFullscreen">退出全屏</button>
         </div>
@@ -268,7 +262,7 @@ onBeforeUnmount(() => {
           <div class="section-title">设备</div>
           <div class="grid-2">
             <n-button size="small" @click="sendKey('power')">电源</n-button>
-            <n-button size="small" @click="rotate">旋转</n-button>
+            <n-button size="small" @click="fileShow = true">文件管理</n-button>
           </div>
         </section>
 
@@ -276,11 +270,8 @@ onBeforeUnmount(() => {
           <div class="section-title">抓取</div>
           <div class="grid-2">
             <n-button size="small" @click="takeScreenshot">截图</n-button>
-            <n-button
-              size="small"
-              :type="recording ? 'error' : 'default'"
-              @click="toggleRecording"
-            >
+            <n-button size="small" @click="toggleRecording">
+              <span v-if="recording" class="rec-dot" />
               {{ recording ? '停止录制' : '录屏' }}
             </n-button>
           </div>
@@ -304,13 +295,6 @@ onBeforeUnmount(() => {
             hidden
             @change="onApkSelected"
           />
-        </section>
-
-        <section class="section">
-          <div class="section-title">文件</div>
-          <n-button size="small" block @click="fileShow = true">
-            设备文件
-          </n-button>
         </section>
 
         <section class="section">
@@ -501,6 +485,27 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.rec-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #dc2626;
+  vertical-align: middle;
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
 }
 
 .section-title {
