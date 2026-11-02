@@ -15,11 +15,12 @@ pnpm package:agent
 | 路径 | 说明 |
 | --- | --- |
 | `dist/agent/` | 自包含目录，已带 tsx、sharp、scrcpy-server.jar |
-| `dist/adh-agent-<platform>-<arch>.zip` | 约 15MB，直接发给别人 |
+| `dist/agent/vendor/<platform>/` | 当前平台的 adb / go-ios 压缩包，init 时离线解压 |
+| `dist/adh-agent-<platform>-<arch>.zip` | 约 32MB，直接发给别人 |
 
 打包完成后，Web 控制台「节点管理 → 下载 Agent」也会直接下载这个 zip。
 
-> `sharp` 带平台相关的原生二进制：Windows 上打的包只能给 Windows 用；给 Linux / macOS 分发时，在对应系统上重新执行一次 `pnpm package:agent`。
+> `sharp` 与 `vendor` 都是平台相关的：Windows 上打的包只能给 Windows 用；给 Linux / macOS 分发时，在对应系统上重新执行一次 `pnpm package:agent`。打包时默认父平台资源只会带当前系统这一份。
 
 ## 2. 目标电脑需要安装什么
 
@@ -31,7 +32,7 @@ pnpm package:agent
    - 手机要打开「开发者选项 → USB 调试」，首次连接时在手机上点「允许」
 3. **能访问 server 的 8080 端口** — 浏览器打开 `http://<server-ip>:8080` 能看到控制台即可
 
-> 不想手动装 adb / go-ios 也可以：解压后在安装包目录运行 `adh-agent init`，会自动按当前系统下载到 `~/.adh/tools`，agent 启动时优先使用这些二进制，不用改系统 PATH。已经装过 adb / go-ios 的话可以忽略这一步。
+> 安装包已经内置当前平台的 adb / go-ios：解压后运行 `adh-agent init` 会直接从包内解压到 `~/.adh/tools`，**不需要联网**。系统里已经装过 adb / go-ios 的话可以完全忽略这一步。
 
 iOS 设备额外需要：
 
@@ -58,9 +59,9 @@ adh-agent.cmd init
 
 `init` 会：
 
-- 下载当前系统对应的 Android Platform Tools（~15MB）
-- 下载 go-ios 最新 release（~9MB，iOS 用）
+- 优先使用安装包 `vendor/<platform>/` 里内置的 Android Platform Tools 与 go-ios（离线，不联网）
 - 解压到 `~/.adh/tools/`，之后 agent 启动时自动把它前置到 PATH
+- 只有在打包时用了 `--no-vendor`，才会回退到联网下载（adb 走腾讯云镜像，再回退 Google）
 
 可选参数：
 
@@ -68,7 +69,7 @@ adh-agent.cmd init
 | --- | --- |
 | `--skip-ios` | 只装 adb |
 | `--skip-android` | 只装 go-ios |
-| `--force` | 重新下载覆盖 |
+| `--force` | 重新解压覆盖 |
 
 已经有 adb / go-ios 的话，这一步可以完全忽略。
 

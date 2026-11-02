@@ -4,10 +4,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { fileURLToPath } from 'node:url';
 import { runCommand } from '@adh/device-host';
 
 /** 自动下载的工具放在 ~/.adh/tools 下，不污染系统 PATH。 */
 export const TOOLS_DIR = path.join(os.homedir(), '.adh', 'tools');
+
+/** 打包时按平台放进去的内置资源（解压后无需联网）。 */
+const PACKAGE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
+const VENDOR_DIR = path.join(PACKAGE_ROOT, 'vendor', process.platform);
 
 export function platformToolsDir(): string {
   return path.join(TOOLS_DIR, 'platform-tools');
@@ -45,10 +53,19 @@ export interface InitOptions {
   force?: boolean;
 }
 
-const PLATFORM_TOOLS_URL: Record<string, string> = {
-  win32: 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip',
-  darwin: 'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip',
-  linux: 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip',
+const PLATFORM_TOOLS_URLS: Record<string, string[]> = {
+  win32: [
+    'https://mirrors.cloud.tencent.com/AndroidSDK/platform-tools-latest-windows.zip',
+    'https://dl.google.com/android/repository/platform-tools-latest-windows.zip',
+  ],
+  darwin: [
+    'https://mirrors.cloud.tencent.com/AndroidSDK/platform-tools-latest-darwin.zip',
+    'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip',
+  ],
+  linux: [
+    'https://mirrors.cloud.tencent.com/AndroidSDK/platform-tools-latest-linux.zip',
+    'https://dl.google.com/android/repository/platform-tools-latest-linux.zip',
+  ],
 };
 
 const GO_IOS_ASSET: Record<string, string> = {
@@ -103,25 +120,54 @@ function makeExecutable(file: string): void {
 
 async function installAndroidTools(force: boolean): Promise<boolean> {
   if (!force && fs.existsSync(path.join(platformToolsDir(), adbBinary()))) {
-    console.log('  adb 已存在，跳过（用 --force 可重新下载）');
+    console.log('  adb 已存在，跳过（用 --force 可重新安装）');
     return true;
   }
 
-  const url = PLATFORM_TOOLS_URL[process.platform];
-  if (!url) {
+  const installFromZip = (zipPath: string): boolean => {
+    fs.rmSync(platformToolsDir(), { recursive: true, force: true });
+    // 官方 zip 里就是 platform-tools/ 目录
+    extract(zipPath, TOOLS_DIR);
+    makeExecutable(path.join(platformToolsDir(), adbBinary()));
+    console.log(`  adb 安装到 ${platformToolsDir()}`);
+    return true;
+  };
+
+  const bundled = path.join(VENDOR_DIR, 'platform-tools.zip');
+  if (fs.existsSync(bundled)) {
+    console.log('  使用安装包内置的 adb（无需联网）');
+    try {
+      return installFromZip(bundled);
+    } catch (error) {
+      console.warn(
+        `  内置 adb 解压失败：${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  const urls = PLATFORM_TOOLS_URLS[process.platform];
+  if (!urls) {
     console.warn(`  当前系统 ${process.platform} 没有预置的 Platform Tools 下载地址`);
     return false;
   }
 
   const tempZip = path.join(os.tmpdir(), `adh-platform-tools-${Date.now()}.zip`);
   try {
-    await download(url, tempZip, 'Android Platform Tools');
-    fs.rmSync(platformToolsDir(), { recursive: true, force: true });
-    // 官方 zip 里就是 platform-tools/ 目录
-    extract(tempZip, TOOLS_DIR);
-    makeExecutable(path.join(platformToolsDir(), adbBinary()));
-    console.log(`  adb 安装到 ${platformToolsDir()}`);
-    return true;
+    let lastError: unknown = null;
+    for (const url of urls) {
+      try {
+        await download(url, tempZip, 'Android Platform Tools');
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        console.warn(
+          `  镜像不可用：${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+    if (lastError) throw lastError;
+    return installFromZip(tempZip);
   } catch (error) {
     console.warn(`  adb 自动安装失败：${error instanceof Error ? error.message : error}`);
     console.warn('  请手动下载：https://developer.android.com/studio/releases/platform-tools');
@@ -141,28 +187,47 @@ async function installGoIos(): Promise<boolean> {
     return true;
   }
 
-  try {
-    const release = (await (
-      await fetch('https://api.github.com/repos/danielpaulus/go-ios/releases/latest', {
-        headers: { 'user-agent': 'adh-agent', accept: 'application/vnd.github+json' },
-      })
-    ).json()) as { assets?: { name: string; browser_download_url: string }[] };
+  const installFromZip = (zipPath: string): boolean => {
+    fs.rmSync(goIosDir(), { recursive: true, force: true });
+    extract(zipPath, goIosDir());
+    const binary = findBinary(goIosDir(), GO_IOS_BINARIES);
+    if (binary) makeExecutable(binary);
+    console.log(`  go-ios 安装到 ${goIosDir()}`);
+    return true;
+  };
 
-    const wanted = GO_IOS_ASSET[process.platform];
-    const asset = release.assets?.find((item) => item.name === wanted);
-    if (!asset) {
-      throw new Error(`最新 release 里没有 ${wanted ?? '当前平台'} 的包`);
+  const bundled = path.join(VENDOR_DIR, 'go-ios.zip');
+  if (fs.existsSync(bundled)) {
+    console.log('  使用安装包内置的 go-ios（无需联网）');
+    try {
+      return installFromZip(bundled);
+    } catch (error) {
+      console.warn(
+        `  内置 go-ios 解压失败：${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  try {
+    let url = process.env.ADH_GO_IOS_URL?.trim();
+    if (!url) {
+      const release = (await (
+        await fetch('https://api.github.com/repos/danielpaulus/go-ios/releases/latest', {
+          headers: { 'user-agent': 'adh-agent', accept: 'application/vnd.github+json' },
+        })
+      ).json()) as { assets?: { name: string; browser_download_url: string }[] };
+
+      const wanted = GO_IOS_ASSET[process.platform];
+      url = release.assets?.find((item) => item.name === wanted)?.browser_download_url;
+      if (!url) {
+        throw new Error(`最新 release 里没有 ${wanted ?? '当前平台'} 的包`);
+      }
     }
 
     const tempZip = path.join(os.tmpdir(), `adh-go-ios-${Date.now()}.zip`);
     try {
-      await download(asset.browser_download_url, tempZip, 'go-ios');
-      fs.rmSync(goIosDir(), { recursive: true, force: true });
-      extract(tempZip, goIosDir());
-      const binary = findBinary(goIosDir(), GO_IOS_BINARIES);
-      if (binary) makeExecutable(binary);
-      console.log(`  go-ios 安装到 ${goIosDir()}`);
-      return true;
+      await download(url, tempZip, 'go-ios');
+      return installFromZip(tempZip);
     } finally {
       fs.rmSync(tempZip, { force: true });
     }
@@ -175,7 +240,10 @@ async function installGoIos(): Promise<boolean> {
 
 export async function runInit(options: InitOptions = {}): Promise<void> {
   console.log(`\nadh-agent init · ${process.platform} / ${process.arch}`);
-  console.log(`工具目录：${TOOLS_DIR}\n`);
+  console.log(`工具目录：${TOOLS_DIR}`);
+  console.log(
+    `资源来源：${fs.existsSync(VENDOR_DIR) ? '安装包内置（无需联网）' : '联网下载'}\n`,
+  );
 
   console.log('[1/2] Android Platform Tools');
   if (options.skipAndroid) {

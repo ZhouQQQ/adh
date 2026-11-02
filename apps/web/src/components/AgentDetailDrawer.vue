@@ -219,7 +219,7 @@ async function copy(value: string, which: string): Promise<void> {
             <p>1. 下载并解压安装包到任意目录</p>
             <p>
               2. 安装 Node.js ≥ 22；adb / go-ios 已装可忽略，否则运行
-              <code>adh-agent init</code> 自动下载
+              <code>adh-agent init</code> 从安装包内置资源解压（无需联网）
             </p>
             <p>3. 执行上面的接入命令，设备会在几秒内出现在「设备管理」</p>
           </div>

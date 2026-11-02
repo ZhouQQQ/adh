@@ -96,7 +96,7 @@ pnpm package:agent
 目标机器只需要三样东西：
 
 1. Node.js 22+（https://nodejs.org）
-2. `adb` 在 PATH 中（[Android Platform Tools](https://developer.android.com/studio/releases/platform-tools)；Windows 还要装手机 USB 驱动）。**已装可忽略；没装可运行 `adh-agent init` 自动下载 adb 与 go-ios**
+2. `adb` 在 PATH 中（[Android Platform Tools](https://developer.android.com/studio/releases/platform-tools)；Windows 还要装手机 USB 驱动）。**安装包已内置当前平台的 adb 与 go-ios，运行 `adh-agent init` 即可离线解压；系统里已有则忽略**
 3. 能访问 server 的 8080 端口
 
 解压后运行：
