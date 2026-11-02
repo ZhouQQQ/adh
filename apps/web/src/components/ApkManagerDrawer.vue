@@ -18,6 +18,7 @@ const props = defineProps<{
   show: boolean;
   deviceId: string;
   deviceName: string;
+  initialTab?: 'packages' | 'apps';
 }>();
 
 const emit = defineEmits<{ 'update:show': [value: boolean] }>();
@@ -40,6 +41,7 @@ watch(
   () => props.show,
   (visible) => {
     if (!visible) return;
+    tab.value = props.initialTab ?? 'packages';
     void loadPackages();
     void loadApps();
   },

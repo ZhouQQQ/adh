@@ -46,6 +46,35 @@ const renameShow = ref(false);
 const renameValue = ref('');
 const renameTarget = ref<DeviceFileEntry | null>(null);
 
+type PreviewKind = 'image' | 'text' | 'video' | 'audio' | 'pdf';
+
+const previewShow = ref(false);
+const previewLoading = ref(false);
+const previewKind = ref<PreviewKind | null>(null);
+const previewEntry = ref<DeviceFileEntry | null>(null);
+const previewUrl = ref<string | null>(null);
+const previewText = ref('');
+
+const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic'];
+const TEXT_EXT = [
+  'txt', 'log', 'json', 'xml', 'md', 'csv', 'yaml', 'yml', 'ini', 'conf',
+  'js', 'ts', 'java', 'kt', 'py', 'sh', 'html', 'css', 'prop',
+];
+const VIDEO_EXT = ['mp4', 'webm', 'mov', 'mkv', '3gp'];
+const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'];
+const PDF_EXT = ['pdf'];
+
+/** 常见可预览格式，返回预览类型；其他返回 null 走下载。 */
+function detectPreview(name: string, size: number): PreviewKind | null {
+  const ext = name.toLowerCase().split('.').pop() ?? '';
+  if (IMAGE_EXT.includes(ext)) return size > 20 * 1024 * 1024 ? null : 'image';
+  if (TEXT_EXT.includes(ext)) return size > 2 * 1024 * 1024 ? null : 'text';
+  if (PDF_EXT.includes(ext)) return size > 30 * 1024 * 1024 ? null : 'pdf';
+  if (VIDEO_EXT.includes(ext)) return size > 80 * 1024 * 1024 ? null : 'video';
+  if (AUDIO_EXT.includes(ext)) return size > 40 * 1024 * 1024 ? null : 'audio';
+  return null;
+}
+
 const crumbs = computed(() => {
   const parts = path.value.split('/').filter(Boolean);
   const list = [{ name: '根目录', path: '/' }];
@@ -117,7 +146,54 @@ function onEntryClick(entry: DeviceFileEntry): void {
     void load(fullPath(entry.name));
     return;
   }
-  void download(entry);
+  const kind = detectPreview(entry.name, entry.size);
+  if (!kind) {
+    void download(entry);
+    return;
+  }
+  void openPreview(entry, kind);
+}
+
+async function openPreview(
+  entry: DeviceFileEntry,
+  kind: PreviewKind,
+): Promise<void> {
+  cleanupPreview();
+  previewEntry.value = entry;
+  previewKind.value = kind;
+  previewShow.value = true;
+  previewLoading.value = true;
+
+  try {
+    const { blob } = await api.downloadDeviceFile(
+      props.deviceId,
+      fullPath(entry.name),
+    );
+    if (kind === 'text') {
+      previewText.value = await blob.text();
+    } else {
+      previewUrl.value = URL.createObjectURL(blob);
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '预览失败');
+    previewShow.value = false;
+  } finally {
+    previewLoading.value = false;
+  }
+}
+
+function cleanupPreview(): void {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+    previewUrl.value = null;
+  }
+  previewText.value = '';
+  previewKind.value = null;
+  previewEntry.value = null;
+}
+
+function downloadPreview(): void {
+  if (previewEntry.value) void download(previewEntry.value);
 }
 
 async function download(entry: DeviceFileEntry): Promise<void> {
@@ -366,6 +442,54 @@ const selectedSingle = computed(() =>
       </n-spin>
 
       <n-modal
+        v-model:show="previewShow"
+        preset="card"
+        :title="previewEntry?.name ?? '预览'"
+        style="width: min(920px, 92vw)"
+        :bordered="false"
+        @after-leave="cleanupPreview"
+      >
+        <div class="preview-body">
+          <n-spin :show="previewLoading">
+            <img
+              v-if="previewKind === 'image' && previewUrl"
+              :src="previewUrl"
+              class="preview-image"
+              alt=""
+            />
+            <pre v-else-if="previewKind === 'text'" class="preview-text">{{ previewText }}</pre>
+            <iframe
+              v-else-if="previewKind === 'pdf' && previewUrl"
+              :src="previewUrl"
+              class="preview-frame"
+              title="PDF 预览"
+            />
+            <video
+              v-else-if="previewKind === 'video' && previewUrl"
+              :src="previewUrl"
+              class="preview-media"
+              controls
+              autoplay
+            />
+            <audio
+              v-else-if="previewKind === 'audio' && previewUrl"
+              :src="previewUrl"
+              class="preview-audio"
+              controls
+              autoplay
+            />
+          </n-spin>
+        </div>
+
+        <template #footer>
+          <div class="modal-footer">
+            <n-button quaternary @click="previewShow = false">关闭</n-button>
+            <n-button type="primary" @click="downloadPreview">下载</n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
         v-model:show="renameShow"
         preset="card"
         title="重命名"
@@ -516,5 +640,53 @@ const selectedSingle = computed(() =>
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.preview-body {
+  min-height: 200px;
+  max-height: 72vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-text {
+  margin: 0;
+  padding: 14px;
+  width: 100%;
+  max-height: 72vh;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.preview-frame {
+  width: 100%;
+  height: 70vh;
+  border: none;
+}
+
+.preview-media {
+  max-width: 100%;
+  max-height: 70vh;
+}
+
+.preview-audio {
+  width: 80%;
 }
 </style>

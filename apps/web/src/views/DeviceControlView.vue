@@ -31,6 +31,7 @@ const controller = ref(false);
 const text = ref('');
 const fileShow = ref(false);
 const apkShow = ref(false);
+const apkTab = ref<'packages' | 'apps'>('packages');
 const stageRef = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
 const recording = ref(false);
@@ -162,6 +163,11 @@ function deviceFileName(extension: string): string {
 function setScreen(on: boolean): void {
   if (!requireController()) return;
   playerRef.value?.setScreen(on);
+}
+
+function openApk(target: 'packages' | 'apps'): void {
+  apkTab.value = target;
+  apkShow.value = true;
 }
 
 async function togglePip(): Promise<void> {
@@ -326,9 +332,12 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <button type="button" class="overlay-btn fs-toggle" @click="toggleFullscreen">
-          {{ isFullscreen ? '退出全屏' : '全屏' }}
-        </button>
+        <div class="stage-actions">
+          <button type="button" class="overlay-btn" @click="togglePip">画中画</button>
+          <button type="button" class="overlay-btn" @click="toggleFullscreen">
+            {{ isFullscreen ? '退出全屏' : '全屏' }}
+          </button>
+        </div>
 
         <div v-if="isFullscreen" class="fullscreen-bar">
           <div class="fs-group">
@@ -423,9 +432,14 @@ onBeforeUnmount(() => {
 
         <section class="section">
           <div class="section-title">应用</div>
-          <n-button size="small" block @click="apkShow = true">
-            APK 管理
-          </n-button>
+          <div class="grid-2">
+            <n-button size="small" @click="openApk('packages')">
+              APK 安装
+            </n-button>
+            <n-button size="small" @click="openApk('apps')">
+              应用管理
+            </n-button>
+          </div>
         </section>
 
         <section class="section">
@@ -461,6 +475,7 @@ onBeforeUnmount(() => {
       v-model:show="apkShow"
       :device-id="device?.id ?? ''"
       :device-name="device?.name ?? ''"
+      :initial-tab="apkTab"
     />
   </div>
 </template>
@@ -568,9 +583,16 @@ onBeforeUnmount(() => {
   margin: auto;
 }
 
-.overlay-btn {
+.stage-actions {
   position: absolute;
+  top: 10px;
+  right: 10px;
   z-index: 10;
+  display: flex;
+  gap: 6px;
+}
+
+.overlay-btn {
   padding: 5px 10px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -586,9 +608,8 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.18);
 }
 
-.fs-toggle {
-  top: 10px;
-  right: 10px;
+.stage:fullscreen .stage-actions {
+  display: none;
 }
 
 .fullscreen-bar {
@@ -666,10 +687,6 @@ onBeforeUnmount(() => {
   height: 100vh;
   max-height: none;
   border-radius: 0;
-}
-
-.stage:fullscreen .fs-toggle {
-  display: none;
 }
 
 .placeholder {
