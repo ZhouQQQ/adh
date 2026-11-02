@@ -244,7 +244,7 @@ async function onImageSelected(event: Event): Promise<void> {
           <n-descriptions-item label="发布时间">
             <n-date-picker
               v-model:value="publishedAt"
-              type="datetime"
+              type="month"
               size="small"
               clearable
               placeholder="未设置"

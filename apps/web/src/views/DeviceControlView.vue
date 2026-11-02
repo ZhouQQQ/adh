@@ -105,7 +105,9 @@ const lastSeenText = computed(() =>
 
 const publishedText = computed(() => {
   const value = device.value?.publishedAt ?? 0;
-  return value > 0 ? formatDateTime(value) : '未设置';
+  if (value <= 0) return '未设置';
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 });
 
 async function createSession(): Promise<void> {
