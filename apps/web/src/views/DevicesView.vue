@@ -31,6 +31,7 @@ const version = ref<string | 'all'>('all');
 const cpu = ref<string | 'all'>('all');
 const cores = ref<number | 'all'>('all');
 const memory = ref<number | 'all'>('all');
+const usage = ref<'all' | 'idle' | 'busy'>('all');
 const collapsed = ref(false);
 
 /** 固定候选，保证没有设备时也能看到完整筛选项。 */
@@ -91,6 +92,11 @@ const memoryPresent = computed(() => {
   return set;
 });
 
+const usagePresent = computed(() => ({
+  busy: devices.value.some((device) => device.inUse),
+  idle: devices.value.some((device) => !device.inUse),
+}));
+
 const cpuOptions = computed(() =>
   [...cpuPresent.value]
     .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
@@ -136,6 +142,8 @@ const filtered = computed(() => {
         const gb = memoryGb(device.memoryMb);
         if (gb !== memory.value) return false;
       }
+      if (usage.value === 'busy' && !device.inUse) return false;
+      if (usage.value === 'idle' && device.inUse) return false;
       if (kw) {
         const haystack = [
           device.name,
@@ -202,6 +210,9 @@ const activeFilters = computed(() => {
   if (memory.value !== 'all') {
     list.push({ key: 'memory', label: `${memory.value} GB` });
   }
+  if (usage.value !== 'all') {
+    list.push({ key: 'usage', label: usage.value === 'busy' ? '使用中' : '空闲' });
+  }
 
   return list;
 });
@@ -228,6 +239,9 @@ function removeFilter(key: string): void {
       break;
     case 'memory':
       memory.value = 'all';
+      break;
+    case 'usage':
+      usage.value = 'all';
       break;
   }
 }
@@ -302,6 +316,7 @@ function resetFilters(): void {
   cpu.value = 'all';
   cores.value = 'all';
   memory.value = 'all';
+  usage.value = 'all';
 }
 </script>
 
@@ -422,6 +437,38 @@ function resetFilters(): void {
             @click="status = 'unauthorized'"
           >
             未授权
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">使用状态:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: usage === 'all' }"
+            @click="usage = 'all'"
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: usage === 'idle' }"
+            :disabled="!usagePresent.idle"
+            @click="usage = 'idle'"
+          >
+            空闲
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: usage === 'busy' }"
+            :disabled="!usagePresent.busy"
+            @click="usage = 'busy'"
+          >
+            使用中
           </button>
         </div>
       </div>

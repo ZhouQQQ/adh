@@ -12,6 +12,7 @@ import { ScrcpyControlTranslator, ScrcpySession } from '@adh/device-host';
 import type { Queries } from '../db/queries.js';
 import type { Logger } from '../log.js';
 import type { AgentRegistry } from '../registry.js';
+import type { WebHub } from '../ws/web-hub.js';
 
 const IDLE_TIMEOUT_MS = 30_000;
 const AGENT_ATTACH_TIMEOUT_MS = 15_000;
@@ -38,6 +39,7 @@ interface StreamSession {
 export interface StreamManagerDeps {
   queries: Queries;
   registry: AgentRegistry;
+  hub: WebHub;
   logger: Logger;
 }
 
@@ -58,7 +60,31 @@ export class StreamManager {
     }
   }
 
+  /** 该设备是否已有控制会话。 */
+  isInUse(deviceId: string): boolean {
+    return [...this.sessions.values()].some(
+      (session) => session.device.id === deviceId && !session.closed,
+    );
+  }
+
+  listInUseDeviceIds(): string[] {
+    return [...this.sessions.values()]
+      .filter((session) => !session.closed)
+      .map((session) => session.device.id);
+  }
+
+  /** 同一台设备复用同一个会话，只有第一个 viewer 能控制。 */
+  findSessionByDevice(deviceId: string): StreamSession | undefined {
+    return [...this.sessions.values()].find(
+      (session) => session.device.id === deviceId && !session.closed,
+    );
+  }
+
   async create(deviceId: string): Promise<{ sessionId: string }> {
+    // 同一台设备复用已有会话：第二个进入的人只会拿到只读权限
+    const reuse = this.findSessionByDevice(deviceId);
+    if (reuse) return { sessionId: reuse.id };
+
     const device = this.deps.queries.getDevice(deviceId);
     if (!device) throw new Error('设备不存在');
     if (device.platform !== 'android') throw new Error('目前只支持 Android 投屏');
@@ -88,6 +114,7 @@ export class StreamManager {
       this.requestRemote(session, live!.socket);
     }
 
+    this.notifyDevice(deviceId);
     return { sessionId };
   }
 
@@ -120,9 +147,9 @@ export class StreamManager {
     socket.on('close', () => {
       session.viewers.delete(socket);
       if (session.controller === socket) {
-        session.controller = session.viewers.values().next().value ?? null;
-        const next = session.controller;
-        if (next) sendJson(next, { t: 'role', controller: true });
+        // 控制者离开即释放设备，其余只读观众一并断开
+        this.destroy(session.id, '控制者已离开，设备已释放');
+        return;
       }
       if (session.viewers.size === 0) this.scheduleIdleStop(session);
     });
@@ -205,7 +232,17 @@ export class StreamManager {
       session.agentSocket.close();
     }
 
+    this.notifyDevice(session.device.id);
     this.deps.logger.info({ sessionId, reason }, 'stream session closed');
+  }
+
+  private notifyDevice(deviceId: string): void {
+    const device = this.deps.queries.getDevice(deviceId);
+    if (!device) return;
+    this.deps.hub.broadcast({
+      t: 'device.updated',
+      device: { ...device, inUse: this.isInUse(deviceId) },
+    });
   }
 
   private async startLocal(session: StreamSession): Promise<void> {

@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   const thumbnails = new ThumbnailStore(config.thumbnailDir);
   const packages = new PackageStore(config.packageDir);
   const commands = new CommandBus(registry);
-  const streams = new StreamManager({ queries, registry, logger });
+  const streams = new StreamManager({ queries, registry, hub, logger });
 
   const localAgent = new LocalAgent({
     queries,

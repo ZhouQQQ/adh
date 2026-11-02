@@ -55,6 +55,12 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   lastSeen: z.number(),
   /** 缩略图最后更新时间，0 表示暂无。 */
   thumbnailAt: z.number().default(0),
+  /** 缩略图来源：自动截图或手动上传。 */
+  thumbnailSource: z.enum(['auto', 'manual']).default('auto'),
+  /** 发布时间（毫秒时间戳），0 表示未设置。 */
+  publishedAt: z.number().default(0),
+  /** 当前是否被某个控制会话占用。 */
+  inUse: z.boolean().default(false),
 });
 export type DeviceSummary = z.infer<typeof DeviceSummarySchema>;
 

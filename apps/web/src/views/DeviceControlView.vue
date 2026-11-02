@@ -14,7 +14,7 @@ import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { fileTimestamp, safeFileName, saveBlob } from '../utils/download';
-import { formatMemory, formatResolution } from '../utils/format';
+import { formatDateTime, formatMemory, formatResolution } from '../utils/format';
 
 const route = useRoute();
 const router = useRouter();
@@ -91,6 +91,21 @@ const cpuText = computed(() => {
   return current.cpuCores
     ? `${current.cpu} · ${current.cpuCores} 核`
     : current.cpu;
+});
+
+const brandText = computed(() => device.value?.brand ?? '—');
+
+const sdkText = computed(() =>
+  device.value?.sdk !== undefined ? `API ${device.value.sdk}` : '—',
+);
+
+const lastSeenText = computed(() =>
+  device.value ? formatDateTime(device.value.lastSeen) : '—',
+);
+
+const publishedText = computed(() => {
+  const value = device.value?.publishedAt ?? 0;
+  return value > 0 ? formatDateTime(value) : '未设置';
 });
 
 async function createSession(): Promise<void> {
@@ -249,8 +264,16 @@ onBeforeUnmount(() => {
           <CopyValue :value="device?.name" />
         </div>
         <div class="info-row">
+          <span>品牌</span>
+          <CopyValue :value="brandText" />
+        </div>
+        <div class="info-row">
           <span>系统</span>
           <CopyValue :value="osText" />
+        </div>
+        <div class="info-row">
+          <span>SDK</span>
+          <CopyValue :value="sdkText" />
         </div>
         <div class="info-row">
           <span>CPU</span>
@@ -271,6 +294,14 @@ onBeforeUnmount(() => {
         <div class="info-row">
           <span>UDID</span>
           <CopyValue :value="device?.udid" mono />
+        </div>
+        <div class="info-row">
+          <span>最后在线</span>
+          <CopyValue :value="lastSeenText" />
+        </div>
+        <div class="info-row">
+          <span>发布时间</span>
+          <CopyValue :value="publishedText" />
         </div>
         <div class="info-row">
           <span>状态</span>
@@ -447,6 +478,8 @@ onBeforeUnmount(() => {
 .info-col {
   width: 216px;
   flex: none;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -494,6 +527,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   position: relative;
   background: #0b0b0d;
   border-radius: 10px;
@@ -591,6 +625,7 @@ onBeforeUnmount(() => {
 .side {
   width: 200px;
   flex: none;
+  height: 100%;
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: 10px;

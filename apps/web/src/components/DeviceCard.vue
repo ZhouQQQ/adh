@@ -67,6 +67,16 @@ const cpuText = computed(() => {
         {{ device.platform === 'android' ? 'ANDROID' : 'iOS' }}
       </n-tag>
       <n-tag
+        v-if="device.inUse"
+        class="usage-tag"
+        size="small"
+        type="info"
+        :bordered="false"
+        round
+      >
+        使用中
+      </n-tag>
+      <n-tag
         class="status-tag"
         size="small"
         :type="statusMeta.type"
@@ -195,6 +205,13 @@ const cpuText = computed(() => {
   position: absolute;
   top: 8px;
   right: 8px;
+  backdrop-filter: blur(6px);
+}
+
+.usage-tag {
+  position: absolute;
+  top: 34px;
+  left: 8px;
   backdrop-filter: blur(6px);
 }
 

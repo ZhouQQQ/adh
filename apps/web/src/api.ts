@@ -84,6 +84,38 @@ export const api = {
     return request('/api/devices');
   },
 
+  updateDevice(
+    id: string,
+    patch: { publishedAt?: number },
+  ): Promise<DeviceSummary> {
+    return request(`/api/devices/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async uploadDeviceThumbnail(
+    deviceId: string,
+    blob: Blob,
+  ): Promise<DeviceSummary> {
+    const response = await fetch(`/api/devices/${deviceId}/thumbnail`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/jpeg' },
+      body: blob,
+    });
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return (await response.json()) as DeviceSummary;
+  },
+
   deleteDevice(id: string): Promise<void> {
     return request(`/api/devices/${id}`, { method: 'DELETE' });
   },

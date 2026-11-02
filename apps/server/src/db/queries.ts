@@ -77,6 +77,9 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
     tags: parseStringArray(row.tags),
     lastSeen: row.lastSeen,
     thumbnailAt: row.thumbnailAt ?? 0,
+    thumbnailSource: (row.thumbnailSource as 'auto' | 'manual') ?? 'auto',
+    publishedAt: row.publishedAt ?? 0,
+    inUse: false,
   };
   if (row.model) summary.model = row.model;
   if (row.marketName) summary.marketName = row.marketName;
@@ -282,7 +285,13 @@ export function createQueries(db: Db) {
         return rowToDevice({ ...existing, ...values });
       }
 
-      const row: DeviceRow = { id: randomUUID(), thumbnailAt: 0, ...values };
+      const row: DeviceRow = {
+        id: randomUUID(),
+        thumbnailAt: 0,
+        thumbnailSource: 'auto',
+        publishedAt: 0,
+        ...values,
+      };
       db.insert(devices).values(row).run();
       return rowToDevice(row);
     },
@@ -328,6 +337,33 @@ export function createQueries(db: Db) {
         .where(eq(devices.id, deviceId))
         .run();
       const row = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+      return row ? rowToDevice(row) : undefined;
+    },
+
+    /** 手动上传的设备图片，标记后自动截图不再覆盖。 */
+    setManualThumbnail(deviceId: string): DeviceSummary | undefined {
+      db.update(devices)
+        .set({ thumbnailAt: Date.now(), thumbnailSource: 'manual' })
+        .where(eq(devices.id, deviceId))
+        .run();
+      const row = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+      return row ? rowToDevice(row) : undefined;
+    },
+
+    updateDeviceMeta(
+      id: string,
+      patch: { publishedAt?: number },
+    ): DeviceSummary | undefined {
+      const existing = db.select().from(devices).where(eq(devices.id, id)).get();
+      if (!existing) return undefined;
+
+      const set: Partial<DeviceRow> = {};
+      if (patch.publishedAt !== undefined) set.publishedAt = patch.publishedAt;
+
+      if (Object.keys(set).length > 0) {
+        db.update(devices).set(set).where(eq(devices.id, id)).run();
+      }
+      const row = db.select().from(devices).where(eq(devices.id, id)).get();
       return row ? rowToDevice(row) : undefined;
     },
 

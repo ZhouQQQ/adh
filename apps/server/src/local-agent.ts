@@ -151,6 +151,8 @@ export class LocalAgent {
         if (!jpeg) continue;
         const row = queries.findDevice(BUILTIN_AGENT_ID, device.udid);
         if (!row) continue;
+        // 手动上传过图片的设备不再被自动截图覆盖
+        if (row.thumbnailSource === 'manual') continue;
         thumbnails.save(row.id, jpeg);
         const updated = queries.markThumbnail(row.id);
         if (updated) hub.broadcast({ t: 'device.updated', device: updated });

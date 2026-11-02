@@ -48,6 +48,10 @@ export const devices = sqliteTable(
     lastSeen: integer('last_seen').notNull().default(0),
     /** 缩略图最后更新时间（毫秒），0 表示没有。 */
     thumbnailAt: integer('thumbnail_at').notNull().default(0),
+    /** auto / manual */
+    thumbnailSource: text('thumbnail_source').notNull().default('auto'),
+    /** 发布时间（毫秒时间戳），0 表示未设置。 */
+    publishedAt: integer('published_at').notNull().default(0),
   },
   (t) => [
     uniqueIndex('devices_agent_udid_idx').on(t.agentId, t.udid),

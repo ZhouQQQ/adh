@@ -54,6 +54,10 @@ const FileRenameBody = z.object({
   newName: z.string().min(1).max(200),
 });
 
+const UpdateDeviceBody = z.object({
+  publishedAt: z.number().int().min(0).optional(),
+});
+
 /** 这些目录不允许被删除或移动。 */
 const PROTECTED_PATHS = new Set([
   '/',
@@ -234,17 +238,58 @@ export async function registerHttpRoutes(
     const online = new Set(deps.registry.ids());
     const isOnline = (agentId: string): boolean =>
       agentId === BUILTIN_AGENT_ID || online.has(agentId);
+    const inUse = new Set(deps.streams.listInUseDeviceIds());
     const devices: DeviceSummary[] = deps.queries.listDevices();
-    return devices.map((device) =>
-      isOnline(device.agentId) ? device : { ...device, status: 'offline' },
-    );
+    return devices.map((device) => ({
+      ...(isOnline(device.agentId) ? device : { ...device, status: 'offline' as const }),
+      inUse: inUse.has(device.id),
+    }));
   });
 
   app.get('/api/devices/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const device = deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: 'device not found' });
+    return { ...device, inUse: deps.streams.isInUse(id) };
+  });
+
+  /** 编辑设备元信息（目前只有发布时间）。 */
+  app.patch('/api/devices/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = UpdateDeviceBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '参数不合法' });
+    }
+
+    const updated = deps.queries.updateDeviceMeta(id, parsed.data);
+    if (!updated) return reply.code(404).send({ error: '设备不存在' });
+
+    const device = { ...updated, inUse: deps.streams.isInUse(id) };
+    deps.hub.broadcast({ t: 'device.updated', device });
     return device;
+  });
+
+  /** 手动上传设备图片，覆盖自动截图。 */
+  app.post('/api/devices/:id/thumbnail', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      return reply.code(400).send({ error: '图片内容为空' });
+    }
+    if (body.length > 5 * 1024 * 1024) {
+      return reply.code(413).send({ error: '图片超过 5MB' });
+    }
+
+    const device = deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+
+    deps.thumbnails.save(id, body);
+    const updated = deps.queries.setManualThumbnail(id);
+    if (!updated) return reply.code(500).send({ error: '保存失败' });
+
+    const summary = { ...updated, inUse: deps.streams.isInUse(id) };
+    deps.hub.broadcast({ t: 'device.updated', device: summary });
+    return summary;
   });
 
   /** 创建投屏会话，返回 sessionId 供浏览器连接 /ws/stream/:id。 */
