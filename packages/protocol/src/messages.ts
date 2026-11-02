@@ -149,6 +149,7 @@ export const CmdResultMessageSchema = z.object({
   data: z.unknown().optional(),
   error: z.string().optional(),
 });
+export type CmdResultMessage = z.infer<typeof CmdResultMessageSchema>;
 
 export const AgentToServerMessageSchema = z.discriminatedUnion('t', [
   HelloMessageSchema,

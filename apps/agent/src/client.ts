@@ -1,4 +1,8 @@
 import WebSocket from 'ws';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { runCommand } from '@adh/device-host';
 import {
   parseServerMessage,
   type AgentRuntimeInfo,
@@ -144,7 +148,29 @@ export class AgentClient {
     const params = (message.params ?? {}) as {
       sessionId?: string;
       udid?: string;
+      url?: string;
     };
+
+    if (message.action === 'app.install' && params.udid && params.url) {
+      void this.installApk(params.url, params.udid)
+        .then((ok) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok,
+            error: ok ? undefined : 'adb install 返回失败',
+          });
+        })
+        .catch((error: unknown) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return;
+    }
 
     if (message.action === 'screen.start' && params.sessionId && params.udid) {
       void this.streams.start(params.sessionId, params.udid);
@@ -153,6 +179,41 @@ export class AgentClient {
     }
 
     this.send({ t: 'cmd.result', id: message.id, ok: true });
+  }
+
+  private async installApk(url: string, udid: string): Promise<boolean> {
+    const response = await fetch(url, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
+    if (!response.ok) {
+      throw new Error(`下载安装包失败 (${response.status})`);
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const tempPath = path.join(os.tmpdir(), `adh-${Date.now()}-${udid}.apk`);
+    fs.writeFileSync(tempPath, buffer);
+
+    try {
+      const result = await runCommand(
+        'adb',
+        ['-s', udid, 'install', '-r', tempPath],
+        300_000,
+      );
+      const ok = result.code === 0 && /success/i.test(result.stdout);
+      if (!ok) {
+        this.options.logger.warn(
+          { udid, output: `${result.stdout}${result.stderr}`.trim() },
+          'apk install failed',
+        );
+      }
+      return ok;
+    } finally {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        /* 临时文件已不存在 */
+      }
+    }
   }
 
   private send(message: AgentToServerMessage): void {

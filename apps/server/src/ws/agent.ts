@@ -12,6 +12,7 @@ import {
 import type { Logger } from '../log.js';
 import type { Queries } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
+import type { CommandBus } from '../command-bus.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { WebHub } from './web-hub.js';
 
@@ -20,6 +21,7 @@ export interface AgentChannelDeps {
   registry: AgentRegistry;
   hub: WebHub;
   thumbnails: ThumbnailStore;
+  commands: CommandBus;
   serverVersion: string;
   logger: Logger;
 }
@@ -134,7 +136,11 @@ export function registerAgentChannel(
         handleSync(agentId, message);
         return;
       }
-      // pong / cmd.result：M0 只用于保活，M2 起处理指令结果
+      if (message.t === 'cmd.result') {
+        deps.commands.handleResult(message);
+        return;
+      }
+      // pong 只用于保活
     });
 
     socket.on('close', () => {

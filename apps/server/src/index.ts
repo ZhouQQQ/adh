@@ -5,12 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WS_PATHS, BUILTIN_AGENT_ID } from '@adh/protocol';
 import { loadConfig, SERVER_VERSION } from './config.js';
+import { CommandBus } from './command-bus.js';
 import { openDatabase } from './db/index.js';
 import { createQueries } from './db/queries.js';
 import { registerHttpRoutes } from './http/routes.js';
 import { LocalAgent } from './local-agent.js';
 import { createLogger } from './log.js';
 import { AgentRegistry } from './registry.js';
+import { PackageStore } from './storage/packages.js';
 import { ThumbnailStore } from './storage/thumbnails.js';
 import { StreamManager } from './stream/manager.js';
 import { registerAgentChannel } from './ws/agent.js';
@@ -25,6 +27,8 @@ async function main(): Promise<void> {
   const registry = new AgentRegistry();
   const hub = new WebHub();
   const thumbnails = new ThumbnailStore(config.thumbnailDir);
+  const packages = new PackageStore(config.packageDir);
+  const commands = new CommandBus(registry);
   const streams = new StreamManager({ queries, registry, logger });
 
   const localAgent = new LocalAgent({
@@ -42,7 +46,8 @@ async function main(): Promise<void> {
 
   const app = Fastify({
     loggerInstance: logger as FastifyBaseLogger,
-    bodyLimit: 32 * 1024 * 1024,
+    // APK 上传需要更大的请求体上限
+    bodyLimit: 512 * 1024 * 1024,
     disableRequestLogging: true,
   });
 
@@ -55,6 +60,7 @@ async function main(): Promise<void> {
     registry,
     hub,
     thumbnails,
+    commands,
     serverVersion: SERVER_VERSION,
     logger,
   });
@@ -71,6 +77,8 @@ async function main(): Promise<void> {
     registry,
     hub,
     thumbnails,
+    packages,
+    commands,
     streams,
     port: config.port,
   });
@@ -124,6 +132,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'shutting down');
     localAgent.stop();
     streams.shutdown();
+    commands.clear();
     await app.close();
     sqlite.close();
     process.exit(0);

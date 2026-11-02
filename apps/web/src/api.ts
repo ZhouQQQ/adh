@@ -89,6 +89,39 @@ export const api = {
   createStream(deviceId: string): Promise<{ sessionId: string }> {
     return request(`/api/devices/${deviceId}/stream`, { method: 'POST' });
   },
+
+  /** 上传 APK（原始二进制，按 sha256 去重）。 */
+  async uploadPackage(
+    file: File,
+  ): Promise<{ id: string; name: string; size: number }> {
+    const response = await fetch('/api/packages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/vnd.android.package-archive',
+        'x-file-name': encodeURIComponent(file.name),
+      },
+      body: file,
+    });
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return (await response.json()) as { id: string; name: string; size: number };
+  },
+
+  /** 在指定设备上安装已上传的 APK。 */
+  installPackage(deviceId: string, packageId: string): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/install`, {
+      method: 'POST',
+      body: JSON.stringify({ packageId }),
+    });
+  },
 };
 
 export function thumbnailUrl(device: DeviceSummary): string {

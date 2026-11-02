@@ -6,9 +6,12 @@ import {
   type AgentSummary,
   type DeviceSummary,
 } from '@adh/protocol';
+import { runCommand } from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
+import type { CommandBus } from '../command-bus.js';
 import type { Queries } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
+import { PackageStore } from '../storage/packages.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { StreamManager } from '../stream/manager.js';
 import type { WebHub } from '../ws/web-hub.js';
@@ -18,12 +21,18 @@ export interface HttpDeps {
   registry: AgentRegistry;
   hub: WebHub;
   thumbnails: ThumbnailStore;
+  packages: PackageStore;
+  commands: CommandBus;
   streams: StreamManager;
   port: number;
 }
 
 const CreateAgentBody = z.object({
   name: z.string().trim().min(1).max(40),
+});
+
+const InstallBody = z.object({
+  packageId: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
 function bearerToken(request: FastifyRequest): string | null {
@@ -47,6 +56,14 @@ export async function registerHttpRoutes(
 ): Promise<void> {
   app.addContentTypeParser(
     'image/jpeg',
+    { parseAs: 'buffer' },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
+
+  app.addContentTypeParser(
+    'application/vnd.android.package-archive',
     { parseAs: 'buffer' },
     (_request, body, done) => {
       done(null, body);
@@ -198,6 +215,106 @@ export async function registerHttpRoutes(
     } catch (error) {
       return reply.code(400).send({
         error: error instanceof Error ? error.message : '无法创建投屏会话',
+      });
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* APK 安装                                                          */
+  /* ---------------------------------------------------------------- */
+
+  /** 上传 APK，按 sha256 去重存储。 */
+  app.post('/api/packages', async (request, reply) => {
+    const body = request.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      return reply.code(400).send({ error: '安装包内容为空' });
+    }
+    if (body.length > 512 * 1024 * 1024) {
+      return reply.code(413).send({ error: '安装包超过 512MB' });
+    }
+
+    const id = PackageStore.hash(body);
+    deps.packages.save(id, body);
+
+    const rawName = request.headers['x-file-name'];
+    const name =
+      typeof rawName === 'string' && rawName
+        ? decodeURIComponent(rawName)
+        : `${id.slice(0, 8)}.apk`;
+
+    return { id, name, size: body.length };
+  });
+
+  /** agent 下载安装包（用自身 Key 鉴权）。 */
+  app.get('/api/packages/:id/download', async (request, reply) => {
+    const token = bearerToken(request);
+    const agent = token ? deps.queries.findAgentByToken(token) : null;
+    if (!agent) return reply.code(401).send({ error: 'invalid agent key' });
+
+    const { id } = request.params as { id: string };
+    const data = deps.packages.read(id);
+    if (!data) return reply.code(404).send({ error: '安装包不存在' });
+
+    return reply
+      .header('content-type', 'application/vnd.android.package-archive')
+      .header('content-length', String(data.length))
+      .send(data);
+  });
+
+  /** 把安装包推给设备并执行 adb install。 */
+  app.post('/api/devices/:id/install', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = InstallBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '缺少有效的 packageId' });
+    }
+
+    const device = deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '目前只支持安装 APK' });
+    }
+    if (!deps.packages.has(parsed.data.packageId)) {
+      return reply.code(404).send({ error: '安装包不存在，请重新上传' });
+    }
+
+    if (device.agentId === BUILTIN_AGENT_ID) {
+      const result = await runCommand(
+        'adb',
+        [
+          '-s',
+          device.udid,
+          'install',
+          '-r',
+          deps.packages.path(parsed.data.packageId),
+        ],
+        300_000,
+      );
+      const output = `${result.stdout}\n${result.stderr}`.trim();
+      if (result.code !== 0 || !/success/i.test(result.stdout)) {
+        return reply.code(400).send({ error: output || '安装失败' });
+      }
+      return { ok: true };
+    }
+
+    const host = request.headers.host ?? `127.0.0.1:${deps.port}`;
+    const url = `http://${host}/api/packages/${parsed.data.packageId}/download`;
+
+    try {
+      const result = await deps.commands.send(
+        device.agentId,
+        'app.install',
+        { udid: device.udid, url },
+        device.id,
+        300_000,
+      );
+      if (!result.ok) {
+        return reply.code(400).send({ error: result.error ?? '安装失败' });
+      }
+      return { ok: true };
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : '下发安装指令失败',
       });
     }
   });

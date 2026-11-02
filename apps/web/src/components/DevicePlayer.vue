@@ -223,18 +223,21 @@ defineExpose({ sendKey, sendText, sendRotate, controller, connected });
 
 <style scoped>
 .player {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  background: #000;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px;
 }
 
 .surface {
   max-width: 100%;
   max-height: 100%;
-  object-fit: contain;
+  width: auto;
+  height: auto;
+  display: block;
   touch-action: none;
   cursor: crosshair;
   outline: none;

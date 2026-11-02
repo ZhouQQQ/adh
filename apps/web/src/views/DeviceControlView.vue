@@ -24,6 +24,8 @@ const loading = ref(false);
 const errorText = ref<string | null>(null);
 const controller = ref(false);
 const text = ref('');
+const installing = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
 
 const deviceId = computed(() => String(route.params.id ?? ''));
 const device = computed(
@@ -79,6 +81,34 @@ function sendText(): void {
 function rotate(): void {
   if (!requireController()) return;
   playerRef.value?.sendRotate();
+}
+
+function pickApk(): void {
+  if (!device.value) return;
+  fileInput.value?.click();
+}
+
+async function onApkSelected(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !device.value) return;
+
+  if (!file.name.toLowerCase().endsWith('.apk')) {
+    message.error('请选择 .apk 文件');
+    return;
+  }
+
+  installing.value = true;
+  try {
+    const uploaded = await api.uploadPackage(file);
+    await api.installPackage(device.value.id, uploaded.id);
+    message.success(`已安装 ${file.name}`);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '安装失败');
+  } finally {
+    installing.value = false;
+  }
 }
 
 function goBack(): void {
@@ -160,6 +190,26 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="section">
+          <div class="section-title">应用</div>
+          <n-button
+            size="small"
+            block
+            :loading="installing"
+            :disabled="!device"
+            @click="pickApk"
+          >
+            安装 APK
+          </n-button>
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".apk"
+            hidden
+            @change="onApkSelected"
+          />
+        </section>
+
+        <section class="section">
           <div class="section-title">文本输入</div>
           <n-input
             v-model:value="text"
@@ -237,9 +287,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   height: 100%;
   max-height: 680px;
-  display: grid;
-  place-items: center;
-  padding: 14px;
+  position: relative;
   background: #0b0b0d;
   border-radius: 10px;
   overflow: hidden;
