@@ -1,4 +1,5 @@
 import type {
+  AgentDetail,
   AgentSummary,
   CreateAgentResponse,
   DeviceSummary,
@@ -45,6 +46,17 @@ export const api = {
 
   listAgents(): Promise<AgentSummary[]> {
     return request('/api/agents');
+  },
+
+  getAgent(id: string): Promise<AgentDetail> {
+    return request(`/api/agents/${id}`);
+  },
+
+  updateAgent(id: string, name: string): Promise<{ agent: AgentSummary }> {
+    return request(`/api/agents/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
   },
 
   createAgent(name: string): Promise<CreateAgentResponse> {

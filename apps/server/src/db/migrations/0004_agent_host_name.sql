@@ -1,0 +1,1 @@
+ALTER TABLE agents ADD COLUMN host_name TEXT;

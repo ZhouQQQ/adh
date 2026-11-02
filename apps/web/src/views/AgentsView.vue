@@ -3,6 +3,7 @@ import { computed, h, onMounted, onUnmounted, ref } from 'vue';
 import {
   NButton,
   NDataTable,
+  NDropdown,
   NIcon,
   NSpace,
   NTag,
@@ -11,10 +12,16 @@ import {
   useMessage,
   type DataTableColumns,
 } from 'naive-ui';
-import { AddOutline, RefreshOutline } from '@vicons/ionicons5';
+import {
+  AddOutline,
+  EllipsisHorizontalOutline,
+  RefreshOutline,
+} from '@vicons/ionicons5';
 import type { AgentSummary } from '@adh/protocol';
+import AgentDetailDrawer from '../components/AgentDetailDrawer.vue';
 import AgentKeyModal from '../components/AgentKeyModal.vue';
 import CreateAgentModal from '../components/CreateAgentModal.vue';
+import EditAgentModal from '../components/EditAgentModal.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { formatAgo } from '../utils/format';
@@ -28,6 +35,26 @@ const keyShow = ref(false);
 const keyName = ref('');
 const keyValue = ref('');
 const keyIsNew = ref(true);
+
+const detailShow = ref(false);
+const detailAgentId = ref<string | null>(null);
+
+const editShow = ref(false);
+const editingAgent = ref<AgentSummary | null>(null);
+
+function openDetail(row: AgentSummary): void {
+  detailAgentId.value = row.id;
+  detailShow.value = true;
+}
+
+function openEdit(row: AgentSummary): void {
+  editingAgent.value = row;
+  editShow.value = true;
+}
+
+function onUpdated(): void {
+  void refresh();
+}
 
 const now = ref(Date.now());
 let timer: number | undefined;
@@ -148,37 +175,51 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 150,
+    width: 112,
     render: (row) =>
-      row.builtin
-        ? h('span', { style: 'color:#5c5c66;font-size:12px' }, '随 server 自动管理')
-        : h(
-            NSpace,
-            { size: 0, justify: 'end' },
-            {
-              default: () => [
-                h(
-                  NButton,
+      h(
+        NSpace,
+        { size: 2, justify: 'end', align: 'center', wrap: false },
+        {
+          default: () => [
+            h(
+              NButton,
+              { size: 'tiny', quaternary: true, onClick: () => openDetail(row) },
+              { default: () => '详情' },
+            ),
+            row.builtin
+              ? null
+              : h(
+                  NDropdown,
                   {
-                    size: 'tiny',
-                    quaternary: true,
-                    onClick: () => void rotateKey(row),
+                    trigger: 'click',
+                    options: [
+                      { label: '编辑名称', key: 'edit' },
+                      { label: '重置 Key', key: 'rotate' },
+                      { type: 'divider', key: 'divider' },
+                      { label: '删除', key: 'delete' },
+                    ],
+                    onSelect: (key: string) => {
+                      if (key === 'edit') openEdit(row);
+                      else if (key === 'rotate') void rotateKey(row);
+                      else if (key === 'delete') confirmDelete(row);
+                    },
                   },
-                  { default: () => '重置 Key' },
-                ),
-                h(
-                  NButton,
                   {
-                    size: 'tiny',
-                    quaternary: true,
-                    type: 'error',
-                    onClick: () => confirmDelete(row),
+                    default: () =>
+                      h(
+                        NButton,
+                        { size: 'tiny', quaternary: true, circle: true },
+                        {
+                          icon: () =>
+                            h(NIcon, { component: EllipsisHorizontalOutline }),
+                        },
+                      ),
                   },
-                  { default: () => '删除' },
                 ),
-              ],
-            },
-          ),
+          ],
+        },
+      ),
   },
 ]);
 
@@ -256,6 +297,12 @@ function confirmDelete(row: AgentSummary): void {
       :agent-name="keyName"
       :agent-key="keyValue"
       :is-new="keyIsNew"
+    />
+    <AgentDetailDrawer v-model:show="detailShow" :agent-id="detailAgentId" />
+    <EditAgentModal
+      v-model:show="editShow"
+      :agent="editingAgent"
+      @updated="onUpdated"
     />
   </div>
 </template>

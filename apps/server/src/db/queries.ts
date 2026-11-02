@@ -50,6 +50,7 @@ export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
   return {
     id: row.id,
     name: row.name,
+    hostName: row.hostName ?? undefined,
     os: row.os,
     arch: row.arch,
     version: row.version,
@@ -57,6 +58,7 @@ export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
     keyPreview: maskKey(row.token),
     deviceCount,
     lastSeen: row.lastSeen,
+    createdAt: row.createdAt,
     online: false,
     pending: row.lastSeen === 0,
     builtin: row.id === BUILTIN_AGENT_ID,
@@ -140,6 +142,7 @@ export function createQueries(db: Db) {
       const row: AgentRow = {
         id: randomUUID(),
         name,
+        hostName: null,
         os: '',
         arch: '',
         version: '',
@@ -164,18 +167,20 @@ export function createQueries(db: Db) {
         db.update(agents)
           .set({
             name,
+            hostName: name,
             version,
             capabilities: JSON.stringify(capabilities),
             lastSeen: now,
           })
           .where(eq(agents.id, BUILTIN_AGENT_ID))
           .run();
-        return { ...existing, name, version, lastSeen: now };
+        return { ...existing, name, hostName: name, version, lastSeen: now };
       }
 
       const row: AgentRow = {
         id: BUILTIN_AGENT_ID,
         name,
+        hostName: name,
         os: process.platform === 'win32' ? 'windows' : process.platform,
         arch: process.arch,
         version,
@@ -194,6 +199,14 @@ export function createQueries(db: Db) {
       return this.getAgent(id);
     },
 
+    /** 重命名；调用方负责检查重名。 */
+    renameAgent(id: string, name: string): AgentRow | undefined {
+      const existing = this.getAgent(id);
+      if (!existing) return undefined;
+      db.update(agents).set({ name }).where(eq(agents.id, id)).run();
+      return { ...existing, name };
+    },
+
     deleteAgent(id: string): boolean {
       const existing = this.getAgent(id);
       if (!existing) return false;
@@ -202,9 +215,10 @@ export function createQueries(db: Db) {
     },
 
     updateAgentRuntime(id: string, info: AgentRuntimeInfo): void {
+      // name 是用户可编辑的显示名，这里只记录宿主机上报的原始名称
       db.update(agents)
         .set({
-          name: info.name,
+          hostName: info.name,
           os: info.os,
           arch: info.arch,
           version: info.version,

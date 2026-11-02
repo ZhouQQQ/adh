@@ -26,3 +26,8 @@ export function formatResolution(
 ): string {
   return resolution ? `${resolution.width}×${resolution.height}` : '—';
 }
+
+export function formatDateTime(timestamp: number): string {
+  if (!timestamp) return '—';
+  return new Date(timestamp).toLocaleString('zh-CN', { hour12: false });
+}

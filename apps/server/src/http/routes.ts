@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { BUILTIN_AGENT_ID, type AgentSummary, type DeviceSummary } from '@adh/protocol';
+import {
+  BUILTIN_AGENT_ID,
+  UpdateAgentBodySchema,
+  type AgentSummary,
+  type DeviceSummary,
+} from '@adh/protocol';
 import { SERVER_VERSION } from '../config.js';
 import type { Queries } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
@@ -66,6 +71,49 @@ export async function registerHttpRoutes(
     return deps.queries
       .listAgents()
       .map((agent) => withOnline(agent, deps.registry));
+  });
+
+  /** 详情：返回完整 Key，便于随时查看接入命令。 */
+  app.get('/api/agents/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const row = deps.queries.getAgent(id);
+    const summary = deps.queries.getAgentSummary(id);
+    if (!row || !summary) {
+      return reply.code(404).send({ error: 'agent not found' });
+    }
+    return { agent: withOnline(summary, deps.registry), key: row.token };
+  });
+
+  app.patch('/api/agents/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (id === BUILTIN_AGENT_ID) {
+      return reply
+        .code(400)
+        .send({ error: '内置 Agent 的名称跟随宿主机，无法修改' });
+    }
+
+    const parsed = UpdateAgentBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '名称长度需在 1-40 个字符之间' });
+    }
+
+    const existing = deps.queries.getAgent(id);
+    if (!existing) return reply.code(404).send({ error: 'agent not found' });
+
+    const name = parsed.data.name;
+    const conflict = deps.queries.findAgentByName(name);
+    if (conflict && conflict.id !== id) {
+      return reply.code(409).send({ error: '同名 Agent 已存在' });
+    }
+
+    const row = deps.queries.renameAgent(id, name);
+    if (!row) return reply.code(404).send({ error: 'agent not found' });
+
+    const summary = deps.queries.getAgentSummary(id);
+    if (!summary) return reply.code(500).send({ error: 'agent not found' });
+    const agent = withOnline(summary, deps.registry);
+    deps.hub.broadcast({ t: 'agent.updated', agent });
+    return { agent };
   });
 
   app.post('/api/agents', async (request, reply) => {

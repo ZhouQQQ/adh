@@ -9,6 +9,8 @@ import {
 export const agents = sqliteTable('agents', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  /** agent 上报的宿主机名，name 是用户可编辑的显示名。 */
+  hostName: text('host_name'),
   os: text('os').notNull(),
   arch: text('arch').notNull(),
   version: text('version').notNull(),

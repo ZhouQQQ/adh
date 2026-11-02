@@ -73,6 +73,8 @@ export type AgentRuntimeInfo = z.infer<typeof AgentRuntimeInfoSchema>;
 export const AgentSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  /** agent 上报的宿主机名称，只读。 */
+  hostName: z.string().optional(),
   os: z.string(),
   arch: z.string(),
   version: z.string(),
@@ -81,6 +83,7 @@ export const AgentSummarySchema = z.object({
   keyPreview: z.string(),
   deviceCount: z.number().int().default(0),
   lastSeen: z.number(),
+  createdAt: z.number().default(0),
   online: z.boolean(),
   /** 已创建但从未接入过。 */
   pending: z.boolean().default(false),
@@ -95,6 +98,18 @@ export const CreateAgentResponseSchema = z.object({
   key: z.string(),
 });
 export type CreateAgentResponse = z.infer<typeof CreateAgentResponseSchema>;
+
+/** 详情接口返回完整 key，便于随时查看接入命令。 */
+export const AgentDetailSchema = z.object({
+  agent: AgentSummarySchema,
+  key: z.string(),
+});
+export type AgentDetail = z.infer<typeof AgentDetailSchema>;
+
+export const UpdateAgentBodySchema = z.object({
+  name: z.string().trim().min(1).max(40),
+});
+export type UpdateAgentBody = z.infer<typeof UpdateAgentBodySchema>;
 
 /* ------------------------------------------------------------------ */
 /* Agent 主通道：agent -> server                                       */
