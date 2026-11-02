@@ -7,9 +7,3 @@ export function buildConnectCommand(key: string, serverPort: number): string {
   const host = window.location.hostname || '127.0.0.1';
   return `adh-agent connect --server ${protocol}://${host}:${serverPort} --key ${key}`;
 }
-
-export function buildSourceCommand(key: string, serverPort: number): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const host = window.location.hostname || '127.0.0.1';
-  return `pnpm --filter @adh/agent dev connect --server ${protocol}://${host}:${serverPort} --key ${key}`;
-}

@@ -17,9 +17,12 @@ import { baseName, normalizeDevicePath, parseLsOutput } from '../files/ls.js';
 import type { AgentRegistry } from '../registry.js';
 import { PackageStore, packageKind, type PackageKind } from '../storage/packages.js';
 import type { OssStore } from '../storage/oss.js';
+import { AppIconStore } from '../storage/app-icons.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { StreamManager } from '../stream/manager.js';
 import type { WebHub } from '../ws/web-hub.js';
+import AppInfoParser from 'app-info-parser';
+import sharp from 'sharp';
 
 export interface HttpDeps {
   queries: Queries;
@@ -27,7 +30,9 @@ export interface HttpDeps {
   hub: WebHub;
   thumbnails: ThumbnailStore;
   packages: PackageStore;
+  icons: AppIconStore;
   oss: OssStore | null;
+  agentDistDir: string;
   commands: CommandBus;
   streams: StreamManager;
   port: number;
@@ -77,25 +82,199 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-/** 从 dumpsys package 输出里提取 versionName。 */
-function parsePackageVersions(raw: string): Map<string, string> {
-  const versions = new Map<string, string>();
+interface PackageMeta {
+  version: string | null;
+  installedAt: string | null;
+  updatedAt: string | null;
+}
+
+/** 从 dumpsys package 输出里提取 versionName / 安装时间 / 更新时间。 */
+function parsePackageMeta(raw: string): Map<string, PackageMeta> {
+  const meta = new Map<string, PackageMeta>();
   let current: string | null = null;
 
   for (const line of raw.split(/\r?\n/)) {
     const header = /^\s*Package \[([^\]]+)\]/.exec(line);
     if (header) {
       current = header[1] ?? null;
+      if (current && !meta.has(current)) {
+        meta.set(current, { version: null, installedAt: null, updatedAt: null });
+      }
       continue;
     }
     if (!current) continue;
+
+    const entry = meta.get(current);
+    if (!entry) continue;
+
     const version = /^\s+versionName=(\S+)/.exec(line);
-    if (version) {
-      versions.set(current, version[1] ?? '');
-      current = null;
-    }
+    if (version && !entry.version) entry.version = version[1] ?? null;
+
+    const installed = /^\s+firstInstallTime=(.+)$/.exec(line);
+    if (installed && !entry.installedAt) entry.installedAt = installed[1]?.trim() ?? null;
+
+    const updated = /^\s+lastUpdateTime=(.+)$/.exec(line);
+    if (updated && !entry.updatedAt) entry.updatedAt = updated[1]?.trim() ?? null;
   }
-  return versions;
+  return meta;
+}
+
+/** 从 `pm list packages -f` + stat 的结果里取每个包 APK 大小。 */
+function parseAppSizes(raw: string): Map<string, number> {
+  const sizes = new Map<string, number>();
+  for (const line of raw.split(/\r?\n/)) {
+    const match = /^([A-Za-z0-9_.]+)\|(\d+)$/.exec(line.trim());
+    if (!match) continue;
+    sizes.set(match[1]!, Number(match[2]));
+  }
+  return sizes;
+}
+
+/** 从 dumpsys usagestats 的事件流里取每个包最后一次启动时间。 */
+function parseLastUsed(raw: string): Map<string, string> {
+  const times = new Map<string, string>();
+  for (const line of raw.split(/\r?\n/)) {
+    const match = /^\s+time="([^"]+)"\s+type=ACTIVITY_RESUMED\s+package=(\S+)/.exec(line);
+    if (!match) continue;
+    // 事件按时间顺序输出，后面覆盖前面即为最后一次
+    times.set(match[2]!, match[1]!);
+  }
+  return times;
+}
+
+/** 图标解析任务最多并行 2 个，避免同时拉多个大 APK 把 adb 占满。 */
+const MAX_ICON_JOBS = 2;
+let runningIcons = 0;
+const waitingIcons: Array<() => void> = [];
+
+async function enqueueIcon<T>(task: () => Promise<T>): Promise<T> {
+  if (runningIcons >= MAX_ICON_JOBS) {
+    await new Promise<void>((resolve) => waitingIcons.push(resolve));
+  }
+  runningIcons += 1;
+  try {
+    return await task();
+  } finally {
+    runningIcons -= 1;
+    waitingIcons.shift()?.();
+  }
+}
+
+/** adb pull 出 APK，解析图标并统一压成 96px PNG。 */
+async function fetchAppIcon(udid: string, packageName: string): Promise<Buffer | null> {
+  const pathResult = await runCommand(
+    'adb',
+    ['-s', udid, 'shell', 'pm', 'path', packageName],
+    15_000,
+  );
+  if (pathResult.code !== 0) return null;
+
+  const paths = pathResult.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('package:'))
+    .map((line) => line.slice('package:'.length));
+
+  const remote = paths.find((item) => item.endsWith('base.apk')) ?? paths[0];
+  if (!remote) return null;
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adh-icon-'));
+  const local = path.join(tempDir, 'base.apk');
+
+  try {
+    const pull = await runCommand('adb', ['-s', udid, 'pull', remote, local], 120_000);
+    if (pull.code !== 0) return null;
+
+    const parser = new AppInfoParser(local);
+    const info = await parser.parse();
+    const raw = info.icon ?? info.application?.icon;
+    if (typeof raw !== 'string' || raw.length === 0) return null;
+
+    const encoded = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
+    const bytes = Buffer.from(encoded, 'base64');
+    if (bytes.length === 0) return null;
+
+    return await sharp(bytes)
+      .resize(96, 96, {
+        fit: 'contain',
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png()
+      .toBuffer();
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+interface RuntimeStats {
+  battery: { level: number | null; charging: boolean; status: string };
+  memory: { totalMb: number; usedMb: number } | null;
+  storage: { totalMb: number; usedMb: number } | null;
+  wifi: { connected: boolean; ssid: string | null; enabled: boolean };
+}
+
+function parseBattery(raw: string): RuntimeStats['battery'] {
+  const level = Number(/^\s*level:\s*(\d+)/m.exec(raw)?.[1] ?? NaN);
+  const status = Number(/^\s*status:\s*(\d+)/m.exec(raw)?.[1] ?? NaN);
+  const powered =
+    /AC powered: true/.test(raw) ||
+    /USB powered: true/.test(raw) ||
+    /Wireless powered: true/.test(raw);
+
+  return {
+    level: Number.isFinite(level) ? level : null,
+    charging: status === 2 || status === 5 || powered,
+    status:
+      status === 5
+        ? 'full'
+        : status === 2
+          ? 'charging'
+          : status === 4
+            ? 'not-charging'
+            : status === 3
+              ? 'discharging'
+              : 'unknown',
+  };
+}
+
+function parseMemory(raw: string): RuntimeStats['memory'] {
+  const totalKb = Number(/MemTotal:\s+(\d+) kB/.exec(raw)?.[1] ?? NaN);
+  const availableKb = Number(/MemAvailable:\s+(\d+) kB/.exec(raw)?.[1] ?? NaN);
+  if (!Number.isFinite(totalKb) || !Number.isFinite(availableKb)) return null;
+  return {
+    totalMb: Math.round(totalKb / 1024),
+    usedMb: Math.round((totalKb - availableKb) / 1024),
+  };
+}
+
+function parseStorage(raw: string): RuntimeStats['storage'] {
+  const line = raw
+    .split(/\r?\n/)
+    .find((item) => /\s\/data\S*$/.test(item) && !item.startsWith('Filesystem'));
+  if (!line) return null;
+
+  const parts = line.trim().split(/\s+/);
+  const totalKb = Number(parts[1]);
+  const usedKb = Number(parts[2]);
+  if (!Number.isFinite(totalKb) || !Number.isFinite(usedKb)) return null;
+  return {
+    totalMb: Math.round(totalKb / 1024),
+    usedMb: Math.round(usedKb / 1024),
+  };
+}
+
+function parseWifi(raw: string): RuntimeStats['wifi'] {
+  const connected = /Wifi is connected to "([^"]+)"/.exec(raw);
+  if (connected) {
+    return { connected: true, ssid: connected[1] ?? null, enabled: true };
+  }
+  return {
+    connected: false,
+    ssid: null,
+    enabled: /Wifi is enabled/.test(raw),
+  };
 }
 
 function bearerToken(request: FastifyRequest): string | null {
@@ -155,6 +334,40 @@ export async function registerHttpRoutes(
       ? { driver: 'oss' as const, bucket: deps.oss.bucket, prefix: deps.oss.prefix }
       : { driver: 'local' as const },
   }));
+
+  /* ---------------------------------------------------------------- */
+  /* Agent 安装包                                                      */
+  /* ---------------------------------------------------------------- */
+
+  /** 下载最近一次 `pnpm package:agent` 生成的离线包。 */
+  app.get('/api/agent/download', async (_request, reply) => {
+    let name: string | null = null;
+    let newest = 0;
+    try {
+      for (const entry of fs.readdirSync(deps.agentDistDir)) {
+        if (!/^adh-agent-.*\.zip$/.test(entry)) continue;
+        const stat = fs.statSync(path.join(deps.agentDistDir, entry));
+        if (stat.mtimeMs > newest) {
+          newest = stat.mtimeMs;
+          name = entry;
+        }
+      }
+    } catch {
+      /* dist 目录还没生成 */
+    }
+
+    if (!name) {
+      return reply.code(404).send({
+        error: '还没有生成 Agent 安装包，请在服务器执行 pnpm package:agent',
+      });
+    }
+
+    const data = fs.readFileSync(path.join(deps.agentDistDir, name));
+    return reply
+      .header('content-type', 'application/zip')
+      .header('content-disposition', `attachment; filename="${name}"`)
+      .send(data);
+  });
 
   /* ---------------------------------------------------------------- */
   /* Agent 管理                                                        */
@@ -757,6 +970,50 @@ export async function registerHttpRoutes(
   });
 
   /* ---------------------------------------------------------------- */
+  /* 设备运行状态（电量 / 内存 / 存储 / WiFi）                          */
+  /* ---------------------------------------------------------------- */
+
+  app.get('/api/devices/:id/battery', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '仅支持 Android 设备' });
+    }
+
+    const result = await runCommand(
+      'adb',
+      ['-s', device.udid, 'shell', 'dumpsys', 'battery'],
+      10_000,
+    );
+    return { battery: parseBattery(result.stdout) };
+  });
+
+  app.get('/api/devices/:id/runtime', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '仅支持 Android 设备' });
+    }
+
+    const [battery, meminfo, df, wifi] = await Promise.all([
+      runCommand('adb', ['-s', device.udid, 'shell', 'dumpsys', 'battery'], 10_000),
+      runCommand('adb', ['-s', device.udid, 'shell', 'cat', '/proc/meminfo'], 10_000),
+      runCommand('adb', ['-s', device.udid, 'shell', 'df', '-k', '/data'], 10_000),
+      runCommand('adb', ['-s', device.udid, 'shell', 'cmd', 'wifi', 'status'], 10_000),
+    ]);
+
+    const stats: RuntimeStats = {
+      battery: parseBattery(battery.stdout),
+      memory: parseMemory(meminfo.stdout),
+      storage: parseStorage(df.stdout),
+      wifi: parseWifi(wifi.stdout),
+    };
+    return stats;
+  });
+
+  /* ---------------------------------------------------------------- */
   /* 设备应用（APK）管理                                                */
   /* ---------------------------------------------------------------- */
 
@@ -771,45 +1028,103 @@ export async function registerHttpRoutes(
 
     const { system } = request.query as { system?: string };
     const includeSystem = system === '1';
+    const flag = includeSystem ? '' : '-3 ';
 
-    const result = await runCommand(
-      'adb',
-      includeSystem
-        ? ['-s', device.udid, 'shell', 'pm', 'list', 'packages']
-        : ['-s', device.udid, 'shell', 'pm', 'list', 'packages', '-3'],
-      30_000,
-    );
-    if (result.code !== 0) {
-      return reply.code(400).send({ error: '读取应用列表失败' });
-    }
+    // 一条 shell 循环同时拿到包名和 APK 大小，避免 70 多次 adb 往返
+    const sizeScript =
+      `pm list packages ${flag}-f | while IFS= read -r line; do ` +
+      `case "$line" in package:*) ;; *) continue ;; esac; ` +
+      `pkg=\${line##*=}; p=\${line#package:}; p=\${p%=*}; ` +
+      `s=$(stat -c %s "$p" 2>/dev/null); echo "$pkg|$s"; done`;
 
-    const packages = result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith('package:'))
-      .map((line) => line.slice('package:'.length).trim())
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b));
-
-    // 版本号需要额外一次 dumpsys，失败就只返回包名
-    let versions = new Map<string, string>();
-    try {
-      const dump = await runCommand(
+    const [listResult, metaResult, usageResult] = await Promise.all([
+      runCommand('adb', ['-s', device.udid, 'shell', sizeScript], 120_000),
+      runCommand(
         'adb',
         ['-s', device.udid, 'shell', 'dumpsys', 'package', 'packages'],
         60_000,
+      ),
+      runCommand('adb', ['-s', device.udid, 'shell', 'dumpsys', 'usagestats'], 30_000),
+    ]);
+
+    const sizes =
+      listResult.code === 0 ? parseAppSizes(listResult.stdout) : new Map<string, number>();
+    const meta: Map<string, PackageMeta> =
+      metaResult.code === 0 ? parsePackageMeta(metaResult.stdout) : new Map();
+    const lastUsed =
+      usageResult.code === 0 ? parseLastUsed(usageResult.stdout) : new Map<string, string>();
+
+    let packages = [...sizes.keys()];
+    if (packages.length === 0) {
+      // 个别 ROM 不支持上面的循环，退回只列包名
+      const fallback = await runCommand(
+        'adb',
+        ['-s', device.udid, 'shell', 'pm', 'list', 'packages', ...(includeSystem ? [] : ['-3'])],
+        30_000,
       );
-      if (dump.code === 0) versions = parsePackageVersions(dump.stdout);
-    } catch {
-      /* 部分 ROM 限制 dumpsys，忽略 */
+      if (fallback.code !== 0) {
+        return reply.code(400).send({ error: '读取应用列表失败' });
+      }
+      packages = fallback.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('package:'))
+        .map((line) => line.slice('package:'.length).trim())
+        .filter(Boolean);
     }
+    packages.sort((a, b) => a.localeCompare(b));
 
     return {
       packages: packages.map((name) => ({
         name,
-        version: versions.get(name) ?? null,
+        version: meta.get(name)?.version ?? null,
+        size: sizes.get(name) ?? null,
+        installedAt: meta.get(name)?.installedAt ?? null,
+        lastUsedAt: lastUsed.get(name) ?? null,
       })),
     };
+  });
+
+  /** 从设备拉取 APK、解析 resources.arsc 里的图标，缓存后返回 PNG。 */
+  app.get('/api/devices/:id/apps/icon', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { package: packageName, version } = request.query as {
+      package?: string;
+      version?: string;
+    };
+    if (!packageName || !/^[A-Za-z0-9_.]+$/.test(packageName)) {
+      return reply.code(400).send({ error: '缺少有效的 package' });
+    }
+
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '仅支持 Android 设备' });
+    }
+
+    const key = deps.icons.key(packageName, version ?? null);
+    await deps.icons.ensureLocal(key);
+
+    let data = deps.icons.read(key);
+    if (!data) {
+      // 解析图标要拉整个 APK，串行排队，避免一次打开列表把 adb 打满
+      data = await enqueueIcon(async () => {
+        const cached = deps.icons.read(key);
+        if (cached) return cached;
+        const fetched = await fetchAppIcon(device.udid, packageName);
+        if (fetched) deps.icons.save(key, fetched);
+        return fetched;
+      });
+    }
+
+    if (!data) {
+      return reply.code(404).send({ error: '没有解析到图标' });
+    }
+
+    return reply
+      .header('content-type', 'image/png')
+      .header('cache-control', 'public, max-age=86400')
+      .send(data);
   });
 
   /** 把设备上已安装的 APK 导出到浏览器。 */
@@ -894,16 +1209,6 @@ export async function registerHttpRoutes(
     deps.thumbnails.remove(id);
     deps.hub.broadcast({ t: 'device.removed', deviceId: id });
     return reply.code(204).send();
-  });
-
-  /** 清空所有离线设备记录。 */
-  app.post('/api/devices/cleanup', async () => {
-    const removed = deps.queries.purgeOfflineDevices();
-    for (const device of removed) {
-      deps.thumbnails.remove(device.id);
-      deps.hub.broadcast({ t: 'device.removed', deviceId: device.id });
-    }
-    return { removed: removed.length };
   });
 
   /** agent 用自身 key 上传设备缩略图。 */

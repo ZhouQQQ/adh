@@ -6,13 +6,13 @@
 
 pnpm workspace，5 个包：
 
-| 路径 | 职责 |
-| --- | --- |
-| `apps/server` | Fastify + SQLite + WebSocket，同时托管 web 构建产物 |
-| `apps/agent` | 宿主机守护进程：设备发现、缩略图上传、scrcpy 流 |
-| `apps/web` | Vue 3 + Naive UI（**不是 React**），shadcn 浅色风格 |
-| `packages/protocol` | 两端共享的 zod 消息 schema、二进制帧、H.264 工具 |
-| `packages/device-host` | adb / scrcpy 采集能力，server 与 agent 共用 |
+| 路径                     | 职责                                                      |
+| ------------------------ | --------------------------------------------------------- |
+| `apps/server`          | Fastify + SQLite + WebSocket，同时托管 web 构建产物       |
+| `apps/agent`           | 宿主机守护进程：设备发现、缩略图上传、scrcpy 流           |
+| `apps/web`             | Vue 3 + Naive UI（**不是 React**），shadcn 浅色风格 |
+| `packages/protocol`    | 两端共享的 zod 消息 schema、二进制帧、H.264 工具          |
+| `packages/device-host` | adb / scrcpy 采集能力，server 与 agent 共用               |
 
 `packages/*` 的 `package.json` `exports` 直接指向 `src/*.ts`，**没有构建产物**，靠各 app tsconfig 的 `paths` + tsx 实时编译。
 
@@ -39,9 +39,9 @@ pnpm package:agent
 - **改 `packages/*` 后要重启 server / agent**。`tsx watch` 只监听 app 自己的 `src`，共享包改动不会触发重载，容易出现"改了没生效"。
 - **数据库迁移手写 SQL**，放在 `apps/server/src/db/migrations/NNNN_*.sql`，启动时按文件名排序各执行一次并记入 `adh_migrations`。不要修改已提交的迁移。
 - **所有表名以 `adh_` 开头**（`adh_agents` / `adh_devices` / `adh_packages` / `adh_migrations`），新增表同样遵守。
-- **文件存储**：安装包与设备缩略图默认落 `.data/`，配置 `ADH_OSS_*`（见 `.env.example`）后同步到 `oss://<bucket>/<prefix>/packages` 和 `.../thumbnails`，本地保留缓存供 adb 安装与兜底读取。
+- **文件存储**：安装包、设备缩略图、应用图标默认落 `.data/`，配置 `ADH_OSS_*`（见 `.env.example`）后同步到 `oss://<bucket>/<prefix>/packages`、`.../thumbnails`、`.../app-icons`，本地保留缓存供 adb 安装与兜底读取。
 - **Agent 有两个名字**：`name` 是用户可编辑的显示名，`hostName` 是 agent 上报的宿主机名。`updateAgentRuntime()` 故意不覆盖 `name`。
-- **设备从 adb 消失时标记 offline，不删记录**；清理走 `POST /api/devices/cleanup` 或 `DELETE /api/devices/:id`。
+- **设备从 adb 消失时标记 offline，不删记录**；清理走 `DELETE /api/devices/:id`。
 - **设备名优先取厂商市场名称**：`ro.vivo.market.name` → `ro.product.marketname` → OPPO / `ro.config.marketing_name` 等，取不到才回退到 `ro.product.model`。型号代码单独存在 `model` 字段。
 - **`builtin-local` 是 server 内置 Agent**（进程内直连本机 adb），删除 / 重置 Key 接口返回 400，前端不展示这些按钮。
 - 前端 `api.ts` 的 `request()` **只在有 body 时设置 `content-type`**。否则 DELETE 会被 Fastify 判为 400 `Body cannot be empty`。
@@ -63,7 +63,3 @@ pnpm package:agent
 - 投屏会话管理：`apps/server/src/stream/manager.ts`、`apps/server/src/ws/stream.ts`
 - Web 播放器：`apps/web/src/components/DevicePlayer.vue`
 - 主题（shadcn 浅色）：`apps/web/src/theme.ts`，**不要再传 `darkTheme`**
-
-## 验证
-
-改完先跑 `pnpm -r typecheck`。涉及投屏的改动需要真机：`adb devices` 有设备时，用内置 Agent 打开设备卡片「实时控制」即可端到端验证。

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { NButton, NIcon, NTag } from 'naive-ui';
-import { PhonePortraitOutline } from '@vicons/ionicons5';
+import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
+import DeviceBattery from './DeviceBattery.vue';
 import { formatMemory, formatResolution, formatAgo } from '../utils/format';
 
 const props = defineProps<{
@@ -72,14 +73,13 @@ const cpuText = computed(() => {
         <span v-if="selected" class="check">✓</span>
       </button>
 
-      <div class="placeholder">
-        <n-icon :size="30"><PhonePortraitOutline /></n-icon>
-        <span>{{ device.platform === 'android' ? 'Android' : 'iOS' }}</span>
+      <div class="placeholder" :class="device.platform">
+        <n-icon :size="48">
+          <LogoAndroid v-if="device.platform === 'android'" />
+          <LogoApple v-else />
+        </n-icon>
       </div>
 
-      <n-tag class="platform-tag" size="small" :bordered="false" round>
-        {{ device.platform === 'android' ? 'ANDROID' : 'iOS' }}
-      </n-tag>
       <n-tag
         v-if="device.inUse"
         class="usage-tag"
@@ -90,6 +90,13 @@ const cpuText = computed(() => {
       >
         使用中
       </n-tag>
+      <div class="battery-tag">
+        <DeviceBattery
+          :device-id="device.id"
+          :online="device.status === 'online'"
+        />
+      </div>
+
       <n-tag
         class="status-tag"
         size="small"
@@ -192,30 +199,33 @@ const cpuText = computed(() => {
 
 .placeholder {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   color: var(--border-strong);
-  font-size: 11px;
 }
 
-.platform-tag {
-  position: absolute;
-  top: 8px;
-  left: 34px;
-  font-size: 10px;
-  letter-spacing: 0.4px;
-  background: rgba(255, 255, 255, 0.85);
-  color: var(--text-dim);
-  backdrop-filter: blur(6px);
-  border: 1px solid var(--border);
+.placeholder.android {
+  color: #34a853;
+  opacity: 0.85;
+}
+
+.placeholder.ios {
+  color: #18181b;
+  opacity: 0.8;
 }
 
 .status-tag {
   position: absolute;
+  bottom: 8px;
+  left: 8px;
+  backdrop-filter: blur(6px);
+}
+
+.battery-tag {
+  position: absolute;
   top: 8px;
   right: 8px;
-  backdrop-filter: blur(6px);
+  z-index: 2;
 }
 
 .usage-tag {

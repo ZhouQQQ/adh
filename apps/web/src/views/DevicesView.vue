@@ -8,7 +8,6 @@ import {
   NIcon,
   NInput,
   NTag,
-  useDialog,
   useMessage,
 } from 'naive-ui';
 import { SearchOutline } from '@vicons/ionicons5';
@@ -21,7 +20,6 @@ import { memoryGb } from '../utils/format';
 
 const router = useRouter();
 const { devices, agents, refresh } = useFleet();
-const dialog = useDialog();
 const message = useMessage();
 
 const keyword = ref('');
@@ -313,9 +311,7 @@ function removeFilter(key: string): void {
   }
 }
 
-const offlineCount = computed(
-  () => devices.value.filter((device) => device.status === 'offline').length,
-);
+
 
 /** 选中的选项被拔掉后自动回到「全部」，避免筛选结果永远是空。 */
 watch(devices, () => {
@@ -381,24 +377,7 @@ function batchControl(): void {
   void router.push(`/devices/batch?ids=${selectedIds.value.join(',')}`);
 }
 
-function cleanupOffline(): void {
-  if (offlineCount.value === 0) return;
-  dialog.warning({
-    title: '清理离线设备',
-    content: `将移除 ${offlineCount.value} 台离线设备记录。设备重新接入后会自动再次出现。`,
-    positiveText: '清理',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      try {
-        const result = await api.cleanupOfflineDevices();
-        message.success(`已清理 ${result.removed} 台离线设备`);
-        await refresh();
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : '清理失败');
-      }
-    },
-  });
-}
+
 
 function resetFilters(): void {
   keyword.value = '';
@@ -436,14 +415,6 @@ function resetFilters(): void {
 
         <div class="header-actions">
           <button type="button" class="opt" @click="resetFilters">重置</button>
-          <button
-            type="button"
-            class="opt"
-            :disabled="offlineCount === 0"
-            @click="cleanupOffline"
-          >
-            清理离线{{ offlineCount > 0 ? ` (${offlineCount})` : '' }}
-          </button>
           <button type="button" class="opt" @click="refresh">刷新</button>
           <span class="result-count">
             {{ filtered.length }} / {{ devices.length }}

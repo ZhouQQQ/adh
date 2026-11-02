@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, h, onMounted } from 'vue';
-import { RouterLink, RouterView, useRoute } from 'vue-router';
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import {
+  NButton,
   NIcon,
   NLayout,
   NLayoutContent,
@@ -9,11 +10,24 @@ import {
   NMenu,
   NTag,
 } from 'naive-ui';
-import { AppsOutline, PhonePortraitOutline, ServerOutline } from '@vicons/ionicons5';
+import {
+  AppsOutline,
+  ArrowBackOutline,
+  PhonePortraitOutline,
+  ServerOutline,
+} from '@vicons/ionicons5';
 import { startFleet, useFleet } from '../stores/fleet';
 
 const route = useRoute();
+const router = useRouter();
 const { agents, devices, connection } = useFleet();
+
+/** 页面左上角的返回箭头，由路由 meta.backTo 决定目标。 */
+const backTo = computed(() => (route.meta.backTo as string | undefined) ?? null);
+
+function goBack(): void {
+  if (backTo.value) void router.push(backTo.value);
+}
 
 onMounted(() => startFleet());
 
@@ -78,7 +92,21 @@ const connectionMeta = computed(() => {
 
     <n-layout class="app-main">
       <header v-if="!route.meta.fullscreen" class="page-header">
-        <h1>{{ (route.meta.title as string) ?? '' }}</h1>
+        <div class="header-left">
+          <n-button
+            v-if="backTo"
+            quaternary
+            circle
+            size="small"
+            title="返回"
+            @click="goBack"
+          >
+            <template #icon>
+              <n-icon><ArrowBackOutline /></n-icon>
+            </template>
+          </n-button>
+          <h1>{{ (route.meta.title as string) ?? '' }}</h1>
+        </div>
         <div class="summary">
           <n-tag :type="connectionMeta.type" size="small" :bordered="false" round>
             {{ connectionMeta.text }}
@@ -188,6 +216,13 @@ const connectionMeta = computed(() => {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .summary {

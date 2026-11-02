@@ -5,6 +5,7 @@ import {
   NEmpty,
   NInput,
   NModal,
+  NSelect,
   NSpin,
   NTag,
   useDialog,
@@ -20,6 +21,7 @@ const loading = ref(false);
 const uploading = ref(false);
 const uploadingName = ref('');
 const keyword = ref('');
+const kindFilter = ref<'all' | 'apk' | 'ipa'>('all');
 const dragging = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 
@@ -41,10 +43,11 @@ const counts = computed(() => ({
 
 const filtered = computed(() => {
   const text = keyword.value.trim().toLowerCase();
-  if (!text) return packages.value;
-  return packages.value.filter((item) =>
-    item.name.toLowerCase().includes(text),
-  );
+  return packages.value.filter((item) => {
+    if (kindFilter.value !== 'all' && item.kind !== kindFilter.value) return false;
+    if (!text) return true;
+    return item.name.toLowerCase().includes(text);
+  });
 });
 
 function formatSize(size: number): string {
@@ -202,6 +205,16 @@ void load();
         placeholder="搜索文件名"
         class="search"
       />
+      <n-select
+        v-model:value="kindFilter"
+        size="small"
+        class="kind-filter"
+        :options="[
+          { label: '全部类型', value: 'all' },
+          { label: '仅 APK', value: 'apk' },
+          { label: '仅 IPA', value: 'ipa' },
+        ]"
+      />
       <span class="stats">
         {{ packages.length }} 个 · APK {{ counts.apk }} · IPA {{ counts.ipa }}
       </span>
@@ -310,6 +323,10 @@ void load();
 
 .search {
   width: 240px;
+}
+
+.kind-filter {
+  width: 120px;
 }
 
 .stats {

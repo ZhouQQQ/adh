@@ -80,6 +80,8 @@ Key 会保存在宿主机的 `~/.adh/agent.json`，之后重启 agent 只需带 
 
 #### 不发布到 npm 也能装：离线分发包
 
+完整步骤见 [`docs/agent-install.md`](docs/agent-install.md)。
+
 在开发机执行：
 
 ```bash

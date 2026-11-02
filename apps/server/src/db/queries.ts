@@ -385,22 +385,6 @@ export function createQueries(db: Db) {
       return rowToDevice({ ...existing, status: 'offline' });
     },
 
-    /** 清理指定 agent 下的离线设备，返回被删除的设备。 */
-    purgeOfflineDevices(agentId?: string): DeviceSummary[] {
-      const rows = agentId
-        ? db
-            .select()
-            .from(devices)
-            .where(and(eq(devices.agentId, agentId), eq(devices.status, 'offline')))
-            .all()
-        : db.select().from(devices).where(eq(devices.status, 'offline')).all();
-      if (rows.length === 0) return [];
-      for (const row of rows) {
-        db.delete(devices).where(eq(devices.id, row.id)).run();
-      }
-      return rows.map(rowToDevice);
-    },
-
     markAgentDevicesOffline(agentId: string): DeviceSummary[] {
       const rows = db.select().from(devices).where(eq(devices.agentId, agentId)).all();
       if (rows.length === 0) return [];

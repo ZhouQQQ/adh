@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { NButton, NEmpty, NSelect, NSwitch, NTag, useMessage } from 'naive-ui';
 import type { ViewerToStreamMessage } from '@adh/protocol';
 import DevicePlayer from '../components/DevicePlayer.vue';
@@ -9,7 +9,6 @@ import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 
 const route = useRoute();
-const router = useRouter();
 const message = useMessage();
 const { devices } = useFleet();
 
@@ -163,16 +162,11 @@ function removeDevice(id: string): void {
 function onControllerChange(deviceId: string, value: boolean): void {
   controllers.value = { ...controllers.value, [deviceId]: value };
 }
-
-function goBack(): void {
-  void router.push('/devices');
-}
 </script>
 
 <template>
   <div class="batch-page">
     <header class="batch-toolbar">
-      <span class="batch-title">批量控制</span>
       <n-select
         v-model:value="selectedIds"
         class="device-picker"
@@ -198,7 +192,6 @@ function goBack(): void {
       >
         批量安装
       </n-button>
-      <n-button quaternary size="small" @click="goBack">返回设备列表</n-button>
     </header>
 
     <div v-if="selectedDevices.length > 0" class="batch-grid">
@@ -268,11 +261,6 @@ function goBack(): void {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.batch-title {
-  font-size: 14px;
-  font-weight: 600;
 }
 
 .device-picker {

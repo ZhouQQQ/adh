@@ -11,7 +11,7 @@ import {
   useDialog,
   useMessage,
 } from 'naive-ui';
-import { api } from '../api';
+import { api, type DeviceApp } from '../api';
 
 const props = defineProps<{
   show: boolean;
@@ -24,12 +24,13 @@ const emit = defineEmits<{ 'update:show': [value: boolean] }>();
 const message = useMessage();
 const dialog = useDialog();
 
-const apps = ref<{ name: string; version: string | null }[]>([]);
+const apps = ref<DeviceApp[]>([]);
 const loading = ref(false);
 const includeSystem = ref(false);
 const keyword = ref('');
+const brokenIcons = ref<Record<string, boolean>>({});
 
-const title = computed(() => `已装应用 · ${props.deviceName}`);
+const title = computed(() => `应用管理 · ${props.deviceName}`);
 
 const filtered = computed(() => {
   const text = keyword.value.trim().toLowerCase();
@@ -44,7 +45,11 @@ const filtered = computed(() => {
 watch(
   () => props.show,
   (visible) => {
-    if (visible) void loadApps();
+    if (!visible) return;
+    // 每次打开都回到「只显示第三方应用」
+    includeSystem.value = false;
+    brokenIcons.value = {};
+    void loadApps();
   },
 );
 
@@ -120,6 +125,23 @@ function iconText(packageName: string): string {
   return appLabel(packageName).charAt(0).toUpperCase();
 }
 
+function iconUrl(pkg: DeviceApp): string {
+  return api.deviceAppIconUrl(props.deviceId, pkg.name, pkg.version);
+}
+
+function formatSize(size: number | null): string {
+  if (!size) return '—';
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
+  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+/** 设备返回的是 "2026-11-02 14:05:03"，展示到分钟即可。 */
+function formatDate(value: string | null): string {
+  if (!value) return '—';
+  return value.length >= 16 ? value.slice(0, 16) : value;
+}
+
 async function loadApps(): Promise<void> {
   if (!props.deviceId) return;
   loading.value = true;
@@ -192,13 +214,28 @@ function exportApp(packageName: string): void {
             class="empty"
           />
           <div v-for="pkg in filtered" :key="pkg.name" class="row">
-            <div class="app-icon" :style="{ background: iconColor(pkg.name) }">
-              {{ iconText(pkg.name) }}
+            <div class="app-icon-wrap">
+              <div class="app-icon" :style="{ background: iconColor(pkg.name) }">
+                {{ iconText(pkg.name) }}
+              </div>
+              <img
+                v-if="!brokenIcons[pkg.name]"
+                class="app-icon-img"
+                :src="iconUrl(pkg)"
+                alt=""
+                loading="lazy"
+                @error="brokenIcons[pkg.name] = true"
+              />
             </div>
             <div class="info">
               <span class="name">{{ appLabel(pkg.name) }}</span>
               <span class="meta">
                 {{ pkg.name }}<template v-if="pkg.version"> · v{{ pkg.version }}</template>
+                · {{ formatSize(pkg.size) }}
+              </span>
+              <span class="meta">
+                安装 {{ formatDate(pkg.installedAt) }} · 最后使用
+                {{ formatDate(pkg.lastUsedAt) }}
               </span>
             </div>
             <div class="actions">
@@ -266,10 +303,16 @@ function exportApp(packageName: string): void {
   background: var(--surface-2);
 }
 
-.app-icon {
+.app-icon-wrap {
+  position: relative;
   flex: none;
   width: 34px;
   height: 34px;
+}
+
+.app-icon {
+  position: absolute;
+  inset: 0;
   border-radius: 9px;
   display: grid;
   place-items: center;
@@ -277,6 +320,15 @@ function exportApp(packageName: string): void {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+.app-icon-img {
+  position: absolute;
+  inset: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  object-fit: contain;
 }
 
 .info {

@@ -19,7 +19,7 @@ export const router = createRouter({
       path: '/devices/batch',
       name: 'batch-control',
       component: BatchControlView,
-      meta: { title: '批量控制' },
+      meta: { title: '批量控制', backTo: '/devices' },
     },
     {
       path: '/devices/:id/control',

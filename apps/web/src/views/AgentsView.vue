@@ -14,7 +14,11 @@ import {
 } from 'naive-ui';
 import {
   AddOutline,
+  DownloadOutline,
   EllipsisHorizontalOutline,
+  LogoApple,
+  LogoTux,
+  LogoWindows,
   RefreshOutline,
 } from '@vicons/ionicons5';
 import type { AgentSummary } from '@adh/protocol';
@@ -24,7 +28,7 @@ import CreateAgentModal from '../components/CreateAgentModal.vue';
 import EditAgentModal from '../components/EditAgentModal.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
-import { formatAgo } from '../utils/format';
+import { formatAgo, formatDateTime } from '../utils/format';
 
 const { agents, refresh } = useFleet();
 const message = useMessage();
@@ -77,6 +81,25 @@ function onCreate(agent: AgentSummary, key: string): void {
   void refresh();
 }
 
+function downloadAgent(): void {
+  window.location.href = api.agentPackageUrl();
+}
+
+/** 节点宿主机系统：图标 + 名称，一眼分辨 Windows / macOS / Linux。 */
+function osMeta(os?: string | null) {
+  switch (os) {
+    case 'windows':
+      return { label: 'Windows', icon: LogoWindows };
+    case 'darwin':
+    case 'macos':
+      return { label: 'macOS', icon: LogoApple };
+    case 'linux':
+      return { label: 'Linux', icon: LogoTux };
+    default:
+      return { label: '未知', icon: null };
+  }
+}
+
 const columns = computed<DataTableColumns<AgentSummary>>(() => [
   {
     title: '名称',
@@ -118,35 +141,37 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     },
   },
   {
-    title: '运行环境',
-    key: 'runtime',
-    width: 170,
-    render: (row) =>
-      row.os
-        ? `${row.os} / ${row.arch} · v${row.version}`
-        : h('span', { style: 'color:var(--text-faint)' }, '尚未接入'),
+    title: '系统',
+    key: 'os',
+    width: 120,
+    render: (row) => {
+      if (!row.os) {
+        return h('span', { style: 'color:var(--text-faint)' }, '尚未接入');
+      }
+      const meta = osMeta(row.os);
+      return h(
+        NSpace,
+        { size: 6, align: 'center', wrap: false },
+        {
+          default: () => [
+            meta.icon
+              ? h(
+                  NIcon,
+                  { size: 16, color: 'var(--text-dim)' },
+                  { default: () => h(meta.icon!) },
+                )
+              : null,
+            h('span', null, meta.label),
+          ],
+        },
+      );
+    },
   },
   {
-    title: '能力',
-    key: 'capabilities',
-    width: 150,
-    render: (row) =>
-      row.capabilities.length === 0
-        ? '—'
-        : h(
-            NSpace,
-            { size: 4 },
-            {
-              default: () =>
-                row.capabilities.map((capability) =>
-                  h(
-                    NTag,
-                    { size: 'tiny', bordered: false },
-                    { default: () => capability },
-                  ),
-                ),
-            },
-          ),
+    title: '版本',
+    key: 'version',
+    width: 84,
+    render: (row) => (row.version ? `v${row.version}` : '—'),
   },
   {
     title: '设备数',
@@ -170,7 +195,12 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     title: '最后心跳',
     key: 'lastSeen',
     width: 110,
-    render: (row) => formatAgo(row.lastSeen, now.value),
+    render: (row) =>
+      h(
+        'span',
+        { title: formatDateTime(row.lastSeen) },
+        formatAgo(row.lastSeen, now.value),
+      ),
   },
   {
     title: '操作',
@@ -272,6 +302,12 @@ function confirmDelete(row: AgentSummary): void {
           <template #icon>
             <n-icon :component="RefreshOutline" />
           </template>
+        </n-button>
+        <n-button size="small" @click="downloadAgent">
+          <template #icon>
+            <n-icon :component="DownloadOutline" />
+          </template>
+          下载 Agent
         </n-button>
         <n-button type="primary" size="small" @click="showCreate = true">
           <template #icon>

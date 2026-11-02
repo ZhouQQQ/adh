@@ -13,6 +13,7 @@ import { LocalAgent } from './local-agent.js';
 import { createLogger } from './log.js';
 import { AgentRegistry } from './registry.js';
 import { PackageStore } from './storage/packages.js';
+import { AppIconStore } from './storage/app-icons.js';
 import { OssStore } from './storage/oss.js';
 import { ThumbnailStore } from './storage/thumbnails.js';
 import { StreamManager } from './stream/manager.js';
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
   const oss = config.oss ? new OssStore(config.oss) : null;
   const thumbnails = new ThumbnailStore(config.thumbnailDir, oss);
   const packages = new PackageStore(config.packageDir, sqlite, oss);
+  const icons = new AppIconStore(config.appIconDir, oss);
   const commands = new CommandBus(registry);
   const streams = new StreamManager({ queries, registry, hub, logger });
 
@@ -80,7 +82,9 @@ async function main(): Promise<void> {
     hub,
     thumbnails,
     packages,
+    icons,
     oss,
+    agentDistDir: config.agentDistDir,
     commands,
     streams,
     port: config.port,

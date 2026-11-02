@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { NAlert, NButton, NIcon, NModal, NSpace, useMessage } from 'naive-ui';
-import { CheckmarkOutline, CopyOutline } from '@vicons/ionicons5';
+import {
+  CheckmarkOutline,
+  CopyOutline,
+  DownloadOutline,
+} from '@vicons/ionicons5';
 import { api } from '../api';
 import { copyText } from '../utils/clipboard';
-import { buildConnectCommand, buildSourceCommand } from '../utils/command';
+import { buildConnectCommand } from '../utils/command';
 
 const props = defineProps<{
   show: boolean;
@@ -17,7 +21,7 @@ const emit = defineEmits<{ 'update:show': [value: boolean] }>();
 
 const message = useMessage();
 const serverPort = ref(8080);
-const copied = ref<'command' | 'source' | null>(null);
+const copied = ref<'command' | null>(null);
 
 watch(
   () => props.show,
@@ -36,11 +40,12 @@ watch(
 const command = computed(() =>
   buildConnectCommand(props.agentKey, serverPort.value),
 );
-const sourceCommand = computed(() =>
-  buildSourceCommand(props.agentKey, serverPort.value),
-);
 
-async function copy(value: string, which: 'command' | 'source'): Promise<void> {
+function downloadAgent(): void {
+  window.location.href = api.agentPackageUrl();
+}
+
+async function copy(value: string, which: 'command'): Promise<void> {
   const ok = await copyText(value);
   if (ok) {
     copied.value = which;
@@ -87,22 +92,26 @@ function close(): void {
       </div>
 
       <div class="field">
-        <span class="label">当前源码运行方式</span>
-        <div class="code-row">
-          <pre class="code muted">{{ sourceCommand }}</pre>
-          <n-button size="small" quaternary @click="copy(sourceCommand, 'source')">
+        <span class="label">还没安装 Agent？</span>
+        <div class="install-row">
+          <n-button size="small" @click="downloadAgent">
             <template #icon>
-              <n-icon
-                :component="copied === 'source' ? CheckmarkOutline : CopyOutline"
-              />
+              <n-icon :component="DownloadOutline" />
             </template>
+            下载安装包
           </n-button>
+          <span class="install-hint">
+            目标机需要 Node.js ≥ 22 与 adb；iOS 还需要 go-ios
+          </span>
         </div>
       </div>
 
       <div class="steps">
-        <p>1. 在宿主机安装 Node.js ≥ 22 与 Android Platform Tools（adb）</p>
-        <p>2. 先运行 <code>pnpm --filter @adh/agent dev doctor</code> 确认环境</p>
+        <p>1. 解压安装包到任意目录</p>
+        <p>
+          2. Windows 运行 <code>adh-agent.cmd doctor</code>，Linux / macOS 运行
+          <code>./adh-agent.sh doctor</code>
+        </p>
         <p>3. 执行上面的命令，设备会在 5 秒内出现在「设备管理」</p>
       </div>
     </div>
@@ -155,14 +164,21 @@ function close(): void {
   overflow-x: auto;
 }
 
-.code.muted {
-  color: var(--text-dim);
-}
-
 .steps {
   font-size: 12px;
   color: var(--text-dim);
   line-height: 1.9;
+}
+
+.install-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.install-hint {
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
 .steps p {

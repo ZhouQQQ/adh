@@ -22,6 +22,22 @@ export interface PackageRecord {
   kind: PackageKind;
 }
 
+export interface DeviceApp {
+  name: string;
+  version: string | null;
+  /** APK 大小（字节），拿不到为 null */
+  size: number | null;
+  installedAt: string | null;
+  lastUsedAt: string | null;
+}
+
+export interface DeviceRuntime {
+  battery: { level: number | null; charging: boolean; status: string };
+  memory: { totalMb: number; usedMb: number } | null;
+  storage: { totalMb: number; usedMb: number } | null;
+  wifi: { connected: boolean; ssid: string | null; enabled: boolean };
+}
+
 export interface ServerInfo {
   version: string;
   port: number;
@@ -133,8 +149,20 @@ export const api = {
     return request(`/api/devices/${id}`, { method: 'DELETE' });
   },
 
-  cleanupOfflineDevices(): Promise<{ removed: number }> {
-    return request('/api/devices/cleanup', { method: 'POST' });
+  /** 设备实时运行状态（电量 / 内存 / 存储 / WiFi）。 */
+  getDeviceRuntime(deviceId: string): Promise<DeviceRuntime> {
+    return request(`/api/devices/${deviceId}/runtime`);
+  },
+
+  /** 只看电量，设备卡片用。 */
+  getDeviceBattery(
+    deviceId: string,
+  ): Promise<{ battery: DeviceRuntime['battery'] }> {
+    return request(`/api/devices/${deviceId}/battery`);
+  },
+
+  agentPackageUrl(): string {
+    return '/api/agent/download';
   },
 
   /** 创建投屏会话。 */
@@ -208,13 +236,23 @@ export const api = {
   listDeviceApps(
     deviceId: string,
     includeSystem = false,
-  ): Promise<{ packages: { name: string; version: string | null }[] }> {
+  ): Promise<{ packages: DeviceApp[] }> {
     const query = includeSystem ? '?system=1' : '';
     return request(`/api/devices/${deviceId}/apps${query}`);
   },
 
   deviceAppExportUrl(deviceId: string, packageName: string): string {
     return `/api/devices/${deviceId}/apps/export?package=${encodeURIComponent(packageName)}`;
+  },
+
+  deviceAppIconUrl(
+    deviceId: string,
+    packageName: string,
+    version: string | null,
+  ): string {
+    const query = new URLSearchParams({ package: packageName });
+    if (version) query.set('version', version);
+    return `/api/devices/${deviceId}/apps/icon?${query.toString()}`;
   },
 
   uninstallDeviceApp(

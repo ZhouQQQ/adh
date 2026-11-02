@@ -4,6 +4,7 @@ import {
   SCRCPY_KEYCODE,
   injectKeycode,
   injectTouch,
+  expandPanel,
   rotateDevice,
   setClipboard,
   setScreenPowerMode,
@@ -31,6 +32,8 @@ export class ScrcpyControlTranslator {
         return [rotateDevice()];
       case 'screen':
         return [setScreenPowerMode(message.on)];
+      case 'panel':
+        return [expandPanel(message.panel)];
       default:
         return [];
     }

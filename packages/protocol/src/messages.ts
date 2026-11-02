@@ -318,6 +318,12 @@ export const ViewerScreenSchema = z.object({
   on: z.boolean(),
 });
 
+/** 拉下通知栏 / 快捷设置面板。 */
+export const ViewerPanelSchema = z.object({
+  t: z.literal('panel'),
+  panel: z.enum(['notification', 'settings']).default('notification'),
+});
+
 /** viewer 发送的请求关键帧（背压恢复时使用）。 */
 export const ViewerRequestIdrSchema = z.object({
   t: z.literal('requestIdr'),
@@ -329,6 +335,7 @@ export const ViewerToStreamMessageSchema = z.discriminatedUnion('t', [
   ViewerTextSchema,
   ViewerRotateSchema,
   ViewerScreenSchema,
+  ViewerPanelSchema,
   ViewerRequestIdrSchema,
 ]);
 export type ViewerToStreamMessage = z.infer<typeof ViewerToStreamMessageSchema>;

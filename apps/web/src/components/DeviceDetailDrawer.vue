@@ -16,6 +16,7 @@ import {
 import { PhonePortraitOutline } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import CopyValue from './CopyValue.vue';
+import DeviceStats from './DeviceStats.vue';
 import { api, thumbnailUrl } from '../api';
 import { useFleet } from '../stores/fleet';
 import {
@@ -164,7 +165,7 @@ async function onImageSelected(event: Event): Promise<void> {
             show-toolbar
           />
           <div v-else class="preview-empty">
-            <n-icon :size="26"><PhonePortraitOutline /></n-icon>
+            <n-icon :size="20"><PhonePortraitOutline /></n-icon>
             <span>暂无图片</span>
           </div>
 
@@ -248,16 +249,26 @@ async function onImageSelected(event: Event): Promise<void> {
             />
           </n-descriptions-item>
         </n-descriptions>
+
+        <div class="stats-title">运行状态</div>
+        <DeviceStats v-if="show" :device-id="device.id" />
       </template>
     </n-drawer-content>
   </n-drawer>
 </template>
 
 <style scoped>
+.stats-title {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
 .preview {
   position: relative;
-  height: 220px;
-  margin-bottom: 14px;
+  height: 132px;
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -273,7 +284,7 @@ async function onImageSelected(event: Event): Promise<void> {
 }
 
 .preview :deep(.n-image img) {
-  max-height: 220px;
+  max-height: 132px;
   max-width: 100%;
   object-fit: contain;
   cursor: zoom-in;
@@ -283,9 +294,9 @@ async function onImageSelected(event: Event): Promise<void> {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: #52525b;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .preview-status {

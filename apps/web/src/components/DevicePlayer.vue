@@ -237,6 +237,12 @@ function sendRotate(): void {
   sendLocal({ t: 'rotate' });
 }
 
+/** 拉下通知栏。 */
+function expandNotification(): void {
+  if (!controller.value) return;
+  sendLocal({ t: 'panel', panel: 'notification' });
+}
+
 /** 关闭 / 点亮屏幕（不锁屏）。 */
 function setScreen(on: boolean): void {
   if (!controller.value) return;
@@ -350,6 +356,7 @@ defineExpose({
   sendText,
   sendRotate,
   setScreen,
+  expandNotification,
   applyInput,
   screenshot,
   startRecording,

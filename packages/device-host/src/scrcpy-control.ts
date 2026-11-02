@@ -22,6 +22,8 @@ const MSG_INJECT_KEYCODE = 0;
 const MSG_INJECT_TEXT = 1;
 const MSG_INJECT_TOUCH_EVENT = 2;
 const MSG_BACK_OR_SCREEN_ON = 4;
+const MSG_EXPAND_NOTIFICATION_PANEL = 5;
+const MSG_EXPAND_SETTINGS_PANEL = 6;
 const MSG_SET_CLIPBOARD = 9;
 const MSG_SET_SCREEN_POWER_MODE = 10;
 const MSG_ROTATE_DEVICE = 11;
@@ -119,6 +121,13 @@ export function rotateDevice(): Buffer {
   const buf = Buffer.alloc(1);
   buf.writeUInt8(MSG_ROTATE_DEVICE, 0);
   return buf;
+}
+
+/** 拉下通知栏或快捷设置面板。 */
+export function expandPanel(panel: 'notification' | 'settings'): Buffer {
+  return Buffer.from([
+    panel === 'settings' ? MSG_EXPAND_SETTINGS_PANEL : MSG_EXPAND_NOTIFICATION_PANEL,
+  ]);
 }
 
 /** 关闭 / 点亮屏幕，不触发锁屏。 */

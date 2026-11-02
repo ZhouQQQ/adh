@@ -30,6 +30,9 @@ export interface ServerConfig {
   dbPath: string;
   packageDir: string;
   thumbnailDir: string;
+  appIconDir: string;
+  /** 离线 Agent 安装包（dist/*.zip）所在目录。 */
+  agentDistDir: string;
   publicDir: string;
   logLevel: string;
   /** 是否启用 server 内置的本机 Agent。默认开启，ADH_LOCAL_AGENT=0 关闭。 */
@@ -92,8 +95,10 @@ export function loadConfig(): ServerConfig {
   );
   const packageDir = path.join(dataDir, 'packages');
   const thumbnailDir = path.join(dataDir, 'thumbnails');
+  const appIconDir = path.join(dataDir, 'app-icons');
   fs.mkdirSync(packageDir, { recursive: true });
   fs.mkdirSync(thumbnailDir, { recursive: true });
+  fs.mkdirSync(appIconDir, { recursive: true });
 
   return {
     host: cli.host ?? process.env.ADH_HOST ?? '0.0.0.0',
@@ -102,6 +107,8 @@ export function loadConfig(): ServerConfig {
     dbPath: path.join(dataDir, 'adh.sqlite'),
     packageDir,
     thumbnailDir,
+    appIconDir,
+    agentDistDir: path.join(REPO_ROOT, 'dist'),
     publicDir: path.join(APP_DIR, 'public'),
     logLevel: cli['log-level'] ?? process.env.ADH_LOG_LEVEL ?? 'info',
     localAgent: process.env.ADH_LOCAL_AGENT !== '0',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import {
   NAlert,
   NButton,
@@ -14,12 +14,16 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui';
-import { CheckmarkOutline, CopyOutline } from '@vicons/ionicons5';
+import {
+  CheckmarkOutline,
+  CopyOutline,
+  DownloadOutline,
+} from '@vicons/ionicons5';
 import type { AgentDetail } from '@adh/protocol';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { copyText } from '../utils/clipboard';
-import { buildConnectCommand, buildSourceCommand } from '../utils/command';
+import { buildConnectCommand } from '../utils/command';
 import { formatAgo, formatDateTime } from '../utils/format';
 
 const props = defineProps<{ show: boolean; agentId: string | null }>();
@@ -34,14 +38,23 @@ const serverPort = ref(8080);
 const copied = ref<string | null>(null);
 const now = ref(Date.now());
 
+let ticker: ReturnType<typeof setInterval> | null = null;
+
+function stopTicker(): void {
+  if (ticker) clearInterval(ticker);
+  ticker = null;
+}
+
 watch(
   () => [props.show, props.agentId] as const,
   async ([visible, id]) => {
+    stopTicker();
     if (!visible || !id) return;
     loading.value = true;
     detail.value = null;
     copied.value = null;
     now.value = Date.now();
+    ticker = setInterval(() => (now.value = Date.now()), 10_000);
     try {
       const [info, data] = await Promise.all([
         api.serverInfo().catch(() => ({ port: 8080, version: '' })),
@@ -58,6 +71,8 @@ watch(
   { immediate: true },
 );
 
+onUnmounted(stopTicker);
+
 const agent = computed(() => detail.value?.agent ?? null);
 
 const deviceList = computed(() => {
@@ -72,11 +87,13 @@ const command = computed(() =>
     : '',
 );
 
-const sourceCommand = computed(() =>
-  detail.value && !detail.value.agent.builtin
-    ? buildSourceCommand(detail.value.key, serverPort.value)
-    : '',
-);
+
+
+
+
+
+
+
 
 const statusMeta = computed(() => {
   const current = agent.value;
@@ -86,11 +103,15 @@ const statusMeta = computed(() => {
   return { type: 'default' as const, label: '离线' };
 });
 
-const runtime = computed(() => {
+const runtimeEnv = computed(() => {
   const current = agent.value;
   if (!current || !current.os) return '尚未接入';
-  return `${current.os} / ${current.arch} · v${current.version}`;
+  return `${current.os} / ${current.arch}`;
 });
+
+function downloadAgent(): void {
+  window.location.href = api.agentPackageUrl();
+}
 
 function deviceStatusLabel(status: string): string {
   if (status === 'online') return '在线';
@@ -151,19 +172,9 @@ async function copy(value: string, which: string): Promise<void> {
               {{ statusMeta.label }}
             </n-tag>
           </n-descriptions-item>
-          <n-descriptions-item label="运行环境">{{ runtime }}</n-descriptions-item>
-          <n-descriptions-item label="能力">
-            <n-space v-if="agent.capabilities.length" :size="4">
-              <n-tag
-                v-for="capability in agent.capabilities"
-                :key="capability"
-                size="tiny"
-                :bordered="false"
-              >
-                {{ capability }}
-              </n-tag>
-            </n-space>
-            <span v-else>—</span>
+          <n-descriptions-item label="运行环境">{{ runtimeEnv }}</n-descriptions-item>
+          <n-descriptions-item label="版本号">
+            {{ agent.version ? `v${agent.version}` : '—' }}
           </n-descriptions-item>
           <n-descriptions-item label="设备数">{{ agent.deviceCount }}</n-descriptions-item>
           <n-descriptions-item label="Key">
@@ -173,7 +184,9 @@ async function copy(value: string, which: string): Promise<void> {
             {{ formatDateTime(agent.createdAt) }}
           </n-descriptions-item>
           <n-descriptions-item label="最后心跳">
-            {{ agent.online ? '在线' : formatAgo(agent.lastSeen, now) }}
+            <span :title="formatDateTime(agent.lastSeen)">
+              {{ formatAgo(agent.lastSeen, now) }}
+            </span>
           </n-descriptions-item>
         </n-descriptions>
 
@@ -189,14 +202,23 @@ async function copy(value: string, which: string): Promise<void> {
             </n-button>
           </div>
 
-          <h4 class="spaced">源码运行</h4>
-          <div class="code-row">
-            <pre class="code muted">{{ sourceCommand }}</pre>
-            <n-button size="small" quaternary @click="copy(sourceCommand, 'source')">
+          <h4 class="spaced">安装 Agent</h4>
+          <div class="install-row">
+            <n-button size="small" @click="downloadAgent">
               <template #icon>
-                <n-icon :component="copied === 'source' ? CheckmarkOutline : CopyOutline" />
+                <n-icon :component="DownloadOutline" />
               </template>
+              下载安装包
             </n-button>
+            <span class="install-hint">
+              目标机需要 Node.js ≥ 22 与 adb；iOS 还需要 go-ios
+            </span>
+          </div>
+
+          <div class="steps">
+            <p>1. 解压安装包到任意目录</p>
+            <p>2. Windows 运行 <code>adh-agent.cmd doctor</code>，Linux / macOS 运行 <code>./adh-agent.sh doctor</code></p>
+            <p>3. 执行上面的接入命令，设备会在几秒内出现在「设备管理」</p>
           </div>
         </section>
 
@@ -282,6 +304,36 @@ h4.spaced {
 
 .code.muted {
   color: var(--text-dim);
+}
+
+.install-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.install-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.steps {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.8;
+}
+
+.steps p {
+  margin: 0;
+}
+
+.steps code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
 }
 
 .device-list {

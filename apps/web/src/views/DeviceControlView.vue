@@ -3,15 +3,17 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NButton,
+  NIcon,
   NInput,
   NSpin,
   NTag,
   useMessage,
 } from 'naive-ui';
-import { CloudOfflineOutline } from '@vicons/ionicons5';
+import { ArrowBackOutline, CloudOfflineOutline } from '@vicons/ionicons5';
 import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import DeviceAppsDrawer from '../components/DeviceAppsDrawer.vue';
+import DeviceStats from '../components/DeviceStats.vue';
 import InstallAppModal from '../components/InstallAppModal.vue';
 import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
@@ -166,11 +168,14 @@ function setScreen(on: boolean): void {
   playerRef.value?.setScreen(on);
 }
 
+function openNotification(): void {
+  if (!requireController()) return;
+  playerRef.value?.expandNotification();
+}
+
 function openApps(): void {
   appsShow.value = true;
 }
-
-
 
 async function takeScreenshot(): Promise<void> {
   const blob = await playerRef.value?.screenshot();
@@ -180,6 +185,31 @@ async function takeScreenshot(): Promise<void> {
   }
   saveBlob(blob, deviceFileName('png'));
   message.success('截图已保存');
+}
+
+/** 把当前画面写进系统剪贴板（需要 HTTPS 或 localhost）。 */
+async function copyScreenshot(): Promise<void> {
+  const blob = await playerRef.value?.screenshot();
+  if (!blob) {
+    message.warning('画面还没就绪，稍后再试');
+    return;
+  }
+
+  if (!window.isSecureContext || !navigator.clipboard?.write) {
+    message.warning('当前地址不支持写剪贴板，请改用 localhost 或 HTTPS 访问');
+    return;
+  }
+  if (typeof ClipboardItem === 'undefined') {
+    message.warning('当前浏览器不支持图片剪贴板');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    message.success('截图已复制到剪贴板');
+  } catch {
+    message.error('写入剪贴板失败，请检查浏览器权限');
+  }
 }
 
 async function toggleRecording(): Promise<void> {
@@ -232,7 +262,17 @@ onBeforeUnmount(() => {
 <template>
   <div class="control-page">
     <header class="toolbar">
-      <n-button quaternary size="small" @click="goBack">← 返回设备列表</n-button>
+      <n-button
+        quaternary
+        circle
+        size="small"
+        title="返回设备列表"
+        @click="goBack"
+      >
+        <template #icon>
+          <n-icon><ArrowBackOutline /></n-icon>
+        </template>
+      </n-button>
       <div class="title">{{ device?.name ?? '设备控制' }}</div>
       <n-tag
         v-if="sessionId && !controller"
@@ -297,6 +337,9 @@ onBeforeUnmount(() => {
             {{ device?.status === 'online' ? '在线' : device?.status === 'offline' ? '离线' : '未授权' }}
           </span>
         </div>
+
+        <div class="section-title stats-title">运行状态</div>
+        <DeviceStats :device-id="device?.id ?? ''" />
       </aside>
 
       <div ref="stageRef" class="stage">
@@ -360,6 +403,9 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">抓取</div>
             <div class="fs-grid">
+              <button type="button" class="bar-btn" @click="copyScreenshot">
+                复制截图
+              </button>
               <button type="button" class="bar-btn" @click="takeScreenshot">截图</button>
               <button type="button" class="bar-btn" @click="toggleRecording">
                 {{ recording ? '停止' : '录屏' }}
@@ -401,14 +447,18 @@ onBeforeUnmount(() => {
             <n-button size="small" @click="setScreen(false)">息屏</n-button>
             <n-button size="small" @click="setScreen(true)">亮屏</n-button>
           </div>
-          <n-button size="small" block @click="fileShow = true">
-            文件管理
-          </n-button>
+          <div class="grid-2">
+            <n-button size="small" @click="fileShow = true">文件管理</n-button>
+            <n-button size="small" @click="openNotification">通知栏</n-button>
+          </div>
         </section>
 
         <section class="section">
           <div class="section-title">抓取</div>
-          <div class="grid-2">
+          <div class="grid-3">
+            <n-button size="small" title="截图到剪贴板" @click="copyScreenshot">
+              复制截图
+            </n-button>
             <n-button size="small" @click="takeScreenshot">截图</n-button>
             <n-button size="small" @click="toggleRecording">
               {{ recording ? '停止' : '录屏' }}
@@ -423,7 +473,7 @@ onBeforeUnmount(() => {
               安装应用
             </n-button>
             <n-button size="small" @click="openApps">
-              已装应用
+              应用管理
             </n-button>
           </div>
         </section>
@@ -786,6 +836,12 @@ onBeforeUnmount(() => {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.section-title.stats-title {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 .grid-3 {
