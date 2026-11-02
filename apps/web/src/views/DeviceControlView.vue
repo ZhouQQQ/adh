@@ -5,6 +5,7 @@ import {
   NButton,
   NIcon,
   NInput,
+  NSelect,
   NSpin,
   NTag,
   useMessage,
@@ -112,6 +113,28 @@ const publishedText = computed(() => {
 });
 
 const isIos = computed(() => device.value?.platform === 'ios');
+const quality = ref<'low' | 'medium' | 'high'>('medium');
+
+async function onQualityChange(
+  value: 'low' | 'medium' | 'high',
+): Promise<void> {
+  quality.value = value;
+
+  // iOS 由 DevicePlayer 重新挂载后按新档位拉流
+  if (isIos.value || !device.value) return;
+
+  loading.value = true;
+  errorText.value = null;
+  try {
+    const result = await api.restartStream(device.value.id, value);
+    sessionId.value = result.sessionId;
+  } catch (error) {
+    errorText.value =
+      error instanceof Error ? error.message : '无法切换画质';
+  } finally {
+    loading.value = false;
+  }
+}
 
 async function createSession(): Promise<void> {
   if (!device.value) return;
@@ -129,7 +152,7 @@ async function createSession(): Promise<void> {
   errorText.value = null;
   sessionId.value = null;
   try {
-    const result = await api.createStream(device.value.id);
+    const result = await api.createStream(device.value.id, quality.value);
     sessionId.value = result.sessionId;
   } catch (error) {
     errorText.value =
@@ -282,6 +305,17 @@ onBeforeUnmount(() => {
         </template>
       </n-button>
       <div class="title">{{ device?.name ?? '设备控制' }}</div>
+      <n-select
+        v-model:value="quality"
+        size="tiny"
+        class="quality-select"
+        :options="[
+          { label: '低画质', value: 'low' },
+          { label: '中画质', value: 'medium' },
+          { label: '高画质', value: 'high' },
+        ]"
+        @update:value="onQualityChange"
+      />
       <n-tag
         v-if="sessionId && !controller"
         size="small"
@@ -351,9 +385,11 @@ onBeforeUnmount(() => {
         <DevicePlayer
           v-if="sessionId || isIos"
           ref="playerRef"
+          :key="`${sessionId ?? ''}-${quality}`"
           :session-id="sessionId ?? ''"
           :platform="device?.platform"
           :device-id="device?.id"
+          :quality="quality"
           @controller-change="controller = $event"
           @error="errorText = $event"
           @closed="onPlayerClosed"
@@ -382,7 +418,9 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">导航</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" @click="sendKey('back')">返回</button>
+              <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('back')">
+                返回
+              </button>
               <button type="button" class="bar-btn" @click="sendKey('home')">主页</button>
               <button type="button" class="bar-btn" @click="sendKey('recent')">任务</button>
             </div>
@@ -393,16 +431,24 @@ onBeforeUnmount(() => {
             <div class="fs-grid">
               <button type="button" class="bar-btn" @click="sendKey('volumeDown')">音量−</button>
               <button type="button" class="bar-btn" @click="sendKey('volumeUp')">音量+</button>
-              <button type="button" class="bar-btn" @click="sendKey('mute')">静音</button>
+              <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('mute')">
+                静音
+              </button>
             </div>
           </div>
 
           <div class="fs-group">
             <div class="fs-title">屏幕</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" @click="sendKey('power')">电源</button>
-              <button type="button" class="bar-btn" @click="setScreen(false)">息屏</button>
-              <button type="button" class="bar-btn" @click="setScreen(true)">亮屏</button>
+              <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('power')">
+                电源
+              </button>
+              <button type="button" class="bar-btn" :disabled="isIos" @click="setScreen(false)">
+                息屏
+              </button>
+              <button type="button" class="bar-btn" :disabled="isIos" @click="setScreen(true)">
+                亮屏
+              </button>
             </div>
           </div>
 
@@ -450,16 +496,26 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-if="!isIos" class="section">
+        <section class="section">
           <div class="section-title">设备</div>
           <div class="grid-3">
-            <n-button size="small" @click="sendKey('power')">电源</n-button>
-            <n-button size="small" @click="setScreen(false)">息屏</n-button>
-            <n-button size="small" @click="setScreen(true)">亮屏</n-button>
+            <n-button size="small" :disabled="isIos" @click="sendKey('power')">
+              电源
+            </n-button>
+            <n-button size="small" :disabled="isIos" @click="setScreen(false)">
+              息屏
+            </n-button>
+            <n-button size="small" :disabled="isIos" @click="setScreen(true)">
+              亮屏
+            </n-button>
           </div>
           <div class="grid-2">
-            <n-button size="small" @click="fileShow = true">文件管理</n-button>
-            <n-button size="small" @click="openNotification">通知栏</n-button>
+            <n-button size="small" :disabled="isIos" @click="fileShow = true">
+              文件管理
+            </n-button>
+            <n-button size="small" :disabled="isIos" @click="openNotification">
+              通知栏
+            </n-button>
           </div>
         </section>
 
@@ -476,7 +532,7 @@ onBeforeUnmount(() => {
           </n-button>
         </section>
 
-        <section v-if="!isIos" class="section">
+        <section class="section">
           <div class="section-title">应用</div>
           <div class="grid-2">
             <n-button size="small" @click="installShow = true">
@@ -521,6 +577,7 @@ onBeforeUnmount(() => {
       v-model:show="appsShow"
       :device-id="device?.id ?? ''"
       :device-name="device?.name ?? ''"
+      :platform="device?.platform"
     />
     <InstallAppModal
       v-model:show="installShow"
@@ -554,6 +611,10 @@ onBeforeUnmount(() => {
 .title {
   font-size: 13px;
   font-weight: 600;
+}
+
+.quality-select {
+  width: 96px;
 }
 
 .meta {
@@ -717,6 +778,15 @@ onBeforeUnmount(() => {
 
 .bar-btn:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.bar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.bar-btn:disabled:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .bar-btn.wide {

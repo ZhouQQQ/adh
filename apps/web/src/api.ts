@@ -24,6 +24,8 @@ export interface PackageRecord {
 
 export interface DeviceApp {
   name: string;
+  /** iOS 才有可读名称；Android 用包名推断 */
+  label?: string;
   version: string | null;
   /** APK 大小（字节），拿不到为 null */
   size: number | null;
@@ -183,8 +185,14 @@ export const api = {
   },
 
   /** 创建投屏会话。 */
-  createStream(deviceId: string): Promise<{ sessionId: string }> {
-    return request(`/api/devices/${deviceId}/stream`, { method: 'POST' });
+  createStream(
+    deviceId: string,
+    quality: 'low' | 'medium' | 'high' = 'medium',
+  ): Promise<{ sessionId: string }> {
+    return request(`/api/devices/${deviceId}/stream`, {
+      method: 'POST',
+      body: JSON.stringify({ quality }),
+    });
   },
 
   /** 上传安装包（apk / ipa，原始二进制，按 sha256 去重）。 */
@@ -220,7 +228,18 @@ export const api = {
     };
   },
 
-  /** 在指定设备上安装已上传的 APK。 */
+  /** 切换画质：重建投屏会话。 */
+  restartStream(
+    deviceId: string,
+    quality: 'low' | 'medium' | 'high',
+  ): Promise<{ sessionId: string }> {
+    return request(`/api/devices/${deviceId}/stream/restart`, {
+      method: 'POST',
+      body: JSON.stringify({ quality }),
+    });
+  },
+
+  /** 在指定设备上安装已上传的 APK / IPA。 */
   installPackage(deviceId: string, packageId: string): Promise<{ ok: boolean }> {
     return request(`/api/devices/${deviceId}/install`, {
       method: 'POST',

@@ -49,3 +49,50 @@ export function lookupIosHardware(productType?: string): IosHardware | null {
   if (!productType) return null;
   return MODELS[productType] ?? null;
 }
+
+/** 常见 iPhone / iPad 的物理分辨率（像素）。 */
+const RESOLUTIONS: Record<string, { width: number; height: number }> = {
+  'iPhone12,1': { width: 828, height: 1792 },
+  'iPhone12,3': { width: 1125, height: 2436 },
+  'iPhone12,5': { width: 1242, height: 2688 },
+  'iPhone12,8': { width: 750, height: 1334 },
+  'iPhone13,1': { width: 1080, height: 2340 },
+  'iPhone13,2': { width: 1170, height: 2532 },
+  'iPhone13,3': { width: 1170, height: 2532 },
+  'iPhone13,4': { width: 1284, height: 2778 },
+  'iPhone14,4': { width: 1080, height: 2340 },
+  'iPhone14,5': { width: 1170, height: 2532 },
+  'iPhone14,2': { width: 1170, height: 2532 },
+  'iPhone14,3': { width: 1284, height: 2778 },
+  'iPhone14,6': { width: 750, height: 1334 },
+  'iPhone14,7': { width: 1170, height: 2532 },
+  'iPhone14,8': { width: 1284, height: 2778 },
+  'iPhone15,2': { width: 1179, height: 2556 },
+  'iPhone15,3': { width: 1290, height: 2796 },
+  'iPhone15,4': { width: 1179, height: 2556 },
+  'iPhone15,5': { width: 1290, height: 2796 },
+  'iPhone16,1': { width: 1179, height: 2556 },
+  'iPhone16,2': { width: 1290, height: 2796 },
+  'iPhone17,1': { width: 1206, height: 2622 },
+  'iPhone17,2': { width: 1320, height: 2868 },
+  'iPhone17,3': { width: 1179, height: 2556 },
+  'iPhone17,4': { width: 1290, height: 2796 },
+  'iPhone17,5': { width: 1170, height: 2532 },
+  'iPhone18,1': { width: 1206, height: 2622 },
+  'iPhone18,2': { width: 1320, height: 2868 },
+  'iPhone18,3': { width: 1206, height: 2622 },
+  'iPhone18,4': { width: 1206, height: 2622 },
+  'iPad13,1': { width: 1640, height: 2360 },
+  'iPad13,2': { width: 1640, height: 2360 },
+  'iPad13,4': { width: 1668, height: 2388 },
+  'iPad13,8': { width: 2048, height: 2732 },
+  'iPad14,1': { width: 1488, height: 2266 },
+  'iPad14,3': { width: 1668, height: 2388 },
+};
+
+export function lookupIosResolution(
+  productType?: string,
+): { width: number; height: number } | null {
+  if (!productType) return null;
+  return RESOLUTIONS[productType] ?? null;
+}

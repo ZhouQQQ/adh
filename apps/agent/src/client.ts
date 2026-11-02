@@ -149,6 +149,7 @@ export class AgentClient {
       sessionId?: string;
       udid?: string;
       url?: string;
+      quality?: string;
     };
 
     if (message.action === 'app.install' && params.udid && params.url) {
@@ -173,7 +174,11 @@ export class AgentClient {
     }
 
     if (message.action === 'screen.start' && params.sessionId && params.udid) {
-      void this.streams.start(params.sessionId, params.udid);
+      void this.streams.start(
+        params.sessionId,
+        params.udid,
+        typeof params.quality === 'string' ? params.quality : 'medium',
+      );
     } else if (message.action === 'screen.stop' && params.sessionId) {
       this.streams.stop(params.sessionId);
     }

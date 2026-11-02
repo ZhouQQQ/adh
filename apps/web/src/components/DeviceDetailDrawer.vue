@@ -36,6 +36,16 @@ const message = useMessage();
 const { agents, refresh } = useFleet();
 
 const publishedAt = ref<number | null>(null);
+
+const publishedAgoText = computed(() => {
+  const timestamp = props.device?.publishedAt ?? 0;
+  if (timestamp <= 0) return '';
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+  if (days < 30) return `${days} 天前`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} 个月前`;
+  return `${Math.floor(months / 12)} 年前`;
+});
 const imageInput = ref<HTMLInputElement | null>(null);
 const uploading = ref(false);
 
@@ -236,14 +246,24 @@ async function onImageSelected(event: Event): Promise<void> {
             <CopyValue :value="formatDateTime(device.lastSeen)" />
           </n-descriptions-item>
           <n-descriptions-item label="发布时间">
-            <n-date-picker
-              v-model:value="publishedAt"
-              type="month"
-              size="small"
-              clearable
-              placeholder="未设置"
-              @update:value="savePublishedAt"
-            />
+            <n-space align="center" :size="8">
+              <n-date-picker
+                v-model:value="publishedAt"
+                type="month"
+                size="small"
+                clearable
+                placeholder="未设置"
+                @update:value="savePublishedAt"
+              />
+              <n-tag
+                v-if="publishedAgoText"
+                size="tiny"
+                :bordered="false"
+                round
+              >
+                {{ publishedAgoText }}
+              </n-tag>
+            </n-space>
           </n-descriptions-item>
         </n-descriptions>
 

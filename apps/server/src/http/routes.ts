@@ -10,7 +10,7 @@ import {
   type AgentSummary,
   type DeviceSummary,
 } from '@adh/protocol';
-import { runCommand, runCommandBuffer } from '@adh/device-host';
+import { runCommand, runCommandBuffer, resolveQuality } from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
 import type { CommandBus } from '../command-bus.js';
 import type { Queries } from '../db/queries.js';
@@ -674,11 +674,25 @@ export async function registerHttpRoutes(
   /** 创建投屏会话，返回 sessionId 供浏览器连接 /ws/stream/:id。 */
   app.post('/api/devices/:id/stream', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const body = request.body as { quality?: string } | undefined;
     try {
-      return await deps.streams.create(id);
+      return await deps.streams.create(id, body?.quality ?? 'medium');
     } catch (error) {
       return reply.code(400).send({
         error: error instanceof Error ? error.message : '无法创建投屏会话',
+      });
+    }
+  });
+
+  /** 切换画质：重建会话。 */
+  app.post('/api/devices/:id/stream/restart', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { quality?: string } | undefined;
+    try {
+      return await deps.streams.restart(id, body?.quality ?? 'medium');
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : '无法切换画质',
       });
     }
   });
@@ -812,16 +826,45 @@ export async function registerHttpRoutes(
 
     const device = deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: '设备不存在' });
-    if (device.platform !== 'android') {
-      return reply.code(400).send({ error: '目前只支持安装 APK' });
-    }
 
     const record = deps.packages.record(parsed.data.packageId);
     if (!record) {
       return reply.code(404).send({ error: '安装包不存在，请重新上传' });
     }
+
+    if (device.platform === 'ios') {
+      if (device.agentId !== BUILTIN_AGENT_ID) {
+        return reply.code(400).send({ error: 'iOS 安装仅支持 server 本机节点' });
+      }
+      if (record.kind !== 'ipa') {
+        return reply.code(400).send({ error: 'iOS 只能安装 IPA' });
+      }
+      if (!(await deps.packages.ensureLocal(parsed.data.packageId))) {
+        return reply.code(404).send({ error: '安装包文件缺失，请重新上传' });
+      }
+
+      const result = await runIos(
+        [
+          'install',
+          `--path=${deps.packages.path(parsed.data.packageId)}`,
+          `--udid=${device.udid}`,
+        ],
+        300_000,
+      );
+      const output = result
+        ? `${result.stdout}\n${result.stderr}`.trim()
+        : '';
+      if (!result || result.code !== 0) {
+        return reply.code(400).send({ error: output || 'IPA 安装失败' });
+      }
+      return { ok: true };
+    }
+
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '目前只支持安装 APK / IPA' });
+    }
     if (record.kind === 'ipa') {
-      return reply.code(400).send({ error: 'IPA 只能上传留存，暂不支持安装' });
+      return reply.code(400).send({ error: 'Android 设备只能安装 APK' });
     }
     if (!(await deps.packages.ensureLocal(parsed.data.packageId))) {
       return reply.code(404).send({ error: '安装包文件缺失，请重新上传' });
@@ -1205,6 +1248,9 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
     }
 
+    const { preset } = resolveQuality(
+      (request.query as { quality?: string }).quality,
+    );
     const png = await wdaScreenshot();
     if (!png) {
       return reply.code(503).send({
@@ -1212,11 +1258,14 @@ export async function registerHttpRoutes(
       });
     }
 
-    // WDA 截图是 828×1792 PNG；牺牲画质换延迟，压到约 20KB
-    const jpeg = await sharp(png)
-      .resize({ width: 360, withoutEnlargement: true })
-      .jpeg({ quality: 40 })
-      .toBuffer();
+    let pipeline = sharp(png);
+    if (preset.iosWidth > 0) {
+      pipeline = pipeline.resize({
+        width: preset.iosWidth,
+        withoutEnlargement: true,
+      });
+    }
+    const jpeg = await pipeline.jpeg({ quality: preset.iosQuality }).toBuffer();
     return reply
       .header('content-type', 'image/jpeg')
       .header('cache-control', 'no-store')
@@ -1318,6 +1367,10 @@ export async function registerHttpRoutes(
         .send({ error: '无法建立 WDA MJPEG 转发，请确认 go-ios 可用' });
     }
 
+    const { quality, preset } = resolveQuality(
+      (request.query as { quality?: string }).quality,
+    );
+
     let upstream: Response;
     try {
       upstream = await fetch(`http://127.0.0.1:${port}/`);
@@ -1329,17 +1382,78 @@ export async function registerHttpRoutes(
     }
 
     reply.hijack();
+
+    // 高画质直接透传，中/低画质在服务端逐帧缩放，兼顾帧率与带宽
+    if (quality === 'high') {
+      reply.raw.writeHead(200, {
+        'content-type':
+          upstream.headers.get('content-type') ??
+          'multipart/x-mixed-replace; boundary=--BoundaryString',
+        'cache-control': 'no-store',
+        connection: 'close',
+      });
+      const stream = Readable.fromWeb(upstream.body as never);
+      stream.pipe(reply.raw);
+      request.raw.on('close', () => stream.destroy());
+      return;
+    }
+
     reply.raw.writeHead(200, {
-      'content-type':
-        upstream.headers.get('content-type') ??
-        'multipart/x-mixed-replace; boundary=--BoundaryString',
+      'content-type': 'multipart/x-mixed-replace; boundary=--BoundaryString',
       'cache-control': 'no-store',
       connection: 'close',
     });
 
-    const stream = Readable.fromWeb(upstream.body as never);
-    stream.pipe(reply.raw);
-    request.raw.on('close', () => stream.destroy());
+    const reader = upstream.body.getReader();
+    let buffer = Buffer.alloc(0);
+    let closed = false;
+    request.raw.on('close', () => {
+      closed = true;
+      void reader.cancel().catch(() => undefined);
+    });
+
+    void (async () => {
+      try {
+        while (!closed) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer = Buffer.concat([buffer, Buffer.from(value)]);
+
+          while (true) {
+            const start = buffer.indexOf(Buffer.from([0xff, 0xd8]));
+            const end =
+              start >= 0
+                ? buffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2)
+                : -1;
+            if (start < 0 || end < 0) break;
+
+            const frame = buffer.subarray(start, end + 2);
+            buffer = buffer.subarray(end + 2);
+
+            try {
+              const jpeg = await sharp(frame)
+                .resize({ width: preset.iosWidth, withoutEnlargement: true })
+                .jpeg({ quality: preset.iosQuality })
+                .toBuffer();
+              if (closed) break;
+              reply.raw.write(
+                `--BoundaryString\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`,
+              );
+              reply.raw.write(jpeg);
+              reply.raw.write('\r\n');
+            } catch {
+              /* 单帧解码失败跳过 */
+            }
+          }
+
+          if (buffer.length > 4_000_000) {
+            buffer = buffer.subarray(buffer.length - 2);
+          }
+        }
+      } finally {
+        if (!closed) reply.raw.end();
+      }
+    })();
   });
 
   /* ---------------------------------------------------------------- */
@@ -1351,8 +1465,35 @@ export async function registerHttpRoutes(
     const device = requireLocalDevice(id, reply);
     if (!device) return reply;
 
-    if (device.platform !== 'android') {
-      return reply.code(400).send({ error: '仅支持 Android 设备' });
+    if (device.platform === 'ios') {
+      const result = await runIos(
+        ['apps', '--list', `--udid=${device.udid}`],
+        60_000,
+      );
+      if (!result || result.code !== 0) {
+        return reply.code(400).send({ error: '读取 iOS 应用列表失败' });
+      }
+
+      const packages = result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /^[A-Za-z0-9_.-]+\s+/.test(line))
+        .map((line) => {
+          const parts = line.split(/\s+/);
+          const name = parts[0]!;
+          const hasVersion = parts.length > 2;
+          return {
+            name,
+            label: hasVersion ? parts.slice(1, -1).join(' ') : (parts[1] ?? ''),
+            version: hasVersion ? parts[parts.length - 1]! : null,
+            size: null,
+            installedAt: null,
+            lastUsedAt: null,
+          };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+
+      return { packages };
     }
 
     const { system } = request.query as { system?: string };
@@ -1505,6 +1646,20 @@ export async function registerHttpRoutes(
     const packageName = body?.package;
     if (!packageName) {
       return reply.code(400).send({ error: '缺少应用包名' });
+    }
+
+    if (device.platform === 'ios') {
+      const result = await runIos(
+        ['uninstall', packageName, `--udid=${device.udid}`],
+        90_000,
+      );
+      const output = result
+        ? `${result.stdout}\n${result.stderr}`.trim()
+        : '';
+      if (!result || result.code !== 0) {
+        return reply.code(400).send({ error: output || '卸载失败' });
+      }
+      return { ok: true };
     }
 
     const result = await runCommand(

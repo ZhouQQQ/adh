@@ -108,8 +108,8 @@ function onFileSelected(event: Event): void {
   const file = input.files?.[0];
   input.value = '';
   if (!file) return;
-  if (!file.name.toLowerCase().endsWith('.apk')) {
-    message.error('请选择 .apk 文件');
+  if (!/\.(apk|ipa)$/i.test(file.name)) {
+    message.error('只支持 .apk 或 .ipa 文件');
     return;
   }
   localFile.value = file;
@@ -153,7 +153,7 @@ async function installToAll(packageId: string, label: string): Promise<void> {
 async function installLocal(): Promise<void> {
   const file = localFile.value;
   if (!file) {
-    message.warning('请先选择 APK 文件');
+    message.warning('请先选择安装包');
     return;
   }
 
@@ -162,6 +162,12 @@ async function installLocal(): Promise<void> {
   progress.value = 0;
   try {
     const uploaded = await api.uploadPackage(file);
+    if (uploaded.kind === 'ipa') {
+      installing.value = false;
+      step.value = '';
+      message.warning(`${file.name} 已保存到应用管理，IPA 无法安装到 Android`);
+      return;
+    }
     await installToAll(uploaded.id, file.name);
   } catch (error) {
     installing.value = false;
@@ -194,12 +200,12 @@ function installSelected(): void {
           <input
             ref="fileInput"
             type="file"
-            accept=".apk"
+            accept=".apk,.ipa"
             hidden
             @change="onFileSelected"
           />
           <n-button size="small" :disabled="installing" @click="pickFile">
-            选择 APK
+            上传安装包
           </n-button>
           <span v-if="localFile" class="file-name" :title="localFile.name">
             {{ localFile.name }} · {{ formatSize(localFile.size) }}
@@ -215,7 +221,7 @@ function installSelected(): void {
             安装到全部
           </n-button>
         </div>
-        <p class="tip">本地文件会先保存到应用管理，再逐台安装。</p>
+        <p class="tip">本地文件会先保存到应用管理；IPA 仅留存，不能安装到 Android。</p>
       </n-tab-pane>
 
       <n-tab-pane name="server" tab="已上传">

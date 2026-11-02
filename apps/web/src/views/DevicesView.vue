@@ -516,30 +516,7 @@ function resetFilters(): void {
         </div>
       </div>
 
-      <div class="filter-row">
-        <span class="filter-label">节点:</span>
-        <div class="filter-options">
-          <button
-            type="button"
-            class="opt"
-            :class="{ active: agentFilter === 'all' }"
-            @click="agentFilter = 'all'"
-          >
-            全部
-          </button>
-          <button
-            v-for="agent in agentOptions"
-            :key="agent.value"
-            type="button"
-            class="opt"
-            :class="{ active: agentFilter === agent.value }"
-            :disabled="!agent.enabled"
-            @click="agentFilter = agent.value"
-          >
-            {{ agent.label }}
-          </button>
-        </div>
-      </div>
+      
 
       <div class="filter-row">
         <span class="filter-label">系统版本:</span>
@@ -664,6 +641,31 @@ function resetFilters(): void {
             @click="memory = option.value"
           >
             {{ option.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">节点:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: agentFilter === 'all' }"
+            @click="agentFilter = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="agent in agentOptions"
+            :key="agent.value"
+            type="button"
+            class="opt"
+            :class="{ active: agentFilter === agent.value }"
+            :disabled="!agent.enabled"
+            @click="agentFilter = agent.value"
+          >
+            {{ agent.label }}
           </button>
         </div>
       </div>

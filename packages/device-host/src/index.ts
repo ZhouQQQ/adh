@@ -7,3 +7,4 @@ export * from './ios-models.js';
 export * from './scrcpy-control.js';
 export * from './scrcpy-session.js';
 export * from './scrcpy-translator.js';
+export * from './stream-quality.js';

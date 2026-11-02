@@ -17,6 +17,7 @@ const props = defineProps<{
   show: boolean;
   deviceId: string;
   deviceName: string;
+  platform?: 'android' | 'ios';
 }>();
 
 const emit = defineEmits<{ 'update:show': [value: boolean] }>();
@@ -38,7 +39,7 @@ const filtered = computed(() => {
   return apps.value.filter(
     (pkg) =>
       pkg.name.toLowerCase().includes(text) ||
-      appLabel(pkg.name).toLowerCase().includes(text),
+      displayName(pkg).toLowerCase().includes(text),
   );
 });
 
@@ -113,6 +114,10 @@ function appLabel(packageName: string): string {
   return last.charAt(0).toUpperCase() + last.slice(1);
 }
 
+function displayName(pkg: DeviceApp): string {
+  return pkg.label?.trim() || appLabel(pkg.name);
+}
+
 function iconColor(packageName: string): string {
   let hash = 0;
   for (let i = 0; i < packageName.length; i += 1) {
@@ -148,7 +153,7 @@ async function loadApps(): Promise<void> {
   try {
     const result = await api.listDeviceApps(props.deviceId, includeSystem.value);
     apps.value = [...result.packages].sort((a, b) =>
-      appLabel(a.name).localeCompare(appLabel(b.name), 'zh-CN'),
+      displayName(a).localeCompare(displayName(b), 'zh-CN'),
     );
   } catch (error) {
     message.error(error instanceof Error ? error.message : '读取应用列表失败');
@@ -199,7 +204,7 @@ function exportApp(packageName: string): void {
           class="search"
         />
         <n-button size="small" quaternary @click="loadApps">刷新</n-button>
-        <label class="switch">
+        <label v-if="platform !== 'ios'" class="switch">
           <n-switch v-model:value="includeSystem" size="small" @update:value="loadApps" />
           <span>显示系统应用</span>
         </label>
@@ -216,10 +221,10 @@ function exportApp(packageName: string): void {
           <div v-for="pkg in filtered" :key="pkg.name" class="row">
             <div class="app-icon-wrap">
               <div class="app-icon" :style="{ background: iconColor(pkg.name) }">
-                {{ iconText(pkg.name) }}
+                {{ displayName(pkg).charAt(0).toUpperCase() }}
               </div>
               <img
-                v-if="!brokenIcons[pkg.name]"
+                v-if="!brokenIcons[pkg.name] && platform !== 'ios'"
                 class="app-icon-img"
                 :src="iconUrl(pkg)"
                 alt=""
@@ -228,7 +233,7 @@ function exportApp(packageName: string): void {
               />
             </div>
             <div class="info">
-              <span class="name">{{ appLabel(pkg.name) }}</span>
+              <span class="name">{{ displayName(pkg) }}</span>
               <span class="meta">
                 {{ pkg.name }}<template v-if="pkg.version"> · v{{ pkg.version }}</template>
                 · {{ formatSize(pkg.size) }}
@@ -239,7 +244,13 @@ function exportApp(packageName: string): void {
               </span>
             </div>
             <div class="actions">
-              <n-button size="tiny" @click="exportApp(pkg.name)">导出</n-button>
+              <n-button
+                v-if="platform !== 'ios'"
+                size="tiny"
+                @click="exportApp(pkg.name)"
+              >
+                导出
+              </n-button>
               <n-button size="tiny" quaternary type="error" @click="uninstall(pkg.name)">
                 卸载
               </n-button>

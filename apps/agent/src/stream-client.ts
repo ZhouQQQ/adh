@@ -5,7 +5,11 @@ import {
   parseViewerMessage,
   type StreamReady,
 } from '@adh/protocol';
-import { ScrcpyControlTranslator, ScrcpySession } from '@adh/device-host';
+import {
+  ScrcpyControlTranslator,
+  ScrcpySession,
+  resolveQuality,
+} from '@adh/device-host';
 import type { Logger } from './log.js';
 
 interface StreamEntry {
@@ -38,7 +42,7 @@ export class AgentStreamManager {
     private readonly logger: Logger,
   ) {}
 
-  async start(sessionId: string, udid: string): Promise<void> {
+  async start(sessionId: string, udid: string, quality = 'medium'): Promise<void> {
     if (this.active.has(sessionId)) return;
 
     const socket = new WebSocket(
@@ -48,11 +52,12 @@ export class AgentStreamManager {
     this.active.set(sessionId, entry);
 
     socket.on('open', () => {
+      const { preset } = resolveQuality(quality);
       const scrcpy = new ScrcpySession({
         udid,
-        maxSize: 1280,
+        maxSize: preset.maxSize,
         maxFps: 30,
-        bitrate: 8_000_000,
+        bitrate: preset.bitrate,
         logger: this.logger,
       });
       entry.scrcpy = scrcpy;

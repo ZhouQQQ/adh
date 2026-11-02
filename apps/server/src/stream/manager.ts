@@ -8,7 +8,13 @@ import {
   type DeviceSummary,
   type StreamReady,
 } from '@adh/protocol';
-import { ScrcpyControlTranslator, ScrcpySession } from '@adh/device-host';
+import {
+  ScrcpyControlTranslator,
+  ScrcpySession,
+  normalizeQuality,
+  resolveQuality,
+  type StreamQuality,
+} from '@adh/device-host';
 import type { Queries } from '../db/queries.js';
 import type { Logger } from '../log.js';
 import type { AgentRegistry } from '../registry.js';
@@ -26,6 +32,7 @@ interface LocalStream {
 interface StreamSession {
   id: string;
   device: DeviceSummary;
+  quality: StreamQuality;
   viewers: Set<WebSocket>;
   controller: WebSocket | null;
   agentSocket: WebSocket | null;
@@ -80,7 +87,10 @@ export class StreamManager {
     );
   }
 
-  async create(deviceId: string): Promise<{ sessionId: string }> {
+  async create(
+    deviceId: string,
+    quality: string = 'medium',
+  ): Promise<{ sessionId: string }> {
     // 同一台设备复用已有会话：第二个进入的人只会拿到只读权限
     const reuse = this.findSessionByDevice(deviceId);
     if (reuse) return { sessionId: reuse.id };
@@ -97,6 +107,7 @@ export class StreamManager {
     const session: StreamSession = {
       id: sessionId,
       device,
+      quality: normalizeQuality(quality),
       viewers: new Set(),
       controller: null,
       agentSocket: null,
@@ -116,6 +127,16 @@ export class StreamManager {
 
     this.notifyDevice(deviceId);
     return { sessionId };
+  }
+
+  /** 切换画质：先关掉旧会话，再按新档位重建。 */
+  async restart(
+    deviceId: string,
+    quality: string = 'medium',
+  ): Promise<{ sessionId: string }> {
+    const existing = this.findSessionByDevice(deviceId);
+    if (existing) this.destroy(existing.id, '切换画质');
+    return this.create(deviceId, quality);
   }
 
   attachViewer(sessionId: string, socket: WebSocket): void {
@@ -246,11 +267,12 @@ export class StreamManager {
   }
 
   private async startLocal(session: StreamSession): Promise<void> {
+    const { preset } = resolveQuality(session.quality);
     const scrcpy = new ScrcpySession({
       udid: session.device.udid,
-      maxSize: 1280,
+      maxSize: preset.maxSize,
       maxFps: 30,
-      bitrate: 8_000_000,
+      bitrate: preset.bitrate,
       logger: this.deps.logger,
     });
 
@@ -309,7 +331,11 @@ export class StreamManager {
       id: randomUUID(),
       deviceId: session.device.id,
       action: 'screen.start',
-      params: { sessionId: session.id, udid: session.device.udid },
+      params: {
+        sessionId: session.id,
+        udid: session.device.udid,
+        quality: session.quality,
+      },
     });
 
     session.agentTimer = setTimeout(() => {

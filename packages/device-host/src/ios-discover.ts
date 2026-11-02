@@ -1,6 +1,6 @@
 import type { DeviceInfo } from '@adh/protocol';
 import { runCommand } from './exec.js';
-import { lookupIosHardware } from './ios-models.js';
+import { lookupIosHardware, lookupIosResolution } from './ios-models.js';
 
 /**
  * iOS 设备发现：通过 go-ios 列出设备并读取基本信息。
@@ -143,6 +143,9 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
       device.cpuCores = hardware.cpuCores;
       device.memoryMb = hardware.memoryMb;
     }
+
+    const resolution = lookupIosResolution(info?.ProductType);
+    if (resolution) device.resolution = resolution;
 
     devices.push(device);
   }

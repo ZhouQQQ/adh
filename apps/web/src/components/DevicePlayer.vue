@@ -13,6 +13,7 @@ const props = defineProps<{
   sessionId: string;
   platform?: 'android' | 'ios';
   deviceId?: string;
+  quality?: 'low' | 'medium' | 'high';
 }>();
 const emit = defineEmits<{
   'controller-change': [value: boolean];
@@ -89,7 +90,7 @@ function applyInput(message: ViewerToStreamMessage): void {
           fromY: start.y,
           toX: message.x,
           toY: message.y,
-          duration: Math.min(4, (Date.now() - start.at) / 1000),
+          duration: Math.min(0.35, Math.max(0.12, (Date.now() - start.at) / 1000)),
         });
       }
     }
@@ -273,7 +274,7 @@ async function startIosStream(): Promise<void> {
 
   try {
     const response = await fetch(
-      `/api/devices/${props.deviceId}/ios/mjpeg`,
+      `/api/devices/${props.deviceId}/ios/mjpeg?quality=${props.quality ?? 'medium'}`,
       { signal: controller.signal, cache: 'no-store' },
     );
     if (!response.ok || !response.body) throw new Error('mjpeg unavailable');
@@ -311,7 +312,7 @@ async function pollIosFrame(): Promise<void> {
   if (unmounted || !isIos.value) return;
   try {
     const response = await fetch(
-      `/api/devices/${props.deviceId}/ios/screenshot`,
+      `/api/devices/${props.deviceId}/ios/screenshot?quality=${props.quality ?? 'medium'}`,
       { cache: 'no-store' },
     );
     if (!response.ok) throw new Error('screenshot');
@@ -457,7 +458,7 @@ function onPointerUp(event: PointerEvent): void {
         fromY: start.y,
         toX: position.x,
         toY: position.y,
-        duration: Math.min(4, (Date.now() - start.at) / 1000),
+        duration: Math.min(0.35, Math.max(0.12, (Date.now() - start.at) / 1000)),
       });
     }
     return;
