@@ -233,7 +233,8 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: grid;
   place-items: center;
-  background: #000;
+  padding: 16px;
+  background: #0b0b0d;
 }
 
 .spin {
@@ -250,13 +251,13 @@ onBeforeUnmount(() => {
 }
 
 .side {
-  width: 232px;
+  width: 208px;
   flex: none;
   border-left: 1px solid var(--border);
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   overflow-y: auto;
   background: var(--surface);
 }

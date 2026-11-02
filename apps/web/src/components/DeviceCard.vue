@@ -42,17 +42,32 @@ const statusMeta = computed(() => {
   }
 });
 
-const subtitle = computed(() => {
+const subtitle = computed(
+  () =>
+    props.device.brand ||
+    (props.device.platform === 'ios' ? 'Apple' : '未知品牌'),
+);
+
+const osText = computed(() => {
+  const device = props.device;
+  if (!device.osVersion) return '—';
+  return device.platform === 'ios'
+    ? `iOS ${device.osVersion}`
+    : `Android ${device.osVersion}`;
+});
+
+const memoryText = computed(() => formatMemory(props.device.memoryMb));
+
+const resolutionText = computed(() =>
+  formatResolution(props.device.resolution),
+);
+
+const cpuText = computed(() => {
   const device = props.device;
   const parts: string[] = [];
-  if (device.brand) parts.push(device.brand);
-  if (device.model && device.model !== device.name) parts.push(device.model);
-  if (device.osVersion) {
-    parts.push(
-      device.platform === 'ios' ? `iOS ${device.osVersion}` : `Android ${device.osVersion}`,
-    );
-  }
-  return parts.join(' · ') || '未知系统';
+  if (device.cpu) parts.push(device.cpu);
+  if (device.cpuCores) parts.push(`${device.cpuCores} 核`);
+  return parts.join(' · ') || '—';
 });
 </script>
 
@@ -83,36 +98,41 @@ const subtitle = computed(() => {
       <div class="title" :title="device.name">{{ device.name }}</div>
       <div class="subtitle">{{ subtitle }}</div>
 
-      <div class="specs">
-        <span class="spec" :title="device.cpu ?? '未知 CPU'">
-          {{ device.cpu ?? '未知 CPU' }}
-        </span>
-        <span class="spec">{{ device.cpuCores ? `${device.cpuCores} 核` : '—' }}</span>
-        <span class="spec">{{ formatMemory(device.memoryMb) }}</span>
-      </div>
-
-      <div class="details">
-        <div class="detail-row">
-          <span class="k">分辨率</span>
-          <span class="v">{{ formatResolution(device.resolution) }}</span>
+      <div class="kv-grid">
+        <div class="kv">
+          <span class="k">系统版本</span>
+          <span class="v">{{ osText }}</span>
         </div>
-        <div class="detail-row">
-          <span class="k">型号</span>
+        <div class="kv">
+          <span class="k">内存</span>
+          <span class="v">{{ memoryText }}</span>
+        </div>
+        <div class="kv">
+          <span class="k">型号代码</span>
           <span class="v" :title="device.model">{{ device.model ?? '—' }}</span>
         </div>
-        <div class="detail-row">
+        <div class="kv">
+          <span class="k">分辨率</span>
+          <span class="v">{{ resolutionText }}</span>
+        </div>
+        <div class="kv">
+          <span class="k">CPU</span>
+          <span class="v" :title="cpuText">{{ cpuText }}</span>
+        </div>
+        <div class="kv">
           <span class="k">SDK</span>
           <span class="v">{{ device.sdk ?? '—' }}</span>
         </div>
-        <div class="detail-row">
+        <div class="kv">
           <span class="k">节点</span>
           <span class="v" :title="agentName">{{ agentName }}</span>
         </div>
-        <div class="detail-row">
+        <div class="kv">
           <span class="k">UDID</span>
           <span class="v mono" :title="device.udid">{{ shortUdid }}</span>
         </div>
       </div>
+
       <div v-if="device.status === 'offline'" class="offline-line">
         最后在线 {{ formatAgo(device.lastSeen) }}
       </div>
@@ -159,7 +179,7 @@ const subtitle = computed(() => {
 
 .thumb {
   position: relative;
-  height: 210px;
+  height: 186px;
   background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
   display: grid;
   place-items: center;
@@ -222,52 +242,16 @@ const subtitle = computed(() => {
   text-overflow: ellipsis;
 }
 
-.specs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 2px;
-}
-
-.spec {
-  font-size: 10px;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 2px;
-  font-size: 10px;
-  color: var(--text-faint);
-}
-
-.agent {
-  max-width: 50%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.details {
+.kv-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px 10px;
-  margin-top: 6px;
+  margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
 
-.detail-row {
+.kv {
   display: flex;
   align-items: baseline;
   gap: 4px;

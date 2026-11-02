@@ -1,16 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import {
-  NButton,
-  NEmpty,
-  NIcon,
-  NInput,
-  NSelect,
-  useDialog,
-  useMessage,
-} from 'naive-ui';
-import { RefreshOutline, SearchOutline } from '@vicons/ionicons5';
+import { NButton, NEmpty, NIcon, NInput, useDialog, useMessage } from 'naive-ui';
+import { SearchOutline } from '@vicons/ionicons5';
 import type { DeviceStatus, DeviceSummary, Platform } from '@adh/protocol';
 import DeviceCard from '../components/DeviceCard.vue';
 import DeviceDetailDrawer from '../components/DeviceDetailDrawer.vue';
@@ -26,62 +18,74 @@ const message = useMessage();
 const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
 const status = ref<DeviceStatus | 'all'>('all');
-const versions = ref<string[]>([]);
-const cpus = ref<string[]>([]);
-const memories = ref<number[]>([]);
+const version = ref<string | 'all'>('all');
+const cpu = ref<string | 'all'>('all');
+const memory = ref<number | 'all'>('all');
 
-const platformOptions = [
-  { label: '全部类型', value: 'all' },
-  { label: 'Android', value: 'android' },
-  { label: 'iOS', value: 'ios' },
-];
+/** 固定候选，保证没有设备时也能看到完整筛选项。 */
+const DEFAULT_VERSIONS = ['11', '12', '13', '14', '15', '16'];
+const DEFAULT_MEMORY = [4, 6, 8, 12, 16, 24];
 
-const statusOptions = [
-  { label: '全部状态', value: 'all' },
-  { label: '在线', value: 'online' },
-  { label: '离线', value: 'offline' },
-  { label: '未授权', value: 'unauthorized' },
-];
+const platformPresent = computed(
+  () => new Set(devices.value.map((device) => device.platform)),
+);
+const statusPresent = computed(
+  () => new Set(devices.value.map((device) => device.status)),
+);
 
-const versionOptions = computed(() => {
-  const map = new Map<string, { count: number; platform: Platform }>();
+const versionPlatform = computed(() => {
+  const map = new Map<string, Platform>();
   for (const device of devices.value) {
-    if (!device.osVersion) continue;
-    const entry = map.get(device.osVersion);
-    if (entry) entry.count += 1;
-    else map.set(device.osVersion, { count: 1, platform: device.platform });
+    if (!device.osVersion || map.has(device.osVersion)) continue;
+    map.set(device.osVersion, device.platform);
   }
-  return [...map.entries()]
-    .sort((a, b) =>
-      a[0].localeCompare(b[0], 'zh-CN', { numeric: true }),
-    )
-    .map(([value, info]) => ({
-      label: `${info.platform === 'ios' ? 'iOS' : 'Android'} ${value} (${info.count})`,
+  return map;
+});
+
+/** 默认候选 + 设备里实际出现的版本，只有出现过的才可点。 */
+const versionOptions = computed(() => {
+  const values = new Set([...DEFAULT_VERSIONS, ...versionPlatform.value.keys()]);
+  return [...values]
+    .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+    .map((value) => ({
       value,
+      label: `${versionPlatform.value.get(value) === 'ios' ? 'iOS' : 'Android'} ${value}`,
+      enabled: versionPlatform.value.has(value),
     }));
 });
 
-const cpuOptions = computed(() => {
-  const map = new Map<string, number>();
+const cpuPresent = computed(() => {
+  const set = new Set<string>();
   for (const device of devices.value) {
-    if (!device.cpu) continue;
-    map.set(device.cpu, (map.get(device.cpu) ?? 0) + 1);
+    if (device.cpu) set.add(device.cpu);
   }
-  return [...map.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([value, count]) => ({ label: `${value} (${count})`, value }));
+  return set;
 });
 
-const memoryOptions = computed(() => {
-  const map = new Map<number, number>();
+const memoryPresent = computed(() => {
+  const set = new Set<number>();
   for (const device of devices.value) {
     const gb = memoryGb(device.memoryMb);
-    if (gb === undefined) continue;
-    map.set(gb, (map.get(gb) ?? 0) + 1);
+    if (gb !== undefined) set.add(gb);
   }
-  return [...map.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([value, count]) => ({ label: `${value} GB (${count})`, value }));
+  return set;
+});
+
+const cpuOptions = computed(() =>
+  [...cpuPresent.value]
+    .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+    .map((value) => ({ value, label: value, enabled: true })),
+);
+
+const memoryOptions = computed(() => {
+  const values = new Set([...DEFAULT_MEMORY, ...memoryPresent.value]);
+  return [...values]
+    .sort((a, b) => a - b)
+    .map((value) => ({
+      value,
+      label: `${value} GB`,
+      enabled: memoryPresent.value.has(value),
+    }));
 });
 
 const filtered = computed(() => {
@@ -92,25 +96,18 @@ const filtered = computed(() => {
         return false;
       }
       if (status.value !== 'all' && device.status !== status.value) return false;
-      if (
-        versions.value.length > 0 &&
-        (!device.osVersion || !versions.value.includes(device.osVersion))
-      ) {
+      if (version.value !== 'all' && device.osVersion !== version.value) {
         return false;
       }
-      if (
-        cpus.value.length > 0 &&
-        (!device.cpu || !cpus.value.includes(device.cpu))
-      ) {
-        return false;
-      }
-      if (memories.value.length > 0) {
+      if (cpu.value !== 'all' && device.cpu !== cpu.value) return false;
+      if (memory.value !== 'all') {
         const gb = memoryGb(device.memoryMb);
-        if (gb === undefined || !memories.value.includes(gb)) return false;
+        if (gb !== memory.value) return false;
       }
       if (kw) {
         const haystack = [
           device.name,
+          device.marketName,
           device.model,
           device.brand,
           device.udid,
@@ -124,7 +121,8 @@ const filtered = computed(() => {
       return true;
     })
     .sort((a, b) => {
-      const rank = (s: DeviceStatus) => (s === 'online' ? 0 : s === 'unauthorized' ? 1 : 2);
+      const rank = (value: DeviceStatus) =>
+        value === 'online' ? 0 : value === 'unauthorized' ? 1 : 2;
       const diff = rank(a.status) - rank(b.status);
       return diff !== 0 ? diff : a.name.localeCompare(b.name, 'zh-CN');
     });
@@ -137,6 +135,25 @@ const agentNames = computed(
 const offlineCount = computed(
   () => devices.value.filter((device) => device.status === 'offline').length,
 );
+
+/** 选中的选项被拔掉后自动回到「全部」，避免筛选结果永远是空。 */
+watch(devices, () => {
+  if (platform.value !== 'all' && !platformPresent.value.has(platform.value)) {
+    platform.value = 'all';
+  }
+  if (status.value !== 'all' && !statusPresent.value.has(status.value)) {
+    status.value = 'all';
+  }
+  if (version.value !== 'all' && !versionPlatform.value.has(version.value)) {
+    version.value = 'all';
+  }
+  if (cpu.value !== 'all' && !cpuPresent.value.has(cpu.value)) {
+    cpu.value = 'all';
+  }
+  if (memory.value !== 'all' && !memoryPresent.value.has(memory.value)) {
+    memory.value = 'all';
+  }
+});
 
 const selectedId = ref<string | null>(null);
 const detailShow = ref(false);
@@ -156,6 +173,7 @@ function openControl(device: DeviceSummary): void {
 }
 
 function cleanupOffline(): void {
+  if (offlineCount.value === 0) return;
   dialog.warning({
     title: '清理离线设备',
     content: `将移除 ${offlineCount.value} 台离线设备记录。设备重新接入后会自动再次出现。`,
@@ -177,82 +195,200 @@ function resetFilters(): void {
   keyword.value = '';
   platform.value = 'all';
   status.value = 'all';
-  versions.value = [];
-  cpus.value = [];
-  memories.value = [];
+  version.value = 'all';
+  cpu.value = 'all';
+  memory.value = 'all';
 }
 </script>
 
 <template>
   <div class="devices-page">
-    <div class="toolbar">
-      <n-input
-        v-model:value="keyword"
-        class="search"
-        placeholder="搜索名称 / 型号 / UDID / CPU"
-        clearable
-      >
-        <template #prefix>
-          <n-icon :component="SearchOutline" />
-        </template>
-      </n-input>
+    <div class="filters">
+      <div class="filter-row">
+        <span class="filter-label">关键字:</span>
+        <div class="filter-options">
+          <n-input
+            v-model:value="keyword"
+            size="small"
+            placeholder="名称 / 型号 / CPU / UDID"
+            clearable
+            style="width: 260px"
+          >
+            <template #prefix>
+              <n-icon :component="SearchOutline" />
+            </template>
+          </n-input>
+        </div>
+      </div>
 
-      <n-select
-        v-model:value="platform"
-        class="filter"
-        :options="platformOptions"
-      />
-      <n-select
-        v-model:value="status"
-        class="filter"
-        :options="statusOptions"
-      />
-      <n-select
-        v-model:value="versions"
-        class="filter wide"
-        multiple
-        clearable
-        placeholder="系统版本"
-        :options="versionOptions"
-        :max-tag-count="1"
-      />
-      <n-select
-        v-model:value="cpus"
-        class="filter cpu"
-        multiple
-        clearable
-        placeholder="CPU"
-        :options="cpuOptions"
-        :max-tag-count="1"
-      />
-      <n-select
-        v-model:value="memories"
-        class="filter"
-        multiple
-        clearable
-        placeholder="内存"
-        :options="memoryOptions"
-        :max-tag-count="1"
-      />
+      <div class="filter-row">
+        <span class="filter-label">类型:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: platform === 'all' }"
+            @click="platform = 'all'"
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: platform === 'android' }"
+            :disabled="!platformPresent.has('android')"
+            @click="platform = 'android'"
+          >
+            Android
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: platform === 'ios' }"
+            :disabled="!platformPresent.has('ios')"
+            @click="platform = 'ios'"
+          >
+            iOS
+          </button>
+        </div>
+      </div>
 
-      <n-button quaternary size="small" @click="resetFilters">重置</n-button>
-      <n-button
-        quaternary
-        size="small"
-        :disabled="offlineCount === 0"
-        @click="cleanupOffline"
-      >
-        清理离线{{ offlineCount > 0 ? ` (${offlineCount})` : '' }}
-      </n-button>
-      <n-button quaternary size="small" @click="refresh">
-        <template #icon>
-          <n-icon :component="RefreshOutline" />
-        </template>
-      </n-button>
+      <div class="filter-row">
+        <span class="filter-label">状态:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: status === 'all' }"
+            @click="status = 'all'"
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: status === 'online' }"
+            :disabled="!statusPresent.has('online')"
+            @click="status = 'online'"
+          >
+            在线
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: status === 'offline' }"
+            :disabled="!statusPresent.has('offline')"
+            @click="status = 'offline'"
+          >
+            离线
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: status === 'unauthorized' }"
+            :disabled="!statusPresent.has('unauthorized')"
+            @click="status = 'unauthorized'"
+          >
+            未授权
+          </button>
+        </div>
+      </div>
 
-      <span class="result-count">
-        {{ filtered.length }} / {{ devices.length }}
-      </span>
+      <div class="filter-row">
+        <span class="filter-label">系统版本:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: version === 'all' }"
+            @click="version = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="option in versionOptions"
+            :key="option.value"
+            type="button"
+            class="opt"
+            :class="{ active: version === option.value }"
+            :disabled="!option.enabled"
+            @click="version = option.value"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">CPU:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: cpu === 'all' }"
+            @click="cpu = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="option in cpuOptions"
+            :key="option.value"
+            type="button"
+            class="opt"
+            :class="{ active: cpu === option.value }"
+            @click="cpu = option.value"
+          >
+            {{ option.label }}
+          </button>
+          <span v-if="cpuOptions.length === 0" class="empty-tip">
+            暂无数据
+          </span>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">内存:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: memory === 'all' }"
+            @click="memory = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="option in memoryOptions"
+            :key="option.value"
+            type="button"
+            class="opt"
+            :class="{ active: memory === option.value }"
+            :disabled="!option.enabled"
+            @click="memory = option.value"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">操作:</span>
+        <div class="filter-options">
+          <button type="button" class="opt" @click="resetFilters">重置筛选</button>
+          <button
+            type="button"
+            class="opt"
+            :disabled="offlineCount === 0"
+            @click="cleanupOffline"
+          >
+            清理离线{{ offlineCount > 0 ? ` (${offlineCount})` : '' }}
+          </button>
+          <button type="button" class="opt" @click="refresh">刷新</button>
+          <span class="result-count">
+            {{ filtered.length }} / {{ devices.length }}
+          </span>
+        </div>
+      </div>
     </div>
 
     <div v-if="filtered.length > 0" class="grid">
@@ -295,35 +431,86 @@ function resetFilters(): void {
   gap: 16px;
 }
 
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+.filters {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
+  padding: 2px 16px;
 }
 
-.search {
-  width: 240px;
+.filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 9px 0;
 }
 
-.filter {
-  width: 118px;
+.filter-row + .filter-row {
+  border-top: 1px dashed var(--border);
 }
 
-.filter.wide {
-  width: 170px;
+.filter-label {
+  flex: none;
+  width: 78px;
+  padding-top: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
-.filter.cpu {
-  width: 180px;
+.filter-options {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.opt {
+  padding: 2px 9px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.opt:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.opt:disabled {
+  color: #d4d4d8;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.opt.active {
+  background: #18181b;
+  color: #fafafa;
+}
+
+.opt.active:hover {
+  background: #27272a;
+}
+
+.empty-tip {
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--text-faint);
 }
 
 .result-count {
   margin-left: auto;
+  padding-right: 2px;
   font-size: 11px;
   color: var(--text-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -345,5 +532,16 @@ function resetFilters(): void {
   font-size: 12px;
   line-height: 1.7;
   color: var(--text-dim);
+}
+
+@media (max-width: 720px) {
+  .filter-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .filter-label {
+    width: auto;
+  }
 }
 </style>

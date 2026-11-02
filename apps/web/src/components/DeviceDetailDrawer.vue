@@ -12,9 +12,14 @@ import {
 } from 'naive-ui';
 import { PhonePortraitOutline } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
+import CopyValue from './CopyValue.vue';
 import { thumbnailUrl } from '../api';
 import { useFleet } from '../stores/fleet';
-import { formatAgo, formatMemory, formatResolution } from '../utils/format';
+import {
+  formatDateTime,
+  formatMemory,
+  formatResolution,
+} from '../utils/format';
 
 const props = defineProps<{
   show: boolean;
@@ -51,11 +56,20 @@ const platformLabel = computed(() =>
 
 const osLabel = computed(() => {
   const device = props.device;
-  if (!device?.osVersion) return '—';
+  if (!device?.osVersion) return undefined;
   return device.platform === 'ios'
     ? `iOS ${device.osVersion}`
     : `Android ${device.osVersion}`;
 });
+
+const coresLabel = computed(() => {
+  const cores = props.device?.cpuCores;
+  return cores ? `${cores} 核` : undefined;
+});
+
+const capabilitiesText = computed(() =>
+  props.device?.capabilities.join(', ') ?? '',
+);
 
 const canControl = computed(
   () => props.device?.platform === 'android' && props.device.status === 'online',
@@ -68,7 +82,7 @@ function openControl(): void {
 </script>
 
 <template>
-  <n-drawer :show="show" :width="520" @update:show="emit('update:show', $event)">
+  <n-drawer :show="show" :width="460" @update:show="emit('update:show', $event)">
     <n-drawer-content title="设备详情" closable>
       <template v-if="device">
         <div class="preview">
@@ -78,10 +92,16 @@ function openControl(): void {
             alt=""
           />
           <div v-else class="preview-empty">
-            <n-icon :size="28"><PhonePortraitOutline /></n-icon>
+            <n-icon :size="26"><PhonePortraitOutline /></n-icon>
             <span>暂无预览图</span>
           </div>
-          <n-tag class="preview-status" size="small" :type="statusMeta.type" :bordered="false" round>
+          <n-tag
+            class="preview-status"
+            size="small"
+            :type="statusMeta.type"
+            :bordered="false"
+            round
+          >
             {{ statusMeta.label }}
           </n-tag>
         </div>
@@ -91,60 +111,76 @@ function openControl(): void {
           label-placement="left"
           bordered
           size="small"
-          :label-style="{ width: '92px' }"
+          :label-style="{ width: '84px' }"
         >
-          <n-descriptions-item label="设备名称">{{ device.name }}</n-descriptions-item>
+          <n-descriptions-item label="设备名称">
+            <CopyValue :value="device.name" />
+          </n-descriptions-item>
           <n-descriptions-item label="市场名称">
-            {{ device.marketName ?? '—' }}
+            <CopyValue :value="device.marketName" />
           </n-descriptions-item>
-          <n-descriptions-item label="品牌型号">
-            {{ [device.brand, device.model].filter(Boolean).join(' / ') || '—' }}
+          <n-descriptions-item label="品牌">
+            <CopyValue :value="device.brand" />
           </n-descriptions-item>
-          <n-descriptions-item label="平台">{{ platformLabel }}</n-descriptions-item>
-          <n-descriptions-item label="系统版本">{{ osLabel }}</n-descriptions-item>
+          <n-descriptions-item label="型号代码">
+            <CopyValue :value="device.model" mono />
+          </n-descriptions-item>
+          <n-descriptions-item label="平台">
+            <CopyValue :value="platformLabel" />
+          </n-descriptions-item>
+          <n-descriptions-item label="系统版本">
+            <CopyValue :value="osLabel" />
+          </n-descriptions-item>
           <n-descriptions-item label="SDK">
-            {{ device.sdk ?? '—' }}
+            <CopyValue :value="device.sdk" />
           </n-descriptions-item>
-          <n-descriptions-item label="CPU">{{ device.cpu ?? '—' }}</n-descriptions-item>
+          <n-descriptions-item label="CPU">
+            <CopyValue :value="device.cpu" />
+          </n-descriptions-item>
           <n-descriptions-item label="核心数">
-            {{ device.cpuCores ? `${device.cpuCores} 核` : '—' }}
+            <CopyValue :value="coresLabel" />
           </n-descriptions-item>
           <n-descriptions-item label="内存">
-            {{ formatMemory(device.memoryMb) }}
+            <CopyValue :value="formatMemory(device.memoryMb)" />
           </n-descriptions-item>
           <n-descriptions-item label="分辨率">
-            {{ formatResolution(device.resolution) }}
+            <CopyValue :value="formatResolution(device.resolution)" />
           </n-descriptions-item>
-          <n-descriptions-item label="所属节点">{{ agentName }}</n-descriptions-item>
+          <n-descriptions-item label="所属节点">
+            <CopyValue :value="agentName" />
+          </n-descriptions-item>
           <n-descriptions-item label="UDID">
-            <code class="udid">{{ device.udid }}</code>
+            <CopyValue :value="device.udid" mono />
           </n-descriptions-item>
           <n-descriptions-item label="最后在线">
-            {{ device.status === 'online' ? '在线' : formatAgo(device.lastSeen) }}
+            <CopyValue :value="formatDateTime(device.lastSeen)" />
           </n-descriptions-item>
           <n-descriptions-item label="能力">
-            <n-space v-if="device.capabilities.length" :size="4">
-              <n-tag
-                v-for="capability in device.capabilities"
-                :key="capability"
-                size="tiny"
-                :bordered="false"
-              >
-                {{ capability }}
-              </n-tag>
-            </n-space>
-            <span v-else>—</span>
+            <div class="caps">
+              <n-space v-if="device.capabilities.length" :size="4">
+                <n-tag
+                  v-for="capability in device.capabilities"
+                  :key="capability"
+                  size="tiny"
+                  :bordered="false"
+                >
+                  {{ capability }}
+                </n-tag>
+              </n-space>
+              <span v-else>—</span>
+              <CopyValue
+                v-if="device.capabilities.length"
+                icon-only
+                :value="capabilitiesText"
+              />
+            </div>
           </n-descriptions-item>
         </n-descriptions>
       </template>
 
       <template #footer>
         <n-space justify="end">
-          <n-button
-            type="primary"
-            :disabled="!canControl"
-            @click="openControl"
-          >
+          <n-button type="primary" :disabled="!canControl" @click="openControl">
             实时控制
           </n-button>
         </n-space>
@@ -158,11 +194,11 @@ function openControl(): void {
   position: relative;
   display: grid;
   place-items: center;
-  height: 260px;
-  margin-bottom: 16px;
+  height: 190px;
+  margin-bottom: 14px;
   background: #000;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -187,9 +223,9 @@ function openControl(): void {
   right: 8px;
 }
 
-.udid {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  word-break: break-all;
+.caps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>

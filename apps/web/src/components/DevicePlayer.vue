@@ -238,6 +238,7 @@ defineExpose({ sendKey, sendText, sendRotate, controller, connected });
   touch-action: none;
   cursor: crosshair;
   outline: none;
+  border-radius: 6px;
 }
 
 .overlay {

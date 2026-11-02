@@ -78,7 +78,20 @@ async function main(): Promise<void> {
   // 静态资源与 SPA 回退：Vite 构建产物输出到 apps/server/public
   const indexHtml = path.join(config.publicDir, 'index.html');
   fs.mkdirSync(config.publicDir, { recursive: true });
-  await app.register(fastifyStatic, { root: config.publicDir, prefix: '/' });
+  await app.register(fastifyStatic, {
+    root: config.publicDir,
+    prefix: '/',
+    setHeaders: (res, filePath) => {
+      // 入口 HTML 必须实时校验，否则改版后浏览器会一直用旧 bundle
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('cache-control', 'no-cache, must-revalidate');
+        return;
+      }
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+      }
+    },
+  });
 
   app.setNotFoundHandler(async (request, reply) => {
     if (request.url.startsWith('/api') || request.url.startsWith('/ws')) {
