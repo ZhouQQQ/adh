@@ -4,7 +4,7 @@
 
 - `adh-server`：控制台 + 节点/设备管理，单进程托管前后端
 - `adh-agent`：部署在设备宿主机，主动外连 server，自动上报本机设备
-- 数据存 MySQL，安装包 / 缩略图 / 图标存阿里云 OSS（`adh/` 目录）
+- 存储可切换：默认 SQLite + 本地文件，也可用 MySQL + 阿里云 OSS
 
 ## 功能
 
@@ -19,16 +19,29 @@
 
 ## 快速开始
 
-先准备配置（数据库和 OSS 均为必填）：
-
-```bash
-cp .env.example .env
-```
+零配置即可运行，默认使用 SQLite（`.data/adh.sqlite`）+ 本地文件：
 
 ```bash
 pnpm install
 pnpm dev          # web:5173  server:8080
 ```
+
+要用 MySQL + OSS，复制配置并填写：
+
+```bash
+cp .env.example .env
+```
+
+服务端启动时按配置自动选择：
+
+| 配置 | 数据库 | 文件 |
+| --- | --- | --- |
+| 什么都不配 | SQLite | `.data/` |
+| 配了 `MYSQL_HOST` | MySQL | `.data/` |
+| 配了 OSS | SQLite | OSS |
+| 都配了 | MySQL | OSS |
+
+也可以用 `ADH_DB=sqlite\|mysql`、`ADH_STORAGE=local\|oss` 强制指定。
 
 生产模式：
 
@@ -50,20 +63,20 @@ IMAGE=adh/adh-server:v1 ./build.sh
 docker compose up -d
 ```
 
-`docker-compose.yml` 会读取 `.env`，数据落在 `adh-data` 卷的 `/data`。
+`docker-compose.yml` 会读取 `.env`（没有 `.env` 时用容器内 SQLite + `/data`），数据落在 `adh-data` 卷的 `/data`。
 
-单独运行：
+单独运行（本地模式，不需要 MySQL / OSS）：
 
 ```bash
 docker run -d --name adh \
   -p 8080:8080 \
-  --env-file .env \
   -e ADH_DATA_DIR=/data \
   -e ADH_LOCAL_AGENT=0 \
   -v adh-data:/data \
-  -v "$(pwd)/dist:/app/dist:ro" \
   adh-server:latest
 ```
+
+用 MySQL + OSS 时追加 `--env-file .env`。
 
 - 容器里没有 USB，内置 Agent 默认关闭，设备宿主机单独跑 `adh-agent connect`
 - 挂载 `dist/` 后，控制台才能下载 Agent 离线包
@@ -96,7 +109,7 @@ Linux / macOS 用 `./adh-agent.sh`。目标机只需要 **Node.js ≥ 22** 和�
 
 ## 配置
 
-MySQL（必填）：
+MySQL（可选，不配则用本地 SQLite）：
 
 | 参数 | 说明 |
 | --- | --- |
@@ -106,7 +119,7 @@ MySQL（必填）：
 | `MYSQL_PASSWORD` | 密码 |
 | `MYSQL_DB` | 数据库名 |
 
-阿里云 OSS：
+阿里云 OSS（可选，不配则文件落本地）：
 
 | 参数 | 说明 |
 | --- | --- |
@@ -118,6 +131,13 @@ MySQL（必填）：
 | `ADH_OSS_ENDPOINT` | 可选，自定义 endpoint |
 
 也兼容 `OSS_BUCKET_NAME` / `OSS_REGION_ID` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`。
+
+切换开关：
+
+| 环境变量 | 可选值 | 说明 |
+| --- | --- | --- |
+| `ADH_DB` | `sqlite` / `mysql` | 不指定时，有 `MYSQL_HOST` 就用 MySQL |
+| `ADH_STORAGE` | `local` / `oss` | 不指定时，有 OSS 配置就用 OSS |
 
 对象路径：
 
@@ -136,6 +156,8 @@ adh/app-icons/<hash>.png
 | `--data` | `ADH_DATA_DIR` | `.data` |
 | `--log-level` | `ADH_LOG_LEVEL` | `info` |
 | — | `ADH_LOCAL_AGENT=0` | 关闭内置 Agent |
+| — | `ADH_DB` | `sqlite` / `mysql` |
+| — | `ADH_STORAGE` | `local` / `oss` |
 
 ## 数据迁移
 

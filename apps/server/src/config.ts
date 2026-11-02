@@ -31,11 +31,20 @@ export interface MysqlConfig {
   database: string;
 }
 
+/**
+ * 数据库有两种后端，由 ADH_DB 或是否提供 MYSQL_HOST 决定：
+ *   sqlite  本地单文件，开箱即用（默认，未配置 MySQL 时）
+ *   mysql   外部数据库（配置了 MYSQL_HOST 时）
+ */
+export type DatabaseConfig =
+  | { kind: 'sqlite'; path: string }
+  | ({ kind: 'mysql' } & MysqlConfig);
+
 export interface ServerConfig {
   host: string;
   port: number;
   dataDir: string;
-  mysql: MysqlConfig;
+  db: DatabaseConfig;
   packageDir: string;
   thumbnailDir: string;
   appIconDir: string;
@@ -45,7 +54,7 @@ export interface ServerConfig {
   logLevel: string;
   /** 是否启用 server 内置的本机 Agent。默认开启，ADH_LOCAL_AGENT=0 关闭。 */
   localAgent: boolean;
-  /** OSS 配置；未配置时文件只落本地磁盘。 */
+  /** OSS 配置；null 表示文件只落本地磁盘。 */
   oss: OssConfig | null;
 }
 
@@ -79,6 +88,13 @@ function loadEnvFiles(): void {
 }
 
 function readOssConfig(): OssConfig | null {
+  // ADH_STORAGE=local 强制用本地文件；=oss 强制要求 OSS 配置
+  const mode = envValue('ADH_STORAGE')?.toLowerCase();
+  if (mode && mode !== 'local' && mode !== 'oss') {
+    throw new Error(`ADH_STORAGE 只能是 local 或 oss，当前是 ${mode}`);
+  }
+  if (mode === 'local') return null;
+
   // 兼容 ADH_OSS_* 和阿里云常见的 OSS_* 变量名
   const bucket = envValue('ADH_OSS_BUCKET', 'OSS_BUCKET_NAME');
   const accessKeyId = envValue('ADH_OSS_ACCESS_KEY_ID', 'OSS_ACCESS_KEY_ID');
@@ -86,7 +102,15 @@ function readOssConfig(): OssConfig | null {
     'ADH_OSS_ACCESS_KEY_SECRET',
     'OSS_ACCESS_KEY_SECRET',
   );
-  if (!bucket || !accessKeyId || !accessKeySecret) return null;
+
+  if (!bucket || !accessKeyId || !accessKeySecret) {
+    if (mode === 'oss') {
+      throw new Error(
+        'ADH_STORAGE=oss，但缺少 ADH_OSS_BUCKET / ADH_OSS_ACCESS_KEY_ID / ADH_OSS_ACCESS_KEY_SECRET',
+      );
+    }
+    return null;
+  }
 
   const rawRegion =
     envValue('ADH_OSS_REGION', 'OSS_REGION_ID') ?? 'oss-cn-hangzhou';
@@ -116,7 +140,7 @@ function readMysqlConfig(): MysqlConfig {
 
   if (missing.length > 0) {
     throw new Error(
-      `缺少 MySQL 配置：${missing.join(', ')}（可写在仓库根 .env）`,
+      `ADH_DB=mysql，但缺少配置：${missing.join(', ')}（可写在仓库根 .env）`,
     );
   }
 
@@ -127,6 +151,22 @@ function readMysqlConfig(): MysqlConfig {
     password: envValue('MYSQL_PASSWORD') ?? '',
     database: envValue('MYSQL_DB')!,
   };
+}
+
+function readDatabaseConfig(dataDir: string): DatabaseConfig {
+  const explicit = envValue('ADH_DB')?.toLowerCase();
+  if (explicit && explicit !== 'sqlite' && explicit !== 'mysql') {
+    throw new Error(`ADH_DB 只能是 sqlite 或 mysql，当前是 ${explicit}`);
+  }
+
+  // 没显式指定时：有 MYSQL_HOST 就用 MySQL，否则用本地 SQLite
+  const kind = explicit ?? (envValue('MYSQL_HOST') ? 'mysql' : 'sqlite');
+
+  if (kind === 'sqlite') {
+    return { kind: 'sqlite', path: path.join(dataDir, 'adh.sqlite') };
+  }
+
+  return { kind: 'mysql', ...readMysqlConfig() };
 }
 
 export function loadConfig(): ServerConfig {
@@ -146,7 +186,7 @@ export function loadConfig(): ServerConfig {
     host: cli.host ?? process.env.ADH_HOST ?? '0.0.0.0',
     port: Number(cli.port ?? process.env.ADH_PORT ?? DEFAULT_SERVER_PORT),
     dataDir,
-    mysql: readMysqlConfig(),
+    db: readDatabaseConfig(dataDir),
     packageDir,
     thumbnailDir,
     appIconDir,

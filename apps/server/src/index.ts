@@ -24,13 +24,13 @@ import { WebHub } from './ws/web-hub.js';
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
-  const { pool, db, close: closeDatabase } = await openDatabase(config.mysql);
-  const queries = createQueries(db);
+  const { driver, close: closeDatabase } = await openDatabase(config.db);
+  const queries = createQueries(driver);
   const registry = new AgentRegistry();
   const hub = new WebHub();
   const oss = config.oss ? new OssStore(config.oss) : null;
   const thumbnails = new ThumbnailStore(config.thumbnailDir, oss);
-  const packages = await PackageStore.create(config.packageDir, pool, oss);
+  const packages = await PackageStore.create(config.packageDir, driver, oss);
   const icons = new AppIconStore(config.appIconDir, oss);
   const commands = new CommandBus(registry);
   const streams = new StreamManager({ queries, registry, hub, logger });
@@ -126,9 +126,14 @@ async function main(): Promise<void> {
   logger.info(`adh-server v${SERVER_VERSION} ready`);
   logger.info(`data dir     : ${config.dataDir}`);
   logger.info(
+    config.db.kind === 'mysql'
+      ? `database     : mysql ${config.db.host}:${config.db.port}/${config.db.database}`
+      : `database     : sqlite ${config.db.path}`,
+  );
+  logger.info(
     oss
       ? `object store : oss://${oss.bucket}/${oss.prefix}`
-      : 'object store : local only（未配置 ADH_OSS_*）',
+      : 'object store : local files',
   );
   logger.info(`web console  : http://127.0.0.1:${config.port}`);
   logger.info(

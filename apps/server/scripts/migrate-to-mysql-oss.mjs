@@ -26,6 +26,7 @@ const migrationsDir = path.join(
   'src',
   'db',
   'migrations',
+  'mysql',
 );
 
 function env(...names) {

@@ -1,4 +1,4 @@
-name: Agent Packages
+name: adh-agent packages
 
 on:
   push:

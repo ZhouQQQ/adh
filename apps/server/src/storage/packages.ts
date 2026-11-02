@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Pool, RowDataPacket } from 'mysql2/promise';
+import type { SqlDriver } from '../db/driver.js';
 import type { OssStore } from './oss.js';
 
 const ID_PATTERN = /^[a-f0-9]{64}$/;
@@ -28,11 +28,9 @@ function reportOssError(error: unknown): void {
   console.warn(`[oss] 对象存储操作失败：${message}`);
 }
 
-interface CountRow extends RowDataPacket {
+interface CountRow {
   total: number;
 }
-
-interface PackageRow extends RowDataPacket, PackageRecord {}
 
 /**
  * 安装包元数据存 adh_packages 表，文件本体按 sha256 存在 data/packages 下，天然去重。
@@ -43,7 +41,7 @@ export class PackageStore {
 
   private constructor(
     private readonly dir: string,
-    private readonly pool: Pool,
+    private readonly db: SqlDriver,
     private readonly oss: OssStore | null = null,
   ) {
     fs.mkdirSync(dir, { recursive: true });
@@ -52,10 +50,10 @@ export class PackageStore {
 
   static async create(
     dir: string,
-    pool: Pool,
+    db: SqlDriver,
     oss: OssStore | null = null,
   ): Promise<PackageStore> {
-    const store = new PackageStore(dir, pool, oss);
+    const store = new PackageStore(dir, db, oss);
     await store.importLegacyIndex();
     return store;
   }
@@ -68,20 +66,23 @@ export class PackageStore {
   private async importLegacyIndex(): Promise<void> {
     if (!fs.existsSync(this.legacyIndexPath)) return;
 
-    const [rows] = await this.pool.query<CountRow[]>(
+    const [count] = await this.db.query<CountRow>(
       'SELECT COUNT(*) AS total FROM adh_packages',
     );
-    if (Number(rows[0]?.total ?? 0) > 0) return;
+    if (Number(count?.total ?? 0) > 0) return;
 
     try {
       const raw = JSON.parse(
         fs.readFileSync(this.legacyIndexPath, 'utf8'),
       ) as Partial<PackageRecord>[];
+      const insert =
+        this.db.dialect === 'mysql'
+          ? 'INSERT IGNORE INTO adh_packages'
+          : 'INSERT OR IGNORE INTO adh_packages';
       for (const record of raw) {
         if (!record?.id || !ID_PATTERN.test(record.id) || !record.name) continue;
-        await this.pool.query(
-          `INSERT IGNORE INTO adh_packages (id, name, kind, size, uploaded_at)
-           VALUES (?, ?, ?, ?, ?)`,
+        await this.db.execute(
+          `${insert} (id, name, kind, size, uploaded_at) VALUES (?, ?, ?, ?, ?)`,
           [
             record.id,
             record.name,
@@ -127,13 +128,17 @@ export class PackageStore {
 
     fs.writeFileSync(this.filePath(id, kind), data);
 
-    await this.pool.query(
+    const upsert =
+      this.db.dialect === 'mysql'
+        ? `ON DUPLICATE KEY UPDATE
+             name = VALUES(name), kind = VALUES(kind), size = VALUES(size)`
+        : `ON CONFLICT(id) DO UPDATE SET
+             name = excluded.name, kind = excluded.kind, size = excluded.size`;
+
+    await this.db.execute(
       `INSERT INTO adh_packages (id, name, kind, size, uploaded_at)
        VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         name = VALUES(name),
-         kind = VALUES(kind),
-         size = VALUES(size)`,
+       ${upsert}`,
       [id, name, kind, data.length, existing?.uploadedAt ?? Date.now()],
     );
 
@@ -143,7 +148,9 @@ export class PackageStore {
         await this.oss!.put(
           key,
           data,
-          kind === 'ipa' ? 'application/octet-stream' : 'application/vnd.android.package-archive',
+          kind === 'ipa'
+            ? 'application/octet-stream'
+            : 'application/vnd.android.package-archive',
         );
       } catch (error) {
         reportOssError(error);
@@ -176,7 +183,7 @@ export class PackageStore {
   async rename(id: string, name: string): Promise<PackageRecord | null> {
     const record = await this.record(id);
     if (!record || !(await this.has(id))) return null;
-    await this.pool.query('UPDATE adh_packages SET name = ? WHERE id = ?', [
+    await this.db.execute('UPDATE adh_packages SET name = ? WHERE id = ?', [
       name,
       id,
     ]);
@@ -184,19 +191,18 @@ export class PackageStore {
   }
 
   async list(): Promise<PackageRecord[]> {
-    const [rows] = await this.pool.query<PackageRow[]>(
+    return this.db.query<PackageRecord>(
       `SELECT ${SELECT_COLUMNS} FROM adh_packages ORDER BY uploaded_at DESC`,
     );
-    return rows.map((row) => ({ ...row }));
   }
 
   async record(id: string): Promise<PackageRecord | undefined> {
     if (!ID_PATTERN.test(id)) return undefined;
-    const [rows] = await this.pool.query<PackageRow[]>(
+    const [row] = await this.db.query<PackageRecord>(
       `SELECT ${SELECT_COLUMNS} FROM adh_packages WHERE id = ?`,
       [id],
     );
-    return rows[0];
+    return row;
   }
 
   async read(id: string): Promise<Buffer | null> {
@@ -219,7 +225,7 @@ export class PackageStore {
   async remove(id: string): Promise<boolean> {
     if (!ID_PATTERN.test(id)) return false;
     const kind = await this.kindOf(id);
-    await this.pool.query('DELETE FROM adh_packages WHERE id = ?', [id]);
+    await this.db.execute('DELETE FROM adh_packages WHERE id = ?', [id]);
 
     const key = this.ossKey(id, kind);
     if (key) void this.oss?.delete(key).catch(reportOssError);
