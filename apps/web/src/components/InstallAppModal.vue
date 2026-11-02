@@ -3,11 +3,17 @@ import { computed, ref, watch } from 'vue';
 import {
   NButton,
   NEmpty,
+  NIcon,
   NInput,
   NModal,
   NSpin,
+  NTag,
   useMessage,
 } from 'naive-ui';
+import {
+  CloudUploadOutline,
+  FolderOpenOutline,
+} from '@vicons/ionicons5';
 import { api, type PackageRecord } from '../api';
 
 const props = defineProps<{
@@ -160,33 +166,52 @@ async function installLocal(): Promise<void> {
     </div>
 
     <template v-else>
-      <section class="block">
-        <div class="block-title">本地文件</div>
-        <div class="local">
-          <input
-            ref="fileInput"
-            type="file"
-            :accept="accept"
-            hidden
-            @change="onFileSelected"
-          />
-          <n-button size="small" :disabled="busy" @click="pickFile">
-            上传安装包
-          </n-button>
-          <span v-if="localFile" class="file-name" :title="localFile.name">
-            {{ localFile.name }} · {{ formatSize(localFile.size) }}
-          </span>
-          <span v-else class="file-hint">未选择文件</span>
-          <n-button
-            size="small"
-            type="primary"
-            :loading="busy && busyId === null"
-            :disabled="!localFile || busy"
-            @click="installLocal"
-          >
-            上传并安装
-          </n-button>
+      <section class="pane">
+        <div class="pane-head">
+          <n-icon :size="16"><CloudUploadOutline /></n-icon>
+          <span class="pane-title">本地文件</span>
+          <n-tag v-if="localFile" size="tiny" :bordered="false" class="pane-count">
+            {{ formatSize(localFile.size) }}
+          </n-tag>
         </div>
+
+        <input
+          ref="fileInput"
+          type="file"
+          :accept="accept"
+          hidden
+          @change="onFileSelected"
+        />
+
+        <div class="dropzone" :class="{ filled: Boolean(localFile) }">
+          <template v-if="localFile">
+            <span class="file-name" :title="localFile.name">
+              {{ localFile.name }}
+            </span>
+            <div class="file-actions">
+              <n-button size="tiny" quaternary :disabled="busy" @click="pickFile">
+                重新选择
+              </n-button>
+              <n-button
+                size="tiny"
+                type="primary"
+                :loading="busy && busyId === null"
+                :disabled="busy"
+                @click="installLocal"
+              >
+                上传并安装
+              </n-button>
+            </div>
+          </template>
+          <template v-else>
+            <n-icon :size="22" class="drop-icon"><CloudUploadOutline /></n-icon>
+            <span class="drop-text">选择 .{{ fileKind }} 安装包</span>
+            <n-button size="small" :disabled="busy" @click="pickFile">
+              上传安装包
+            </n-button>
+          </template>
+        </div>
+
         <p class="tip">
           {{
             fileKind === 'ipa'
@@ -196,8 +221,13 @@ async function installLocal(): Promise<void> {
         </p>
       </section>
 
-      <section class="block">
-        <div class="block-title">已上传的安装包</div>
+      <section class="pane">
+        <div class="pane-head">
+          <n-icon :size="16"><FolderOpenOutline /></n-icon>
+          <span class="pane-title">已上传的安装包</span>
+          <span class="pane-count">{{ filtered.length }} 个</span>
+        </div>
+
         <n-input
           v-model:value="keyword"
           size="small"
@@ -243,48 +273,81 @@ async function installLocal(): Promise<void> {
   color: var(--text-dim);
 }
 
-.block {
+.pane {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
 }
 
-.block:first-child {
-  padding-top: 0;
+.pane + .pane {
+  margin-top: 12px;
 }
 
-.block:last-of-type {
-  border-bottom: none;
-  padding-bottom: 0;
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-faint);
 }
 
-.block-title {
+.pane-title {
   font-size: 12px;
   font-weight: 600;
+  color: var(--text);
+}
+
+.pane-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  transition: border-color 0.12s ease;
+}
+
+.dropzone.filled {
+  align-items: stretch;
+  gap: 10px;
+  border-style: solid;
+  background: var(--surface);
+}
+
+.drop-icon {
+  color: var(--text-faint);
+}
+
+.drop-text {
+  font-size: 12px;
   color: var(--text-dim);
 }
 
-.local {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .file-name {
-  flex: 1;
-  min-width: 0;
   font-size: 12px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-hint {
-  flex: 1;
-  font-size: 12px;
-  color: var(--text-faint);
+.file-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .tip {

@@ -3,12 +3,14 @@ import { computed, h, onMounted } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import {
   NButton,
+  NDropdown,
   NIcon,
   NLayout,
   NLayoutContent,
   NLayoutSider,
   NMenu,
   NTag,
+  type DropdownOption,
 } from 'naive-ui';
 import {
   AppsOutline,
@@ -17,10 +19,33 @@ import {
   ServerOutline,
 } from '@vicons/ionicons5';
 import { startFleet, useFleet } from '../stores/fleet';
+import { usePreviews } from '../stores/previews';
+import FloatingPreviews from '../components/FloatingPreviews.vue';
 
 const route = useRoute();
 const router = useRouter();
 const { agents, devices, connection } = useFleet();
+const { previews, closeAllPreviews, focusPreview } = usePreviews();
+
+const previewMenu = computed<DropdownOption[]>(() => {
+  if (previews.value.length === 0) return [];
+  return [
+    ...previews.value.map((item) => ({
+      label: item.deviceName,
+      key: `focus:${item.deviceId}`,
+    })),
+    { type: 'divider', key: 'divider' },
+    { label: '全部关闭', key: 'close-all' },
+  ];
+});
+
+function onPreviewMenu(key: string): void {
+  if (key === 'close-all') {
+    closeAllPreviews();
+    return;
+  }
+  if (key.startsWith('focus:')) focusPreview(key.slice('focus:'.length));
+}
 
 /** 页面左上角的返回箭头，由路由 meta.backTo 决定目标。 */
 const backTo = computed(() => (route.meta.backTo as string | undefined) ?? null);
@@ -108,6 +133,14 @@ const connectionMeta = computed(() => {
           <h1>{{ (route.meta.title as string) ?? '' }}</h1>
         </div>
         <div class="summary">
+          <n-dropdown
+            v-if="previews.length > 0"
+            trigger="click"
+            :options="previewMenu"
+            @select="onPreviewMenu"
+          >
+            <n-button size="tiny" quaternary>画中画 {{ previews.length }}</n-button>
+          </n-dropdown>
           <n-tag :type="connectionMeta.type" size="small" :bordered="false" round>
             {{ connectionMeta.text }}
           </n-tag>
@@ -121,6 +154,8 @@ const connectionMeta = computed(() => {
         <RouterView />
       </n-layout-content>
     </n-layout>
+
+    <FloatingPreviews />
   </n-layout>
 </template>
 

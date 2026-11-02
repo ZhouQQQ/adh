@@ -168,7 +168,15 @@ export class StreamManager {
     socket.on('close', () => {
       session.viewers.delete(socket);
       if (session.controller === socket) {
-        // 控制者离开即释放设备，其余只读观众一并断开
+        // 控制者离开时把控制权交给仍在观看的人（例如小窗），没人看才释放设备
+        const next = [...session.viewers].find(
+          (viewer) => viewer.readyState === 1,
+        );
+        if (next) {
+          session.controller = next;
+          sendJson(next, { t: 'role', controller: true });
+          return;
+        }
         this.destroy(session.id, '控制者已离开，设备已释放');
         return;
       }

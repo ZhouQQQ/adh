@@ -142,10 +142,14 @@ export const shadcnTheme: GlobalThemeOverrides = {
     textColorFocusPrimary: '#fafafa',
 
     colorErrorText: 'transparent',
-    textColorError: '#dc2626',
-    textColorHoverError: '#ef4444',
-    textColorPressedError: '#b91c1c',
-    textColorFocusError: '#ef4444',
+    textColorError: '#ffffff',
+    textColorHoverError: '#ffffff',
+    textColorPressedError: '#ffffff',
+    textColorFocusError: '#ffffff',
+    textColorErrorText: '#dc2626',
+    textColorHoverErrorText: '#ef4444',
+    textColorPressedErrorText: '#b91c1c',
+    textColorFocusErrorText: '#ef4444',
 
     colorText: 'transparent',
     colorHoverText: '#f4f4f5',

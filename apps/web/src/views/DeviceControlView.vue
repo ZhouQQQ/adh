@@ -19,6 +19,7 @@ import InstallAppModal from '../components/InstallAppModal.vue';
 import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
+import { usePreviews } from '../stores/previews';
 import { fileTimestamp, safeFileName, saveBlob } from '../utils/download';
 import { formatDateTime, formatMemory, formatResolution } from '../utils/format';
 
@@ -26,6 +27,7 @@ const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const { devices, agents, refresh } = useFleet();
+const { openPreview } = usePreviews();
 
 const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
 const sessionId = ref<string | null>(null);
@@ -270,8 +272,30 @@ function onPlayerClosed(): void {
   errorText.value = '画面连接已断开，点击重试';
 }
 
-function goBack(): void {
+async function goBack(): Promise<void> {
   void router.push('/devices');
+}
+
+/** 把当前画面收进右下角小窗，然后返回设备列表继续其它操作。 */
+async function openSmallWindow(): Promise<void> {
+  const current = device.value;
+  if (!current) return;
+
+  if (current.platform === 'android' && !sessionId.value) {
+    message.warning('画面还没连接，稍后再试');
+    return;
+  }
+
+  openPreview({
+    deviceId: current.id,
+    deviceName: current.name,
+    platform: current.platform === 'ios' ? 'ios' : 'android',
+    sessionId: current.platform === 'android' ? sessionId.value ?? '' : '',
+  });
+
+  // 给小窗留出建立连接/接管控制权的时间
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await router.push('/devices');
 }
 
 onMounted(async () => {
@@ -409,6 +433,9 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="stage-actions">
+          <button type="button" class="overlay-btn" @click="openSmallWindow">
+            画中画
+          </button>
           <button type="button" class="overlay-btn" @click="toggleFullscreen">
             {{ isFullscreen ? '退出全屏' : '全屏' }}
           </button>

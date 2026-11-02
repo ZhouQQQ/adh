@@ -360,6 +360,28 @@ export const api = {
     return (await response.json()) as { path: string };
   },
 
+  async downloadDeviceFilesZip(
+    deviceId: string,
+    paths: string[],
+  ): Promise<Blob> {
+    const response = await fetch(`/api/devices/${deviceId}/files/archive`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    });
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return await response.blob();
+  },
+
   deleteDeviceFiles(
     deviceId: string,
     paths: string[],

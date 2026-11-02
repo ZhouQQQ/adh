@@ -9,6 +9,7 @@ import {
   NIcon,
   NInput,
   NModal,
+  NSelect,
   NSpin,
   useDialog,
   useMessage,
@@ -41,6 +42,24 @@ const uploadInput = ref<HTMLInputElement | null>(null);
 
 const selected = ref<string[]>([]);
 const clipboard = ref<{ mode: 'copy' | 'move'; paths: string[] } | null>(null);
+
+type SortKey = 'name' | 'size' | 'mtime';
+const sortKey = ref<SortKey>('name');
+const sortDir = ref<'asc' | 'desc'>('asc');
+const archiving = ref(false);
+
+const sortedEntries = computed(() => {
+  const direction = sortDir.value === 'asc' ? 1 : -1;
+  return [...entries.value].sort((a, b) => {
+    // 目录始终排前面
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    if (sortKey.value === 'size') return (a.size - b.size) * direction;
+    if (sortKey.value === 'mtime') {
+      return a.mtime.localeCompare(b.mtime) * direction;
+    }
+    return a.name.localeCompare(b.name, 'zh-CN', { numeric: true }) * direction;
+  });
+});
 
 const renameShow = ref(false);
 const renameValue = ref('');
@@ -208,6 +227,23 @@ async function download(entry: DeviceFileEntry): Promise<void> {
     message.error(error instanceof Error ? error.message : '下载失败');
   } finally {
     downloading.value = null;
+  }
+}
+
+async function downloadArchive(): Promise<void> {
+  if (selected.value.length === 0) return;
+  archiving.value = true;
+  try {
+    const blob = await api.downloadDeviceFilesZip(
+      props.deviceId,
+      selected.value.map(fullPath),
+    );
+    saveBlob(blob, `files-${Date.now()}.zip`);
+    message.success(`已打包 ${selected.value.length} 项`);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '打包下载失败');
+  } finally {
+    archiving.value = false;
   }
 }
 
@@ -386,6 +422,37 @@ const selectedSingle = computed(() =>
           删除
         </n-button>
 
+        <n-button
+          size="tiny"
+          :disabled="selected.length === 0"
+          :loading="archiving"
+          @click="downloadArchive"
+        >
+          打包下载
+        </n-button>
+
+        <span class="divider" />
+
+        <span class="sort-label">排序</span>
+        <n-select
+          v-model:value="sortKey"
+          size="tiny"
+          class="sort-select"
+          :options="[
+            { label: '名称', value: 'name' },
+            { label: '大小', value: 'size' },
+            { label: '时间', value: 'mtime' },
+          ]"
+        />
+        <n-button
+          size="tiny"
+          quaternary
+          :title="sortDir === 'asc' ? '升序' : '降序'"
+          @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
+        >
+          {{ sortDir === 'asc' ? '↑' : '↓' }}
+        </n-button>
+
         <span class="divider" />
 
         <n-button size="tiny" :loading="uploading" @click="pickUpload">
@@ -406,7 +473,7 @@ const selectedSingle = computed(() =>
             class="empty"
           />
           <div
-            v-for="entry in entries"
+            v-for="entry in sortedEntries"
             :key="entry.name"
             class="row"
             :class="{
@@ -417,6 +484,7 @@ const selectedSingle = computed(() =>
           >
             <n-checkbox
               :checked="selected.includes(entry.name)"
+              size="small"
               @click.stop
               @update:checked="toggleSelect(entry.name, $event)"
             />
@@ -547,7 +615,21 @@ const selectedSingle = computed(() =>
   margin-bottom: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface-2);
+  background: var(--surface);
+  /* 列表很长时操作按钮始终可见 */
+  position: sticky;
+  top: -1px;
+  z-index: 6;
+  box-shadow: 0 4px 10px rgba(9, 9, 11, 0.04);
+}
+
+.sort-label {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.sort-select {
+  width: 84px;
 }
 
 .divider {
@@ -566,8 +648,8 @@ const selectedSingle = computed(() =>
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: 6px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background-color 0.12s ease;

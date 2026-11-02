@@ -63,6 +63,9 @@ importers:
       '@fastify/websocket':
         specifier: ^11.0.2
         version: 11.3.4
+      adm-zip:
+        specifier: ^0.6.1
+        version: 0.6.1
       ali-oss:
         specifier: ^6.23.0
         version: 6.23.0
@@ -91,6 +94,9 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@types/adm-zip':
+        specifier: ^0.6.0
+        version: 0.6.0
       '@types/ali-oss':
         specifier: ^6.23.4
         version: 6.23.4

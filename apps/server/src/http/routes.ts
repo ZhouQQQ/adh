@@ -23,6 +23,7 @@ import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { StreamManager } from '../stream/manager.js';
 import type { WebHub } from '../ws/web-hub.js';
 import AppInfoParser from 'app-info-parser';
+import AdmZip from 'adm-zip';
 import sharp from 'sharp';
 import {
   wdaAppSwitcher,
@@ -1031,6 +1032,63 @@ export async function registerHttpRoutes(
   });
 
   /** 批量删除。 */
+  /** 多选打包下载：adb pull 到临时目录后压成 zip。 */
+  app.post('/api/devices/:id/files/archive', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const parsed = FilePathsBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '没有选择文件' });
+    }
+
+    const paths = parsed.data.paths.map((item) => normalizeDevicePath(item));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adh-zip-'));
+    const zip = new AdmZip();
+    const usedNames = new Set<string>();
+    let count = 0;
+
+    try {
+      for (const [index, remote] of paths.entries()) {
+        const name = baseName(remote) || `item-${index}`;
+        const local = path.join(tempDir, `${index}-${name}`);
+        const result = await runCommand(
+          'adb',
+          ['-s', device.udid, 'pull', remote, local],
+          300_000,
+        );
+        if (result.code !== 0 || !fs.existsSync(local)) continue;
+
+        let entryName = name;
+        if (usedNames.has(entryName)) entryName = `${index}-${name}`;
+        usedNames.add(entryName);
+
+        if (fs.statSync(local).isDirectory()) {
+          zip.addLocalFolder(local, entryName);
+        } else {
+          zip.addLocalFile(local, '', entryName);
+        }
+        count += 1;
+      }
+
+      if (count === 0) {
+        return reply.code(400).send({ error: '没有可打包的文件' });
+      }
+
+      const buffer = zip.toBuffer();
+      return reply
+        .header('content-type', 'application/zip')
+        .header(
+          'content-disposition',
+          `attachment; filename="files-${Date.now()}.zip"`,
+        )
+        .send(buffer);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   app.post('/api/devices/:id/files/delete', async (request, reply) => {
     const { id } = request.params as { id: string };
     const device = requireLocalDevice(id, reply);
