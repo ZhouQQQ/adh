@@ -122,9 +122,6 @@ function openControl(): void {
           <n-descriptions-item label="品牌">
             <CopyValue :value="device.brand" />
           </n-descriptions-item>
-          <n-descriptions-item label="型号代码">
-            <CopyValue :value="device.model" mono />
-          </n-descriptions-item>
           <n-descriptions-item label="平台">
             <CopyValue :value="platformLabel" />
           </n-descriptions-item>

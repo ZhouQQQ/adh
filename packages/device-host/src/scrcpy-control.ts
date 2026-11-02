@@ -21,6 +21,7 @@ const MSG_INJECT_KEYCODE = 0;
 const MSG_INJECT_TEXT = 1;
 const MSG_INJECT_TOUCH_EVENT = 2;
 const MSG_BACK_OR_SCREEN_ON = 4;
+const MSG_SET_CLIPBOARD = 9;
 const MSG_ROTATE_DEVICE = 11;
 
 export function injectKeycode(
@@ -45,6 +46,28 @@ export function injectText(text: string): Buffer {
   buf.writeUInt8(MSG_INJECT_TEXT, 0);
   buf.writeUInt32BE(body.length, 1);
   body.copy(buf, 5);
+  return buf;
+}
+
+/**
+ * 通过剪贴板输入文本。
+ *
+ * INJECT_TEXT 走 KeyCharacterMap，只能映射 ASCII，中文会直接失败；
+ * 剪贴板方案由设备端设置剪贴板并自动粘贴，中英文都可用。
+ */
+export function setClipboard(text: string, paste = true): Buffer {
+  const body = Buffer.from(text, 'utf8');
+  const buf = Buffer.alloc(1 + 8 + 1 + 4 + body.length);
+  let offset = 0;
+  buf.writeUInt8(MSG_SET_CLIPBOARD, offset);
+  offset += 1;
+  buf.writeBigUInt64BE(0n, offset);
+  offset += 8;
+  buf.writeUInt8(paste ? 1 : 0, offset);
+  offset += 1;
+  buf.writeUInt32BE(body.length, offset);
+  offset += 4;
+  body.copy(buf, offset);
   return buf;
 }
 

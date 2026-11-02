@@ -8,9 +8,11 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui';
+import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
+import { fileTimestamp, safeFileName, saveBlob } from '../utils/download';
 import { formatResolution } from '../utils/format';
 
 const route = useRoute();
@@ -26,6 +28,28 @@ const controller = ref(false);
 const text = ref('');
 const installing = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
+const stageRef = ref<HTMLElement | null>(null);
+const isFullscreen = ref(false);
+const recording = ref(false);
+const fileShow = ref(false);
+
+async function toggleFullscreen(): Promise<void> {
+  const element = stageRef.value;
+  if (!element) return;
+  try {
+    if (!document.fullscreenElement) {
+      await element.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch {
+    message.error('当前浏览器不允许全屏');
+  }
+}
+
+function onFullscreenChange(): void {
+  isFullscreen.value = document.fullscreenElement === stageRef.value;
+}
 
 const deviceId = computed(() => String(route.params.id ?? ''));
 const device = computed(
@@ -83,6 +107,43 @@ function rotate(): void {
   playerRef.value?.sendRotate();
 }
 
+function deviceFileName(extension: string): string {
+  const name = safeFileName(device.value?.name ?? 'device');
+  return `${name}-${fileTimestamp()}.${extension}`;
+}
+
+async function takeScreenshot(): Promise<void> {
+  const blob = await playerRef.value?.screenshot();
+  if (!blob) {
+    message.warning('画面还没就绪，稍后再试');
+    return;
+  }
+  saveBlob(blob, deviceFileName('png'));
+  message.success('截图已保存');
+}
+
+async function toggleRecording(): Promise<void> {
+  if (!recording.value) {
+    const started = playerRef.value?.startRecording();
+    if (!started) {
+      message.warning('无法开始录制');
+      return;
+    }
+    recording.value = true;
+    message.success('开始录制，再次点击结束');
+    return;
+  }
+
+  const blob = await playerRef.value?.stopRecording();
+  recording.value = false;
+  if (!blob || blob.size === 0) {
+    message.warning('录制内容为空');
+    return;
+  }
+  saveBlob(blob, deviceFileName('webm'));
+  message.success('录屏已保存');
+}
+
 function pickApk(): void {
   if (!device.value) return;
   fileInput.value?.click();
@@ -116,11 +177,16 @@ function goBack(): void {
 }
 
 onMounted(async () => {
+  document.addEventListener('fullscreenchange', onFullscreenChange);
   if (devices.value.length === 0) await refresh();
   await createSession();
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange);
+  if (document.fullscreenElement === stageRef.value) {
+    void document.exitFullscreen();
+  }
   sessionId.value = null;
 });
 </script>
@@ -146,7 +212,7 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="body">
-      <div class="stage">
+      <div ref="stageRef" class="stage">
         <n-spin v-if="loading" :show="true" class="spin" />
         <DevicePlayer
           v-else-if="sessionId"
@@ -160,6 +226,23 @@ onBeforeUnmount(() => {
           <n-button v-if="errorText" size="small" @click="createSession">
             重试
           </n-button>
+        </div>
+
+        <button type="button" class="overlay-btn fs-toggle" @click="toggleFullscreen">
+          {{ isFullscreen ? '退出全屏' : '全屏' }}
+        </button>
+
+        <div v-if="isFullscreen" class="fullscreen-bar">
+          <button type="button" class="bar-btn" @click="sendKey('back')">返回</button>
+          <button type="button" class="bar-btn" @click="sendKey('home')">主页</button>
+          <button type="button" class="bar-btn" @click="sendKey('recent')">任务</button>
+          <span class="bar-divider" />
+          <button type="button" class="bar-btn" @click="sendKey('volumeDown')">音量−</button>
+          <button type="button" class="bar-btn" @click="sendKey('volumeUp')">音量+</button>
+          <button type="button" class="bar-btn" @click="sendKey('power')">电源</button>
+          <button type="button" class="bar-btn" @click="rotate">旋转</button>
+          <span class="bar-divider" />
+          <button type="button" class="bar-btn" @click="toggleFullscreen">退出全屏</button>
         </div>
       </div>
 
@@ -190,6 +273,20 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="section">
+          <div class="section-title">抓取</div>
+          <div class="grid-2">
+            <n-button size="small" @click="takeScreenshot">截图</n-button>
+            <n-button
+              size="small"
+              :type="recording ? 'error' : 'default'"
+              @click="toggleRecording"
+            >
+              {{ recording ? '停止录制' : '录屏' }}
+            </n-button>
+          </div>
+        </section>
+
+        <section class="section">
           <div class="section-title">应用</div>
           <n-button
             size="small"
@@ -207,6 +304,13 @@ onBeforeUnmount(() => {
             hidden
             @change="onApkSelected"
           />
+        </section>
+
+        <section class="section">
+          <div class="section-title">文件</div>
+          <n-button size="small" block @click="fileShow = true">
+            设备文件
+          </n-button>
         </section>
 
         <section class="section">
@@ -232,6 +336,12 @@ onBeforeUnmount(() => {
         </section>
       </aside>
     </div>
+
+    <DeviceFileBrowser
+      v-model:show="fileShow"
+      :device-id="device?.id ?? ''"
+      :device-name="device?.name ?? ''"
+    />
   </div>
 </template>
 
@@ -289,6 +399,78 @@ onBeforeUnmount(() => {
 
 .spin {
   margin: auto;
+}
+
+.overlay-btn {
+  position: absolute;
+  z-index: 10;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 10, 11, 0.6);
+  color: #fafafa;
+  font-size: 12px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background-color 0.15s ease;
+}
+
+.overlay-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.fs-toggle {
+  top: 10px;
+  right: 10px;
+}
+
+.fullscreen-bar {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 10, 11, 0.82);
+  backdrop-filter: blur(12px);
+  z-index: 10;
+}
+
+.bar-btn {
+  padding: 5px 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fafafa;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.bar-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.bar-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.stage:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  border-radius: 0;
+}
+
+.stage:fullscreen .fs-toggle {
+  display: none;
 }
 
 .placeholder {

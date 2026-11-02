@@ -5,6 +5,13 @@ import type {
   DeviceSummary,
 } from '@adh/protocol';
 
+export interface DeviceFileEntry {
+  name: string;
+  isDir: boolean;
+  size: number;
+  mtime: string;
+}
+
 export interface ServerInfo {
   version: string;
   port: number;
@@ -121,6 +128,65 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ packageId }),
     });
+  },
+
+  listFiles(
+    deviceId: string,
+    dir: string,
+  ): Promise<{ path: string; entries: DeviceFileEntry[] }> {
+    return request(
+      `/api/devices/${deviceId}/files?path=${encodeURIComponent(dir)}`,
+    );
+  },
+
+  async downloadDeviceFile(
+    deviceId: string,
+    filePath: string,
+  ): Promise<{ blob: Blob; name: string }> {
+    const response = await fetch(
+      `/api/devices/${deviceId}/files/download?path=${encodeURIComponent(filePath)}`,
+    );
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    const name = filePath.split('/').pop() || 'file';
+    return { blob: await response.blob(), name };
+  },
+
+  async uploadDeviceFile(
+    deviceId: string,
+    dir: string,
+    file: File,
+  ): Promise<{ path: string }> {
+    const response = await fetch(
+      `/api/devices/${deviceId}/files/upload?dir=${encodeURIComponent(dir)}`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-file-name': encodeURIComponent(file.name),
+        },
+        body: file,
+      },
+    );
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return (await response.json()) as { path: string };
   },
 };
 

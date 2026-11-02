@@ -91,22 +91,18 @@ const cpuText = computed(() => {
           <span class="v">{{ memoryText }}</span>
         </div>
         <div class="kv">
-          <span class="k">型号代码</span>
-          <span class="v" :title="device.model">{{ device.model ?? '—' }}</span>
-        </div>
-        <div class="kv">
           <span class="k">分辨率</span>
           <span class="v">{{ resolutionText }}</span>
-        </div>
-        <div class="kv span-2">
-          <span class="k">CPU</span>
-          <span class="v" :title="cpuText">{{ cpuText }}</span>
         </div>
         <div class="kv">
           <span class="k">SDK</span>
           <span class="v">{{ device.sdk ?? '—' }}</span>
         </div>
-        <div class="kv">
+        <div class="kv span-2">
+          <span class="k">CPU</span>
+          <span class="v" :title="cpuText">{{ cpuText }}</span>
+        </div>
+        <div class="kv span-2">
           <span class="k">节点</span>
           <span class="v" :title="agentName">{{ agentName }}</span>
         </div>

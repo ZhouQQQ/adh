@@ -1,4 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { z } from 'zod';
 import {
   BUILTIN_AGENT_ID,
@@ -6,10 +9,11 @@ import {
   type AgentSummary,
   type DeviceSummary,
 } from '@adh/protocol';
-import { runCommand } from '@adh/device-host';
+import { runCommand, runCommandBuffer } from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
 import type { CommandBus } from '../command-bus.js';
 import type { Queries } from '../db/queries.js';
+import { baseName, normalizeDevicePath, parseLsOutput } from '../files/ls.js';
 import type { AgentRegistry } from '../registry.js';
 import { PackageStore } from '../storage/packages.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
@@ -64,6 +68,14 @@ export async function registerHttpRoutes(
 
   app.addContentTypeParser(
     'application/vnd.android.package-archive',
+    { parseAs: 'buffer' },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
+
+  app.addContentTypeParser(
+    'application/octet-stream',
     { parseAs: 'buffer' },
     (_request, body, done) => {
       done(null, body);
@@ -316,6 +328,125 @@ export async function registerHttpRoutes(
       return reply.code(400).send({
         error: error instanceof Error ? error.message : '下发安装指令失败',
       });
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* 设备文件管理                                                       */
+  /* ---------------------------------------------------------------- */
+
+  const requireLocalDevice = (
+    deviceId: string,
+    reply: FastifyReply,
+  ): DeviceSummary | null => {
+    const device = deps.queries.getDevice(deviceId);
+    if (!device) {
+      void reply.code(404).send({ error: '设备不存在' });
+      return null;
+    }
+    if (device.agentId !== BUILTIN_AGENT_ID) {
+      void reply
+        .code(400)
+        .send({ error: '文件管理目前只支持本机接入的设备' });
+      return null;
+    }
+    return device;
+  };
+
+  app.get('/api/devices/:id/files', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const { path: rawPath } = request.query as { path?: string };
+    const dir = normalizeDevicePath(rawPath ?? '/storage/emulated/0');
+    const result = await runCommand(
+      'adb',
+      ['-s', device.udid, 'shell', 'ls', '-la', dir],
+      20_000,
+    );
+    if (result.code !== 0) {
+      return reply
+        .code(400)
+        .send({ error: result.stderr.trim() || '读取目录失败' });
+    }
+    return { path: dir, entries: parseLsOutput(result.stdout) };
+  });
+
+  app.get('/api/devices/:id/files/download', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const { path: rawPath } = request.query as { path?: string };
+    if (!rawPath) return reply.code(400).send({ error: '缺少文件路径' });
+    const filePath = normalizeDevicePath(rawPath);
+
+    const result = await runCommandBuffer(
+      'adb',
+      ['-s', device.udid, 'exec-out', 'cat', filePath],
+      120_000,
+    );
+    if (result.code !== 0 || result.stdout.length === 0) {
+      return reply
+        .code(400)
+        .send({ error: result.stderr.trim() || '读取文件失败' });
+    }
+
+    const name = baseName(filePath);
+    return reply
+      .header('content-type', 'application/octet-stream')
+      .header(
+        'content-disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      )
+      .send(result.stdout);
+  });
+
+  app.post('/api/devices/:id/files/upload', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const body = request.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      return reply.code(400).send({ error: '文件内容为空' });
+    }
+    if (body.length > 512 * 1024 * 1024) {
+      return reply.code(413).send({ error: '文件超过 512MB' });
+    }
+
+    const { dir: rawDir } = request.query as { dir?: string };
+    const dir = normalizeDevicePath(rawDir ?? '/storage/emulated/0');
+
+    const rawName = request.headers['x-file-name'];
+    const name =
+      typeof rawName === 'string' && rawName
+        ? decodeURIComponent(rawName)
+        : `upload-${Date.now()}`;
+    const safeName = name.replace(/[\\/\0]/g, '_');
+    const tempPath = path.join(os.tmpdir(), `adh-up-${Date.now()}-${safeName}`);
+    fs.writeFileSync(tempPath, body);
+
+    try {
+      const remotePath = `${dir}/${safeName}`;
+      const result = await runCommand(
+        'adb',
+        ['-s', device.udid, 'push', tempPath, remotePath],
+        300_000,
+      );
+      if (result.code !== 0) {
+        return reply
+          .code(400)
+          .send({ error: result.stderr.trim() || '上传失败' });
+      }
+      return { path: remotePath };
+    } finally {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        /* ignore */
+      }
     }
   });
 

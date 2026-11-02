@@ -25,6 +25,8 @@ let socket: WebSocket | null = null;
 let decoder: VideoDecoder | null = null;
 let timestamp = 0;
 let pressing = false;
+let recorder: MediaRecorder | null = null;
+let recordedChunks: Blob[] = [];
 
 function base64ToBytes(value: string): Uint8Array {
   const binary = atob(value);
@@ -152,11 +154,20 @@ function pointerPosition(event: PointerEvent): { x: number; y: number } {
 }
 
 function onPointerDown(event: PointerEvent): void {
+  // 只处理左键 / 触摸，右键留给「返回」
+  if (event.button !== 0) return;
   if (!controller.value) return;
   (event.target as HTMLElement).setPointerCapture(event.pointerId);
   pressing = true;
   const { x, y } = pointerPosition(event);
   send({ t: 'touch', phase: 'began', x, y, pointerId: 0, pressure: 1 });
+}
+
+/** 右键 = 系统返回键。 */
+function onContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+  if (!controller.value) return;
+  send({ t: 'key', key: 'back' });
 }
 
 function onPointerMove(event: PointerEvent): void {
@@ -194,16 +205,83 @@ function sendRotate(): void {
   send({ t: 'rotate' });
 }
 
+/** 把当前画面导出成 PNG。 */
+function screenshot(): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const canvas = canvasRef.value;
+    if (!canvas || canvas.width === 0) {
+      resolve(null);
+      return;
+    }
+    canvas.toBlob((blob) => resolve(blob), 'image/png');
+  });
+}
+
+function startRecording(): boolean {
+  const canvas = canvasRef.value;
+  if (!canvas || recorder) return false;
+  try {
+    const stream = canvas.captureStream(30);
+    const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : 'video/webm';
+    recorder = new MediaRecorder(stream, {
+      mimeType: mime,
+      videoBitsPerSecond: 4_000_000,
+    });
+    recordedChunks = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) recordedChunks.push(event.data);
+    };
+    recorder.start(1000);
+    return true;
+  } catch {
+    recorder = null;
+    return false;
+  }
+}
+
+function stopRecording(): Promise<Blob | null> {
+  const current = recorder;
+  if (!current) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    current.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      recordedChunks = [];
+      recorder = null;
+      resolve(blob);
+    };
+    current.stop();
+  });
+}
+
 onMounted(connect);
 
 onBeforeUnmount(() => {
   socket?.close();
   socket = null;
+  if (recorder) {
+    try {
+      recorder.stop();
+    } catch {
+      /* ignore */
+    }
+    recorder = null;
+  }
   decoder?.close();
   decoder = null;
 });
 
-defineExpose({ sendKey, sendText, sendRotate, controller, connected });
+defineExpose({
+  sendKey,
+  sendText,
+  sendRotate,
+  screenshot,
+  startRecording,
+  stopRecording,
+  controller,
+  connected,
+});
 </script>
 
 <template>
@@ -215,6 +293,7 @@ defineExpose({ sendKey, sendText, sendRotate, controller, connected });
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
+      @contextmenu="onContextMenu"
     />
     <div v-if="starting" class="overlay">正在连接设备…</div>
     <div v-else-if="!connected" class="overlay">连接已断开</div>

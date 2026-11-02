@@ -3,9 +3,9 @@ import {
   TOUCH_ACTION,
   SCRCPY_KEYCODE,
   injectKeycode,
-  injectText,
   injectTouch,
   rotateDevice,
+  setClipboard,
 } from './scrcpy-control.js';
 
 /**
@@ -24,7 +24,8 @@ export class ScrcpyControlTranslator {
       case 'key':
         return this.key(message.key);
       case 'text':
-        return [injectText(message.text)];
+        // 走剪贴板，兼容中文
+        return [setClipboard(message.text, true)];
       case 'rotate':
         return [rotateDevice()];
       default:
