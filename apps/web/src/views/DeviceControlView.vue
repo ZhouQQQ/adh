@@ -20,6 +20,7 @@ import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { usePreviews } from '../stores/previews';
+import { openDevicePip, supportsDocumentPip } from '../utils/document-pip';
 import { fileTimestamp, safeFileName, saveBlob } from '../utils/download';
 import { formatDateTime, formatMemory, formatResolution } from '../utils/format';
 
@@ -117,9 +118,12 @@ const publishedText = computed(() => {
 const isIos = computed(() => device.value?.platform === 'ios');
 const quality = ref<'low' | 'medium' | 'high'>('medium');
 const pipActive = ref(false);
+let docPip: Window | null = null;
 
 watch(previews, (list) => {
   const id = device.value?.id;
+  // 仅页面内浮窗被关掉时才复位；Document PiP 不经过 previews
+  if (docPip) return;
   if (pipActive.value && id && !list.some((item) => item.deviceId === id)) {
     pipActive.value = false;
   }
@@ -287,8 +291,8 @@ async function goBack(): Promise<void> {
   void router.push('/devices');
 }
 
-/** 把当前画面投射到可拖动的画中画窗口，当前页面保持不动。 */
-function openSmallWindow(): void {
+/** 打开画中画：优先用 Document PiP（可拖到浏览器外），不支持时用页面内浮窗。 */
+async function openSmallWindow(): Promise<void> {
   const current = device.value;
   const player = playerRef.value;
   if (!current || !player) return;
@@ -300,6 +304,30 @@ function openSmallWindow(): void {
     return;
   }
 
+  if (supportsDocumentPip()) {
+    try {
+      docPip = await openDevicePip({
+        title: current.name,
+        platform: current.platform === 'ios' ? 'ios' : 'android',
+        stream,
+        onTap: (x, y) => player.mirrorTap(x, y),
+        onSwipe: (fromX, fromY, toX, toY, duration) =>
+          player.mirrorSwipe(fromX, fromY, toX, toY, duration),
+        onKey: (key) => player.sendKey(key),
+        onClose: () => {
+          docPip = null;
+          pipActive.value = false;
+        },
+      });
+      if (docPip) {
+        pipActive.value = true;
+        return;
+      }
+    } catch {
+      /* 用户拒绝或浏览器异常，退回页面内浮窗 */
+    }
+  }
+
   openPreview({
     deviceId: current.id,
     deviceName: current.name,
@@ -309,17 +337,27 @@ function openSmallWindow(): void {
     swipe: (fromX, fromY, toX, toY, duration) =>
       player.mirrorSwipe(fromX, fromY, toX, toY, duration),
     home: () => player.sendKey('home'),
+    back: () => player.sendKey('back'),
+    recent: () => player.sendKey('recent'),
   });
   pipActive.value = true;
 }
 
+function closePip(): void {
+  if (docPip) {
+    docPip.close();
+    docPip = null;
+  }
+  if (device.value) closePreview(device.value.id);
+  pipActive.value = false;
+}
+
 function togglePip(): void {
   if (pipActive.value) {
-    if (device.value) closePreview(device.value.id);
-    pipActive.value = false;
+    closePip();
     return;
   }
-  openSmallWindow();
+  void openSmallWindow();
 }
 
 onMounted(async () => {
@@ -335,7 +373,7 @@ onBeforeUnmount(() => {
     void document.exitFullscreen();
   }
   // 主画面销毁后镜像流就失效了，同步关掉画中画
-  if (pipActive.value && device.value) closePreview(device.value.id);
+  if (pipActive.value) closePip();
   sessionId.value = null;
 });
 </script>
@@ -378,7 +416,10 @@ onBeforeUnmount(() => {
 
     <div class="body">
       <aside class="info-col">
-        <div class="section-title">设备信息</div>
+        <div class="section-title stats-title">运行状态</div>
+        <DeviceStats :device-id="device?.id ?? ''" />
+
+        <div class="section-title info-title">设备信息</div>
         <div class="info-row">
           <span>名称</span>
           <CopyValue :value="device?.name" />
@@ -425,9 +466,6 @@ onBeforeUnmount(() => {
             {{ device?.status === 'online' ? '在线' : device?.status === 'offline' ? '离线' : '未授权' }}
           </span>
         </div>
-
-        <div class="section-title stats-title">运行状态</div>
-        <DeviceStats :device-id="device?.id ?? ''" />
       </aside>
 
       <div ref="stageRef" class="stage">
@@ -466,7 +504,7 @@ onBeforeUnmount(() => {
         <div v-if="pipActive" class="pip-notice">
           <div class="pip-title">画面已切换到画中画</div>
           <div class="pip-desc">
-            浮窗可以拖动、缩放，并直接操作设备。
+            窗口可以拖到浏览器外，点击画面即可操作设备。
           </div>
           <button type="button" class="placeholder-btn" @click="togglePip">
             收回画面
@@ -1025,9 +1063,14 @@ onBeforeUnmount(() => {
 }
 
 .section-title.stats-title {
-  margin-top: 6px;
-  padding-top: 10px;
+  margin-bottom: 8px;
+}
+
+.section-title.info-title {
+  margin-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
+  margin-bottom: 8px;
 }
 
 .grid-3 {

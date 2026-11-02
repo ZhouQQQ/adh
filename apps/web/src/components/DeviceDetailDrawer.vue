@@ -205,6 +205,10 @@ async function onImageSelected(event: Event): Promise<void> {
           />
         </div>
 
+        <div class="stats-title">运行状态</div>
+        <DeviceStats v-if="show" :device-id="device.id" />
+
+        <div class="stats-title">设备信息</div>
         <n-descriptions
           :column="1"
           label-placement="left"
@@ -266,9 +270,6 @@ async function onImageSelected(event: Event): Promise<void> {
             </n-space>
           </n-descriptions-item>
         </n-descriptions>
-
-        <div class="stats-title">运行状态</div>
-        <DeviceStats v-if="show" :device-id="device.id" />
       </template>
     </n-drawer-content>
   </n-drawer>
@@ -276,10 +277,14 @@ async function onImageSelected(event: Event): Promise<void> {
 
 <style scoped>
 .stats-title {
-  margin: 16px 0 8px;
+  margin: 0 0 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-dim);
+}
+
+.stats-title + .n-descriptions {
+  margin-top: 0;
 }
 
 .preview {

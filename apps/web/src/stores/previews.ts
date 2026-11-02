@@ -15,6 +15,8 @@ export interface FloatingPreview {
     duration: number,
   ) => void;
   home: () => void;
+  back: () => void;
+  recent: () => void;
   x: number;
   y: number;
   width: number;
@@ -42,6 +44,8 @@ export function usePreviews() {
     tap: (x: number, y: number) => void;
     swipe: FloatingPreview['swipe'];
     home: () => void;
+    back: () => void;
+    recent: () => void;
   }): void {
     const existing = previews.value.find(
       (item) => item.deviceId === input.deviceId,
@@ -51,6 +55,8 @@ export function usePreviews() {
       existing.tap = input.tap;
       existing.swipe = input.swipe;
       existing.home = input.home;
+      existing.back = input.back;
+      existing.recent = input.recent;
       existing.deviceName = input.deviceName;
       return;
     }

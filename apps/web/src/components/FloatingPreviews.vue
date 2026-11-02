@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
+import { NIcon } from 'naive-ui';
+import {
+  AlbumsOutline,
+  ArrowBackOutline,
+  HomeOutline,
+} from '@vicons/ionicons5';
 import { usePreviews, type FloatingPreview } from '../stores/previews';
 
 const router = useRouter();
@@ -207,52 +213,62 @@ function goControl(item: FloatingPreview): void {
           <span class="win-title" :title="item.deviceName">
             {{ item.deviceName }}
           </span>
+          <button
+            type="button"
+            class="head-btn"
+            title="回到控制页"
+            @pointerdown.stop
+            @click="goControl(item)"
+          >
+            ⤢
+          </button>
+          <button
+            type="button"
+            class="head-btn danger"
+            title="关闭画中画"
+            @pointerdown.stop
+            @click="closePreview(item.deviceId)"
+          >
+            ×
+          </button>
         </header>
 
-        <div class="win-content">
-          <div
-            class="win-body"
-            @pointerdown="onPointerDown($event, item)"
-            @pointerup="onPointerUp($event, item)"
-            @pointercancel="onPointerUp($event, item)"
-            @contextmenu.prevent
-          >
-            <video
-              :ref="(el) => setVideo(item.deviceId, el)"
-              class="win-video"
-              autoplay
-              muted
-              playsinline
-            />
-          </div>
-
-          <aside class="win-rail">
-            <button
-              type="button"
-              class="rail-btn"
-              title="回到控制页"
-              @click="goControl(item)"
-            >
-              ⤢
-            </button>
-            <button
-              type="button"
-              class="rail-btn"
-              title="主页"
-              @click="item.home()"
-            >
-              ⌂
-            </button>
-            <button
-              type="button"
-              class="rail-btn danger"
-              title="关闭画中画"
-              @click="closePreview(item.deviceId)"
-            >
-              ×
-            </button>
-          </aside>
+        <div
+          class="win-body"
+          @pointerdown="onPointerDown($event, item)"
+          @pointerup="onPointerUp($event, item)"
+          @pointercancel="onPointerUp($event, item)"
+          @contextmenu.prevent
+        >
+          <video
+            :ref="(el) => setVideo(item.deviceId, el)"
+            class="win-video"
+            autoplay
+            muted
+            playsinline
+          />
         </div>
+
+        <!-- 操作键放底部，右侧留给拖拽缩放 -->
+        <footer class="win-actions">
+          <button
+            type="button"
+            class="action-btn"
+            :disabled="item.platform === 'ios'"
+            @click="item.back()"
+          >
+            <n-icon :size="14"><ArrowBackOutline /></n-icon>
+            <span>返回</span>
+          </button>
+          <button type="button" class="action-btn" @click="item.home()">
+            <n-icon :size="14"><HomeOutline /></n-icon>
+            <span>主页</span>
+          </button>
+          <button type="button" class="action-btn" @click="item.recent()">
+            <n-icon :size="14"><AlbumsOutline /></n-icon>
+            <span>任务</span>
+          </button>
+        </footer>
 
         <span
           class="win-resize"
@@ -288,8 +304,9 @@ function goControl(item: FloatingPreview): void {
   flex: none;
   display: flex;
   align-items: center;
+  gap: 4px;
   height: 26px;
-  padding: 0 10px;
+  padding: 0 6px 0 10px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   cursor: move;
@@ -306,16 +323,35 @@ function goControl(item: FloatingPreview): void {
   white-space: nowrap;
 }
 
-.win-content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
+.head-btn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.head-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.head-btn.danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
 }
 
 .win-body {
   position: relative;
   flex: 1;
-  min-width: 0;
+  min-height: 0;
   background: #000;
   overflow: hidden;
   touch-action: none;
@@ -329,52 +365,56 @@ function goControl(item: FloatingPreview): void {
   background: #000;
 }
 
-/* 竖屏下把操作按钮放到右侧，避免挤占画面 */
-.win-rail {
+/* 导航键放底部，右侧留给拖拽缩放 */
+.win-actions {
   flex: none;
-  width: 30px;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 0;
+  height: 30px;
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 
-.rail-btn {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
+.action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   border: none;
-  border-radius: 4px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 13px;
-  line-height: 1;
+  font-size: 11px;
   cursor: pointer;
 }
 
-.rail-btn:hover {
+.action-btn + .action-btn {
+  border-left: 1px solid var(--border);
+}
+
+.action-btn:hover {
   background: var(--surface-2);
   color: var(--text);
 }
 
-.rail-btn.danger:hover {
-  background: #fef2f2;
-  color: #dc2626;
+.action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.action-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-dim);
 }
 
 .win-resize {
   position: absolute;
-  left: 0;
-  bottom: 0;
+  right: 0;
+  bottom: 30px;
   width: 14px;
   height: 14px;
-  cursor: nesw-resize;
+  cursor: nwse-resize;
   background: linear-gradient(
-    -45deg,
+    135deg,
     transparent 0 50%,
     var(--border-strong) 50% 100%
   );

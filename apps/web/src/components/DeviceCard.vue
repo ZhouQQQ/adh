@@ -2,6 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { NButton, NIcon, NTag } from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
+import {
+  FingerPrintOutline,
+  HardwareChipOutline,
+  PhonePortraitOutline,
+  SpeedometerOutline,
+  WifiOutline,
+} from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import DeviceBattery from './DeviceBattery.vue';
 import { api } from '../api';
@@ -149,24 +156,34 @@ const cpuText = computed(() => {
 
       <div class="kv-grid">
         <div class="kv">
-          <span class="k">系统版本</span>
+          <n-icon class="k" :size="12" title="系统版本">
+            <PhonePortraitOutline />
+          </n-icon>
           <span class="v">{{ osText }}</span>
         </div>
         <div class="kv">
-          <span class="k">内存</span>
+          <n-icon class="k" :size="12" title="内存">
+            <SpeedometerOutline />
+          </n-icon>
           <span class="v">{{ memoryText }}</span>
         </div>
-        <div class="kv span-2">
-          <span class="k">CPU</span>
+        <div class="kv">
+          <n-icon class="k" :size="12" title="CPU">
+            <HardwareChipOutline />
+          </n-icon>
           <span class="v" :title="cpuText">{{ cpuText }}</span>
         </div>
-        <div class="kv span-2">
-          <span class="k">UDID</span>
-          <span class="v mono" :title="device.udid">{{ device.udid }}</span>
+        <div class="kv">
+          <n-icon class="k" :size="12" title="IP 地址">
+            <WifiOutline />
+          </n-icon>
+          <span class="v mono">{{ network?.ip ?? '—' }}</span>
         </div>
         <div class="kv span-2">
-          <span class="k">IP</span>
-          <span class="v mono">{{ network?.ip ?? '—' }}</span>
+          <n-icon class="k" :size="12" title="UDID">
+            <FingerPrintOutline />
+          </n-icon>
+          <span class="v mono" :title="device.udid">{{ device.udid }}</span>
         </div>
       </div>
 
@@ -334,8 +351,8 @@ const cpuText = computed(() => {
 
 .kv {
   display: flex;
-  align-items: baseline;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   font-size: 10px;
 }
