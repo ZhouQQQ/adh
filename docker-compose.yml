@@ -1,0 +1,21 @@
+services:
+  adh:
+    build: .
+    image: adh-server:latest
+    container_name: adh
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      ADH_DATA_DIR: /data
+      # 容器里没有 USB，内置 Agent 关闭，设备宿主机单独跑 adh-agent
+      ADH_LOCAL_AGENT: "0"
+    volumes:
+      - adh-data:/data
+      # 可选：把打包好的 Agent 离线包挂进来，控制台才能下载
+      - ./dist:/app/dist:ro
+
+volumes:
+  adh-data:

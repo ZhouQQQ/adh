@@ -18,19 +18,19 @@
     "adm-zip": "^0.6.1",
     "ali-oss": "^6.23.0",
     "app-info-parser": "^1.1.6",
-    "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.1",
+    "mysql2": "^3.24.6",
     "pino": "^9.6.0",
+    "pino-pretty": "^13.2.0",
     "sharp": "^0.33.5",
+    "tsx": "^4.19.2",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.6.0",
     "@types/ali-oss": "^6.23.4",
-    "@types/better-sqlite3": "^7.6.12",
-    "@types/ws": "^8.5.13",
-    "pino-pretty": "^13.0.0"
+    "@types/ws": "^8.5.13"
   }
 }

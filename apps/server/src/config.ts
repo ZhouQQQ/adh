@@ -23,11 +23,19 @@ export interface OssConfig {
   publicBaseUrl?: string;
 }
 
+export interface MysqlConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+}
+
 export interface ServerConfig {
   host: string;
   port: number;
   dataDir: string;
-  dbPath: string;
+  mysql: MysqlConfig;
   packageDir: string;
   thumbnailDir: string;
   appIconDir: string;
@@ -71,19 +79,53 @@ function loadEnvFiles(): void {
 }
 
 function readOssConfig(): OssConfig | null {
-  const bucket = process.env.ADH_OSS_BUCKET?.trim();
-  const accessKeyId = process.env.ADH_OSS_ACCESS_KEY_ID?.trim();
-  const accessKeySecret = process.env.ADH_OSS_ACCESS_KEY_SECRET?.trim();
+  // 兼容 ADH_OSS_* 和阿里云常见的 OSS_* 变量名
+  const bucket = envValue('ADH_OSS_BUCKET', 'OSS_BUCKET_NAME');
+  const accessKeyId = envValue('ADH_OSS_ACCESS_KEY_ID', 'OSS_ACCESS_KEY_ID');
+  const accessKeySecret = envValue(
+    'ADH_OSS_ACCESS_KEY_SECRET',
+    'OSS_ACCESS_KEY_SECRET',
+  );
   if (!bucket || !accessKeyId || !accessKeySecret) return null;
+
+  const rawRegion =
+    envValue('ADH_OSS_REGION', 'OSS_REGION_ID') ?? 'oss-cn-hangzhou';
 
   return {
     bucket,
-    region: process.env.ADH_OSS_REGION?.trim() || 'oss-cn-hangzhou',
-    endpoint: process.env.ADH_OSS_ENDPOINT?.trim() || undefined,
+    region: rawRegion.startsWith('oss-') ? rawRegion : `oss-${rawRegion}`,
+    endpoint: envValue('ADH_OSS_ENDPOINT', 'OSS_ENDPOINT'),
     accessKeyId,
     accessKeySecret,
-    prefix: (process.env.ADH_OSS_PREFIX?.trim() || 'adh').replace(/^\/+|\/+$/g, ''),
-    publicBaseUrl: process.env.ADH_OSS_PUBLIC_BASE_URL?.trim() || undefined,
+    prefix: (envValue('ADH_OSS_PREFIX') ?? 'adh').replace(/^\/+|\/+$/g, ''),
+    publicBaseUrl: envValue('ADH_OSS_PUBLIC_BASE_URL'),
+  };
+}
+
+function envValue(...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function readMysqlConfig(): MysqlConfig {
+  const required = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_DB'];
+  const missing = required.filter((key) => !envValue(key));
+
+  if (missing.length > 0) {
+    throw new Error(
+      `缺少 MySQL 配置：${missing.join(', ')}（可写在仓库根 .env）`,
+    );
+  }
+
+  return {
+    host: envValue('MYSQL_HOST')!,
+    port: Number(envValue('MYSQL_PORT') ?? 3306),
+    user: envValue('MYSQL_USER')!,
+    password: envValue('MYSQL_PASSWORD') ?? '',
+    database: envValue('MYSQL_DB')!,
   };
 }
 
@@ -104,7 +146,7 @@ export function loadConfig(): ServerConfig {
     host: cli.host ?? process.env.ADH_HOST ?? '0.0.0.0',
     port: Number(cli.port ?? process.env.ADH_PORT ?? DEFAULT_SERVER_PORT),
     dataDir,
-    dbPath: path.join(dataDir, 'adh.sqlite'),
+    mysql: readMysqlConfig(),
     packageDir,
     thumbnailDir,
     appIconDir,

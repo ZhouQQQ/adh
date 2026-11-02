@@ -44,8 +44,8 @@ export function registerAgentChannel(
       if (socket.readyState === 1) socket.send(JSON.stringify(message));
     };
 
-    const broadcastAgent = (id: string, online: boolean): void => {
-      const summary = queries.getAgentSummary(id);
+    const broadcastAgent = async (id: string, online: boolean): Promise<void> => {
+      const summary = await queries.getAgentSummary(id);
       if (summary) hub.broadcast({ t: 'agent.updated', agent: { ...summary, online } });
     };
 
@@ -66,8 +66,11 @@ export function registerAgentChannel(
     }, AGENT_HEARTBEAT_SEC * 1000);
     heartbeat.unref?.();
 
-    const handleHello = (token: string, runtime: AgentRuntimeInfo): void => {
-      const row = queries.findAgentByToken(token);
+    const handleHello = async (
+      token: string,
+      runtime: AgentRuntimeInfo,
+    ): Promise<void> => {
+      const row = await queries.findAgentByToken(token);
       if (!row) {
         logger.warn({ host: runtime.name }, 'rejected agent: unknown key');
         send({ t: 'stop', reason: 'invalid key' });
@@ -76,7 +79,7 @@ export function registerAgentChannel(
       }
 
       agentId = row.id;
-      queries.updateAgentRuntime(agentId, runtime);
+      await queries.updateAgentRuntime(agentId, runtime);
       registry.attach(agentId, socket);
 
       send({
@@ -86,30 +89,34 @@ export function registerAgentChannel(
         serverVersion: deps.serverVersion,
       });
 
-      broadcastAgent(agentId, true);
+      void broadcastAgent(agentId, true);
       logger.info(
         { agentId, name: runtime.name, os: runtime.os },
         'agent connected',
       );
     };
 
-    const handleSync = (
+    const handleSync = async (
       currentAgentId: string,
       message: Extract<AgentToServerMessage, { t: 'devices.sync' }>,
-    ): void => {
+    ): Promise<void> => {
       for (const udid of message.remove) {
-        const removed = queries.removeDevice(currentAgentId, udid);
+        const removed = await queries.removeDevice(currentAgentId, udid);
         if (removed) {
           deps.thumbnails.remove(removed.id);
           hub.broadcast({ t: 'device.removed', deviceId: removed.id });
         }
       }
       for (const info of message.add) {
-        const device = queries.upsertDevice(currentAgentId, info);
+        const device = await queries.upsertDevice(currentAgentId, info);
         hub.broadcast({ t: 'device.updated', device });
       }
       for (const change of message.update) {
-        const device = queries.patchDevice(currentAgentId, change.udid, change.patch);
+        const device = await queries.patchDevice(
+          currentAgentId,
+          change.udid,
+          change.patch,
+        );
         if (device) hub.broadcast({ t: 'device.updated', device });
       }
     };
@@ -124,16 +131,24 @@ export function registerAgentChannel(
 
       if (message.t === 'hello') {
         if (agentId) return;
-        handleHello(message.token, message.agent);
+        void handleHello(message.token, message.agent).catch((error: unknown) => {
+          logger.warn({ err: String(error) }, 'agent hello failed');
+        });
         return;
       }
 
       if (!agentId) return;
       registry.touch(agentId);
-      queries.touchAgent(agentId);
+      void queries
+        .touchAgent(agentId)
+        .catch((error: unknown) =>
+          logger.warn({ err: String(error) }, 'touch agent failed'),
+        );
 
       if (message.t === 'devices.sync') {
-        handleSync(agentId, message);
+        void handleSync(agentId, message).catch((error: unknown) => {
+          logger.warn({ err: String(error) }, 'agent sync failed');
+        });
         return;
       }
       if (message.t === 'cmd.result') {
@@ -147,11 +162,17 @@ export function registerAgentChannel(
       clearInterval(heartbeat);
       if (!agentId) return;
       registry.detach(agentId);
-      const offline = queries.markAgentDevicesOffline(agentId);
-      for (const device of offline) {
-        hub.broadcast({ t: 'device.updated', device });
-      }
-      broadcastAgent(agentId, false);
+      void queries
+        .markAgentDevicesOffline(agentId)
+        .then((offline) => {
+          for (const device of offline) {
+            hub.broadcast({ t: 'device.updated', device });
+          }
+          return broadcastAgent(agentId!, false);
+        })
+        .catch((error: unknown) => {
+          logger.warn({ err: String(error) }, 'agent disconnect cleanup failed');
+        });
       logger.info({ agentId }, 'agent disconnected');
     });
 

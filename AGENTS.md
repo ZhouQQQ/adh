@@ -8,7 +8,7 @@ pnpm workspace，5 个包：
 
 | 路径                     | 职责                                                      |
 | ------------------------ | --------------------------------------------------------- |
-| `apps/server`          | Fastify + SQLite + WebSocket，同时托管 web 构建产物       |
+| `apps/server`          | Fastify + MySQL + WebSocket，同时托管 web 构建产物       |
 | `apps/agent`           | 宿主机守护进程：设备发现、缩略图上传、scrcpy 流           |
 | `apps/web`             | Vue 3 + Naive UI（**不是 React**），shadcn 浅色风格 |
 | `packages/protocol`    | 两端共享的 zod 消息 schema、二进制帧、H.264 工具          |
@@ -30,16 +30,21 @@ pnpm --filter @adh/agent dev doctor
 
 # 打离线分发包（dist/agent + zip），目标机只需 Node 22+ 与 adb
 pnpm package:agent
+
+# 旧数据迁移：SQLite -> MySQL，本地文件 -> OSS
+pnpm migrate:data
 ```
 
-数据默认在 `.data/`：`adh.sqlite`、`thumbnails/`、`packages/`。
+数据库连接和 OSS 都从 `.env` 读取（`MYSQL_*` / `ADH_OSS_*`）。
+本地 `.data/` 只保留文件缓存：`packages/`、`thumbnails/`、`app-icons/`。
 
 ## 必须知道
 
 - **改 `packages/*` 后要重启 server / agent**。`tsx watch` 只监听 app 自己的 `src`，共享包改动不会触发重载，容易出现"改了没生效"。
-- **数据库迁移手写 SQL**，放在 `apps/server/src/db/migrations/NNNN_*.sql`，启动时按文件名排序各执行一次并记入 `adh_migrations`。不要修改已提交的迁移。
+- **数据库是 MySQL**（OceanBase MySQL 模式已验证），drizzle 的查询是异步的，`Queries` 所有方法都返回 Promise。
+- **数据库迁移手写 SQL**，放在 `apps/server/src/db/migrations/NNNN_*.sql`，启动时按文件名排序各执行一次并记入 `adh_migrations`。迁移文件是 MySQL 语法，不要修改已提交的迁移。
 - **所有表名以 `adh_` 开头**（`adh_agents` / `adh_devices` / `adh_packages` / `adh_migrations`），新增表同样遵守。
-- **文件存储**：安装包、设备缩略图、应用图标默认落 `.data/`，配置 `ADH_OSS_*`（见 `.env.example`）后同步到 `oss://<bucket>/<prefix>/packages`、`.../thumbnails`、`.../app-icons`，本地保留缓存供 adb 安装与兜底读取。
+- **文件存储**：安装包、设备缩略图、应用图标同步到 `oss://<bucket>/adh/packages`、`.../thumbnails`、`.../app-icons`，本地 `.data/` 保留缓存供 adb 安装与兜底读取。
 - **Agent 有两个名字**：`name` 是用户可编辑的显示名，`hostName` 是 agent 上报的宿主机名。`updateAgentRuntime()` 故意不覆盖 `name`。
 - **设备从 adb 消失时标记 offline，不删记录**；清理走 `DELETE /api/devices/:id`。
 - **设备名优先取厂商市场名称**：`ro.vivo.market.name` → `ro.product.marketname` → OPPO / `ro.config.marketing_name` 等，取不到才回退到 `ro.product.model`。型号代码单独存在 `model` 字段。

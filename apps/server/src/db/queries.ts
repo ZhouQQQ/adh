@@ -97,53 +97,54 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
 }
 
 export function createQueries(db: Db) {
-  const deviceCounts = (): Map<string, number> => {
-    const rows = db
+  const deviceCounts = async (): Promise<Map<string, number>> => {
+    const rows = await db
       .select({
         agentId: devices.agentId,
         count: sql<number>`count(*)`,
       })
       .from(devices)
-      .groupBy(devices.agentId)
-      .all();
+      .groupBy(devices.agentId);
     return new Map(rows.map((row) => [row.agentId, Number(row.count)]));
   };
 
   return {
-    listAgents(): AgentSummary[] {
-      const counts = deviceCounts();
-      return db
-        .select()
-        .from(agents)
-        .all()
-        .map((row) => rowToAgent(row, counts.get(row.id) ?? 0));
+    async listAgents(): Promise<AgentSummary[]> {
+      const counts = await deviceCounts();
+      const rows = await db.select().from(agents);
+      return rows.map((row) => rowToAgent(row, counts.get(row.id) ?? 0));
     },
 
-    getAgentSummary(id: string): AgentSummary | undefined {
-      const row = db.select().from(agents).where(eq(agents.id, id)).get();
+    async getAgentSummary(id: string): Promise<AgentSummary | undefined> {
+      const [row] = await db.select().from(agents).where(eq(agents.id, id));
       if (!row) return undefined;
-      const count = db
+      const [count] = await db
         .select({ count: sql<number>`count(*)` })
         .from(devices)
-        .where(eq(devices.agentId, id))
-        .get();
+        .where(eq(devices.agentId, id));
       return rowToAgent(row, Number(count?.count ?? 0));
     },
 
-    findAgentByToken(token: string): AgentRow | undefined {
-      return db.select().from(agents).where(eq(agents.token, token)).get();
+    async findAgentByToken(token: string): Promise<AgentRow | undefined> {
+      const [row] = await db
+        .select()
+        .from(agents)
+        .where(eq(agents.token, token));
+      return row;
     },
 
-    findAgentByName(name: string): AgentRow | undefined {
-      return db.select().from(agents).where(eq(agents.name, name)).get();
+    async findAgentByName(name: string): Promise<AgentRow | undefined> {
+      const [row] = await db.select().from(agents).where(eq(agents.name, name));
+      return row;
     },
 
-    getAgent(id: string): AgentRow | undefined {
-      return db.select().from(agents).where(eq(agents.id, id)).get();
+    async getAgent(id: string): Promise<AgentRow | undefined> {
+      const [row] = await db.select().from(agents).where(eq(agents.id, id));
+      return row;
     },
 
     /** 由 Web 控制台创建，os/arch/version 在首次接入时补齐。 */
-    createAgent(name: string): AgentRow {
+    async createAgent(name: string): Promise<AgentRow> {
       const now = Date.now();
       const row: AgentRow = {
         id: randomUUID(),
@@ -157,20 +158,21 @@ export function createQueries(db: Db) {
         lastSeen: 0,
         createdAt: now,
       };
-      db.insert(agents).values(row).run();
+      await db.insert(agents).values(row);
       return row;
     },
 
     /** server 内置的本机 Agent，每次启动刷新名称与能力。 */
-    ensureBuiltinAgent(
+    async ensureBuiltinAgent(
       name: string,
       version: string,
       capabilities: string[],
-    ): AgentRow {
+    ): Promise<AgentRow> {
       const now = Date.now();
-      const existing = this.getAgent(BUILTIN_AGENT_ID);
+      const existing = await this.getAgent(BUILTIN_AGENT_ID);
       if (existing) {
-        db.update(agents)
+        await db
+          .update(agents)
           .set({
             name,
             hostName: name,
@@ -178,8 +180,7 @@ export function createQueries(db: Db) {
             capabilities: JSON.stringify(capabilities),
             lastSeen: now,
           })
-          .where(eq(agents.id, BUILTIN_AGENT_ID))
-          .run();
+          .where(eq(agents.id, BUILTIN_AGENT_ID));
         return { ...existing, name, hostName: name, version, lastSeen: now };
       }
 
@@ -195,34 +196,35 @@ export function createQueries(db: Db) {
         lastSeen: now,
         createdAt: now,
       };
-      db.insert(agents).values(row).run();
+      await db.insert(agents).values(row);
       return row;
     },
 
-    rotateAgentToken(id: string): AgentRow | undefined {
+    async rotateAgentToken(id: string): Promise<AgentRow | undefined> {
       const token = generateAgentKey();
-      db.update(agents).set({ token }).where(eq(agents.id, id)).run();
+      await db.update(agents).set({ token }).where(eq(agents.id, id));
       return this.getAgent(id);
     },
 
     /** 重命名；调用方负责检查重名。 */
-    renameAgent(id: string, name: string): AgentRow | undefined {
-      const existing = this.getAgent(id);
+    async renameAgent(id: string, name: string): Promise<AgentRow | undefined> {
+      const existing = await this.getAgent(id);
       if (!existing) return undefined;
-      db.update(agents).set({ name }).where(eq(agents.id, id)).run();
+      await db.update(agents).set({ name }).where(eq(agents.id, id));
       return { ...existing, name };
     },
 
-    deleteAgent(id: string): boolean {
-      const existing = this.getAgent(id);
+    async deleteAgent(id: string): Promise<boolean> {
+      const existing = await this.getAgent(id);
       if (!existing) return false;
-      db.delete(agents).where(eq(agents.id, id)).run();
+      await db.delete(agents).where(eq(agents.id, id));
       return true;
     },
 
-    updateAgentRuntime(id: string, info: AgentRuntimeInfo): void {
+    async updateAgentRuntime(id: string, info: AgentRuntimeInfo): Promise<void> {
       // name 是用户可编辑的显示名，这里只记录宿主机上报的原始名称
-      db.update(agents)
+      await db
+        .update(agents)
         .set({
           hostName: info.name,
           os: info.os,
@@ -231,37 +233,39 @@ export function createQueries(db: Db) {
           capabilities: JSON.stringify(info.capabilities),
           lastSeen: Date.now(),
         })
-        .where(eq(agents.id, id))
-        .run();
+        .where(eq(agents.id, id));
     },
 
-    touchAgent(id: string, at = Date.now()): void {
-      db.update(agents).set({ lastSeen: at }).where(eq(agents.id, id)).run();
+    async touchAgent(id: string, at = Date.now()): Promise<void> {
+      await db.update(agents).set({ lastSeen: at }).where(eq(agents.id, id));
     },
 
-    listDevices(agentId?: string): DeviceSummary[] {
+    async listDevices(agentId?: string): Promise<DeviceSummary[]> {
       const rows = agentId
-        ? db.select().from(devices).where(eq(devices.agentId, agentId)).all()
-        : db.select().from(devices).all();
+        ? await db.select().from(devices).where(eq(devices.agentId, agentId))
+        : await db.select().from(devices);
       return rows.map(rowToDevice);
     },
 
-    getDevice(id: string): DeviceSummary | undefined {
-      const row = db.select().from(devices).where(eq(devices.id, id)).get();
+    async getDevice(id: string): Promise<DeviceSummary | undefined> {
+      const [row] = await db.select().from(devices).where(eq(devices.id, id));
       return row ? rowToDevice(row) : undefined;
     },
 
-    findDevice(agentId: string, udid: string): DeviceRow | undefined {
-      return db
+    async findDevice(
+      agentId: string,
+      udid: string,
+    ): Promise<DeviceRow | undefined> {
+      const [row] = await db
         .select()
         .from(devices)
-        .where(and(eq(devices.agentId, agentId), eq(devices.udid, udid)))
-        .get();
+        .where(and(eq(devices.agentId, agentId), eq(devices.udid, udid)));
+      return row;
     },
 
-    upsertDevice(agentId: string, info: DeviceInfo): DeviceSummary {
+    async upsertDevice(agentId: string, info: DeviceInfo): Promise<DeviceSummary> {
       const now = Date.now();
-      const existing = this.findDevice(agentId, info.udid);
+      const existing = await this.findDevice(agentId, info.udid);
       const values = {
         agentId,
         udid: info.udid,
@@ -285,7 +289,7 @@ export function createQueries(db: Db) {
       };
 
       if (existing) {
-        db.update(devices).set(values).where(eq(devices.id, existing.id)).run();
+        await db.update(devices).set(values).where(eq(devices.id, existing.id));
         return rowToDevice({ ...existing, ...values });
       }
 
@@ -296,16 +300,16 @@ export function createQueries(db: Db) {
         publishedAt: 0,
         ...values,
       };
-      db.insert(devices).values(row).run();
+      await db.insert(devices).values(row);
       return rowToDevice(row);
     },
 
-    patchDevice(
+    async patchDevice(
       agentId: string,
       udid: string,
       patch: Partial<DeviceInfo>,
-    ): DeviceSummary | undefined {
-      const existing = this.findDevice(agentId, udid);
+    ): Promise<DeviceSummary | undefined> {
+      const existing = await this.findDevice(agentId, udid);
       if (!existing) return undefined;
       const set: Partial<DeviceRow> = { lastSeen: Date.now() };
       if (patch.name !== undefined) set.name = patch.name;
@@ -325,73 +329,96 @@ export function createQueries(db: Db) {
       if (patch.tags !== undefined) set.tags = JSON.stringify(patch.tags);
       if (patch.resolution !== undefined)
         set.resolution = patch.resolution ? JSON.stringify(patch.resolution) : null;
-      db.update(devices).set(set).where(eq(devices.id, existing.id)).run();
-      const updated = db.select().from(devices).where(eq(devices.id, existing.id)).get();
+      await db.update(devices).set(set).where(eq(devices.id, existing.id));
+      const [updated] = await db
+        .select()
+        .from(devices)
+        .where(eq(devices.id, existing.id));
       return updated ? rowToDevice(updated) : undefined;
     },
 
-    removeDevice(agentId: string, udid: string): DeviceSummary | undefined {
-      const existing = this.findDevice(agentId, udid);
+    async removeDevice(
+      agentId: string,
+      udid: string,
+    ): Promise<DeviceSummary | undefined> {
+      const existing = await this.findDevice(agentId, udid);
       if (!existing) return undefined;
-      db.delete(devices).where(eq(devices.id, existing.id)).run();
+      await db.delete(devices).where(eq(devices.id, existing.id));
       return rowToDevice(existing);
     },
 
-    markThumbnail(deviceId: string, at = Date.now()): DeviceSummary | undefined {
-      db.update(devices)
+    async markThumbnail(
+      deviceId: string,
+      at = Date.now(),
+    ): Promise<DeviceSummary | undefined> {
+      await db
+        .update(devices)
         .set({ thumbnailAt: at })
-        .where(eq(devices.id, deviceId))
-        .run();
-      const row = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+        .where(eq(devices.id, deviceId));
+      const [row] = await db
+        .select()
+        .from(devices)
+        .where(eq(devices.id, deviceId));
       return row ? rowToDevice(row) : undefined;
     },
 
     /** 手动上传的设备图片，标记后自动截图不再覆盖。 */
-    setManualThumbnail(deviceId: string): DeviceSummary | undefined {
-      db.update(devices)
+    async setManualThumbnail(
+      deviceId: string,
+    ): Promise<DeviceSummary | undefined> {
+      await db
+        .update(devices)
         .set({ thumbnailAt: Date.now(), thumbnailSource: 'manual' })
-        .where(eq(devices.id, deviceId))
-        .run();
-      const row = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+        .where(eq(devices.id, deviceId));
+      const [row] = await db
+        .select()
+        .from(devices)
+        .where(eq(devices.id, deviceId));
       return row ? rowToDevice(row) : undefined;
     },
 
-    updateDeviceMeta(
+    async updateDeviceMeta(
       id: string,
       patch: { publishedAt?: number },
-    ): DeviceSummary | undefined {
-      const existing = db.select().from(devices).where(eq(devices.id, id)).get();
+    ): Promise<DeviceSummary | undefined> {
+      const [existing] = await db.select().from(devices).where(eq(devices.id, id));
       if (!existing) return undefined;
 
       const set: Partial<DeviceRow> = {};
       if (patch.publishedAt !== undefined) set.publishedAt = patch.publishedAt;
 
       if (Object.keys(set).length > 0) {
-        db.update(devices).set(set).where(eq(devices.id, id)).run();
+        await db.update(devices).set(set).where(eq(devices.id, id));
       }
-      const row = db.select().from(devices).where(eq(devices.id, id)).get();
+      const [row] = await db.select().from(devices).where(eq(devices.id, id));
       return row ? rowToDevice(row) : undefined;
     },
 
     /** 设备从 agent 侧消失时只标记离线，保留记录以便查看历史。 */
-    markDeviceOffline(agentId: string, udid: string): DeviceSummary | undefined {
-      const existing = this.findDevice(agentId, udid);
+    async markDeviceOffline(
+      agentId: string,
+      udid: string,
+    ): Promise<DeviceSummary | undefined> {
+      const existing = await this.findDevice(agentId, udid);
       if (!existing) return undefined;
       if (existing.status === 'offline') return rowToDevice(existing);
-      db.update(devices)
+      await db
+        .update(devices)
         .set({ status: 'offline' })
-        .where(eq(devices.id, existing.id))
-        .run();
+        .where(eq(devices.id, existing.id));
       return rowToDevice({ ...existing, status: 'offline' });
     },
 
-    markAgentDevicesOffline(agentId: string): DeviceSummary[] {
-      const rows = db.select().from(devices).where(eq(devices.agentId, agentId)).all();
+    async markAgentDevicesOffline(agentId: string): Promise<DeviceSummary[]> {
+      const rows = await db
+        .select()
+        .from(devices)
+        .where(eq(devices.agentId, agentId));
       if (rows.length === 0) return [];
-      db.update(devices)
+      await db
+        .update(devices)
         .set({ status: 'offline' })
-        .where(eq(devices.agentId, agentId))
-        .run();
+        .where(eq(devices.agentId, agentId));
       return rows.map((row) => rowToDevice({ ...row, status: 'offline' }));
     },
   };

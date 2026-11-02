@@ -15,7 +15,7 @@ export function registerStreamChannel(
       const query = request.query as { role?: string; token?: string };
 
       if (query.role === 'agent') {
-        manager.attachAgent(sessionId, socket, query.token ?? '');
+        void manager.attachAgent(sessionId, socket, query.token ?? '');
         return;
       }
       manager.attachViewer(sessionId, socket);

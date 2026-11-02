@@ -59,7 +59,7 @@ export class LocalAgent {
 
     const adbAvailable = await isAdbAvailable();
     const capabilities = adbAvailable ? ['android'] : [];
-    const row = this.deps.queries.ensureBuiltinAgent(
+    const row = await this.deps.queries.ensureBuiltinAgent(
       os.hostname(),
       this.deps.version,
       capabilities,
@@ -107,27 +107,27 @@ export class LocalAgent {
       for (const udid of this.tracked.keys()) {
         if (next.has(udid)) continue;
         // 只标记离线，记录留给控制台查看
-        const offline = queries.markDeviceOffline(BUILTIN_AGENT_ID, udid);
+        const offline = await queries.markDeviceOffline(BUILTIN_AGENT_ID, udid);
         if (offline) hub.broadcast({ t: 'device.updated', device: offline });
       }
 
       for (const [udid, info] of next) {
         const previous = this.tracked.get(udid);
         if (!previous) {
-          const device = queries.upsertDevice(BUILTIN_AGENT_ID, info);
+          const device = await queries.upsertDevice(BUILTIN_AGENT_ID, info);
           hub.broadcast({ t: 'device.updated', device });
           continue;
         }
         if (sameDevice(previous, info)) continue;
         const device =
-          queries.patchDevice(BUILTIN_AGENT_ID, udid, info) ??
-          queries.upsertDevice(BUILTIN_AGENT_ID, info);
+          (await queries.patchDevice(BUILTIN_AGENT_ID, udid, info)) ??
+          (await queries.upsertDevice(BUILTIN_AGENT_ID, info));
         hub.broadcast({ t: 'device.updated', device });
       }
 
       this.tracked.clear();
       for (const [udid, info] of next) this.tracked.set(udid, info);
-      queries.touchAgent(BUILTIN_AGENT_ID);
+      await queries.touchAgent(BUILTIN_AGENT_ID);
     } catch (error) {
       this.deps.logger.debug({ err: String(error) }, 'local device scan failed');
     } finally {
@@ -149,12 +149,12 @@ export class LocalAgent {
       for (const device of targets) {
         const jpeg = await captureThumbnail(device.udid);
         if (!jpeg) continue;
-        const row = queries.findDevice(BUILTIN_AGENT_ID, device.udid);
+        const row = await queries.findDevice(BUILTIN_AGENT_ID, device.udid);
         if (!row) continue;
         // 手动上传过图片的设备不再被自动截图覆盖
         if (row.thumbnailSource === 'manual') continue;
         thumbnails.save(row.id, jpeg);
-        const updated = queries.markThumbnail(row.id);
+        const updated = await queries.markThumbnail(row.id);
         if (updated) hub.broadcast({ t: 'device.updated', device: updated });
       }
     } catch (error) {

@@ -511,16 +511,15 @@ export async function registerHttpRoutes(
   /* ---------------------------------------------------------------- */
 
   app.get('/api/agents', async () => {
-    return deps.queries
-      .listAgents()
-      .map((agent) => withOnline(agent, deps.registry));
+    const agents = await deps.queries.listAgents();
+    return agents.map((agent) => withOnline(agent, deps.registry));
   });
 
   /** 详情：返回完整 Key，便于随时查看接入命令。 */
   app.get('/api/agents/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const row = deps.queries.getAgent(id);
-    const summary = deps.queries.getAgentSummary(id);
+    const row = await deps.queries.getAgent(id);
+    const summary = await deps.queries.getAgentSummary(id);
     if (!row || !summary) {
       return reply.code(404).send({ error: 'agent not found' });
     }
@@ -540,19 +539,19 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '名称长度需在 1-40 个字符之间' });
     }
 
-    const existing = deps.queries.getAgent(id);
+    const existing = await deps.queries.getAgent(id);
     if (!existing) return reply.code(404).send({ error: 'agent not found' });
 
     const name = parsed.data.name;
-    const conflict = deps.queries.findAgentByName(name);
+    const conflict = await deps.queries.findAgentByName(name);
     if (conflict && conflict.id !== id) {
       return reply.code(409).send({ error: '同名 Agent 已存在' });
     }
 
-    const row = deps.queries.renameAgent(id, name);
+    const row = await deps.queries.renameAgent(id, name);
     if (!row) return reply.code(404).send({ error: 'agent not found' });
 
-    const summary = deps.queries.getAgentSummary(id);
+    const summary = await deps.queries.getAgentSummary(id);
     if (!summary) return reply.code(500).send({ error: 'agent not found' });
     const agent = withOnline(summary, deps.registry);
     deps.hub.broadcast({ t: 'agent.updated', agent });
@@ -564,13 +563,13 @@ export async function registerHttpRoutes(
     if (!parsed.success) {
       return reply.code(400).send({ error: 'name is required' });
     }
-    const existing = deps.queries.findAgentByName(parsed.data.name);
+    const existing = await deps.queries.findAgentByName(parsed.data.name);
     if (existing) {
       return reply.code(409).send({ error: '同名 Agent 已存在' });
     }
 
-    const row = deps.queries.createAgent(parsed.data.name);
-    const summary = deps.queries.getAgentSummary(row.id);
+    const row = await deps.queries.createAgent(parsed.data.name);
+    const summary = await deps.queries.getAgentSummary(row.id);
     if (!summary) return reply.code(500).send({ error: 'failed to create agent' });
 
     const agent = withOnline(summary, deps.registry);
@@ -583,10 +582,10 @@ export async function registerHttpRoutes(
     if (id === BUILTIN_AGENT_ID) {
       return reply.code(400).send({ error: '内置 Agent 由 server 自动管理，无法重置 Key' });
     }
-    const row = deps.queries.rotateAgentToken(id);
+    const row = await deps.queries.rotateAgentToken(id);
     if (!row) return reply.code(404).send({ error: 'agent not found' });
 
-    const summary = deps.queries.getAgentSummary(id);
+    const summary = await deps.queries.getAgentSummary(id);
     if (!summary) return reply.code(500).send({ error: 'agent not found' });
     const agent = withOnline(summary, deps.registry);
     deps.hub.broadcast({ t: 'agent.updated', agent });
@@ -598,8 +597,8 @@ export async function registerHttpRoutes(
     if (id === BUILTIN_AGENT_ID) {
       return reply.code(400).send({ error: '内置 Agent 由 server 自动管理，无法删除' });
     }
-    const agentDevices = deps.queries.listDevices(id);
-    if (!deps.queries.deleteAgent(id)) {
+    const agentDevices = await deps.queries.listDevices(id);
+    if (!(await deps.queries.deleteAgent(id))) {
       return reply.code(404).send({ error: 'agent not found' });
     }
     for (const device of agentDevices) {
@@ -619,7 +618,7 @@ export async function registerHttpRoutes(
     const isOnline = (agentId: string): boolean =>
       agentId === BUILTIN_AGENT_ID || online.has(agentId);
     const inUse = new Set(deps.streams.listInUseDeviceIds());
-    const devices: DeviceSummary[] = deps.queries.listDevices();
+    const devices: DeviceSummary[] = await deps.queries.listDevices();
     return devices.map((device) => ({
       ...(isOnline(device.agentId) ? device : { ...device, status: 'offline' as const }),
       inUse: inUse.has(device.id),
@@ -628,7 +627,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = deps.queries.getDevice(id);
+    const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: 'device not found' });
     return { ...device, inUse: deps.streams.isInUse(id) };
   });
@@ -641,7 +640,7 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '参数不合法' });
     }
 
-    const updated = deps.queries.updateDeviceMeta(id, parsed.data);
+    const updated = await deps.queries.updateDeviceMeta(id, parsed.data);
     if (!updated) return reply.code(404).send({ error: '设备不存在' });
 
     const device = { ...updated, inUse: deps.streams.isInUse(id) };
@@ -660,11 +659,11 @@ export async function registerHttpRoutes(
       return reply.code(413).send({ error: '图片超过 5MB' });
     }
 
-    const device = deps.queries.getDevice(id);
+    const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: '设备不存在' });
 
     deps.thumbnails.save(id, body);
-    const updated = deps.queries.setManualThumbnail(id);
+    const updated = await deps.queries.setManualThumbnail(id);
     if (!updated) return reply.code(500).send({ error: '保存失败' });
 
     const summary = { ...updated, inUse: deps.streams.isInUse(id) };
@@ -734,7 +733,7 @@ export async function registerHttpRoutes(
 
   /** 已上传的安装包列表。 */
   app.get('/api/packages', async () => {
-    return { packages: deps.packages.list() };
+    return { packages: await deps.packages.list() };
   });
 
   /** 重命名安装包（仅改显示名，后缀不可变）。 */
@@ -745,8 +744,8 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '名称不能为空' });
     }
 
-    const record = deps.packages.record(id);
-    if (!record || !deps.packages.has(id)) {
+    const record = await deps.packages.record(id);
+    if (!record || !(await deps.packages.has(id))) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
 
@@ -757,7 +756,7 @@ export async function registerHttpRoutes(
       });
     }
 
-    const next = deps.packages.rename(id, name);
+    const next = await deps.packages.rename(id, name);
     if (!next) return reply.code(404).send({ error: '安装包不存在' });
     return { package: next };
   });
@@ -765,10 +764,10 @@ export async function registerHttpRoutes(
   /** 删除已上传的安装包。 */
   app.delete('/api/packages/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (!deps.packages.record(id)) {
+    if (!(await deps.packages.record(id))) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
-    deps.packages.remove(id);
+    await deps.packages.remove(id);
     return reply.code(204).send();
   });
 
@@ -780,11 +779,11 @@ export async function registerHttpRoutes(
   /** 前端导出安装包（无需 agent 鉴权）。 */
   app.get('/api/packages/:id/file', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = deps.packages.record(id);
+    const record = await deps.packages.record(id);
     if (!record || !(await deps.packages.ensureLocal(id))) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
-    const data = deps.packages.read(id);
+    const data = await deps.packages.read(id);
     if (!data) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
@@ -800,15 +799,15 @@ export async function registerHttpRoutes(
   /** agent 下载安装包（用自身 Key 鉴权）。 */
   app.get('/api/packages/:id/download', async (request, reply) => {
     const token = bearerToken(request);
-    const agent = token ? deps.queries.findAgentByToken(token) : null;
+    const agent = token ? await deps.queries.findAgentByToken(token) : null;
     if (!agent) return reply.code(401).send({ error: 'invalid agent key' });
 
     const { id } = request.params as { id: string };
-    const record = deps.packages.record(id);
+    const record = await deps.packages.record(id);
     if (!record || !(await deps.packages.ensureLocal(id))) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
-    const data = deps.packages.read(id);
+    const data = await deps.packages.read(id);
     if (!data) return reply.code(404).send({ error: '安装包不存在' });
 
     return reply
@@ -825,10 +824,10 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '缺少有效的 packageId' });
     }
 
-    const device = deps.queries.getDevice(id);
+    const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: '设备不存在' });
 
-    const record = deps.packages.record(parsed.data.packageId);
+    const record = await deps.packages.record(parsed.data.packageId);
     if (!record) {
       return reply.code(404).send({ error: '安装包不存在，请重新上传' });
     }
@@ -847,7 +846,7 @@ export async function registerHttpRoutes(
       const result = await runIos(
         [
           'install',
-          `--path=${deps.packages.path(parsed.data.packageId)}`,
+          `--path=${await deps.packages.path(parsed.data.packageId)}`,
           `--udid=${device.udid}`,
         ],
         300_000,
@@ -879,7 +878,7 @@ export async function registerHttpRoutes(
           device.udid,
           'install',
           '-r',
-          deps.packages.path(parsed.data.packageId),
+          await deps.packages.path(parsed.data.packageId),
         ],
         300_000,
       );
@@ -916,11 +915,11 @@ export async function registerHttpRoutes(
   /* 设备文件管理                                                       */
   /* ---------------------------------------------------------------- */
 
-  const requireLocalDevice = (
+  const requireLocalDevice = async (
     deviceId: string,
     reply: FastifyReply,
-  ): DeviceSummary | null => {
-    const device = deps.queries.getDevice(deviceId);
+  ): Promise<DeviceSummary | null> => {
+    const device = await deps.queries.getDevice(deviceId);
     if (!device) {
       void reply.code(404).send({ error: '设备不存在' });
       return null;
@@ -936,7 +935,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/files', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const { path: rawPath } = request.query as { path?: string };
@@ -956,7 +955,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/files/download', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const { path: rawPath } = request.query as { path?: string };
@@ -986,7 +985,7 @@ export async function registerHttpRoutes(
 
   app.post('/api/devices/:id/files/upload', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const body = request.body;
@@ -1035,7 +1034,7 @@ export async function registerHttpRoutes(
   /** 多选打包下载：adb pull 到临时目录后压成 zip。 */
   app.post('/api/devices/:id/files/archive', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const parsed = FilePathsBody.safeParse(request.body);
@@ -1091,7 +1090,7 @@ export async function registerHttpRoutes(
 
   app.post('/api/devices/:id/files/delete', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const parsed = FilePathsBody.safeParse(request.body);
@@ -1124,7 +1123,7 @@ export async function registerHttpRoutes(
   /** 重命名（同一目录内改名）。 */
   app.post('/api/devices/:id/files/rename', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const parsed = FileRenameBody.safeParse(request.body);
@@ -1160,7 +1159,7 @@ export async function registerHttpRoutes(
   /** 复制 / 移动到目标目录。 */
   app.post('/api/devices/:id/files/paste', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const parsed = FilePasteBody.safeParse(request.body);
@@ -1212,7 +1211,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/battery', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     if (device.platform === 'ios') {
@@ -1240,7 +1239,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/runtime', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     if (device.platform === 'ios') {
@@ -1300,7 +1299,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/ios/screenshot', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
@@ -1332,7 +1331,7 @@ export async function registerHttpRoutes(
 
   app.post('/api/devices/:id/ios/input', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
@@ -1375,7 +1374,7 @@ export async function registerHttpRoutes(
   /** 设备网络信息：SSID（iOS 不支持）+ IP，卡片与详情共用。 */
   app.get('/api/devices/:id/network', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     if (device.platform === 'ios') {
@@ -1412,7 +1411,7 @@ export async function registerHttpRoutes(
   /** WDA 自带的 MJPEG 流，用于高帧率预览（~10fps）。 */
   app.get('/api/devices/:id/ios/mjpeg', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
@@ -1520,7 +1519,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/apps', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     if (device.platform === 'ios') {
@@ -1624,7 +1623,7 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '缺少有效的 package' });
     }
 
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
     if (device.platform !== 'android') {
       return reply.code(400).send({ error: '仅支持 Android 设备' });
@@ -1658,7 +1657,7 @@ export async function registerHttpRoutes(
   /** 把设备上已安装的 APK 导出到浏览器。 */
   app.get('/api/devices/:id/apps/export', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const { package: packageName } = request.query as { package?: string };
@@ -1697,7 +1696,7 @@ export async function registerHttpRoutes(
 
   app.post('/api/devices/:id/apps/uninstall', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = requireLocalDevice(id, reply);
+    const device = await requireLocalDevice(id, reply);
     if (!device) return reply;
 
     const body = request.body as { package?: string } | undefined;
@@ -1745,9 +1744,9 @@ export async function registerHttpRoutes(
 
   app.delete('/api/devices/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = deps.queries.getDevice(id);
+    const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: 'device not found' });
-    deps.queries.removeDevice(device.agentId, device.udid);
+    await deps.queries.removeDevice(device.agentId, device.udid);
     deps.thumbnails.remove(id);
     deps.hub.broadcast({ t: 'device.removed', deviceId: id });
     return reply.code(204).send();
@@ -1757,7 +1756,7 @@ export async function registerHttpRoutes(
   app.put('/api/agent/devices/:udid/thumbnail', async (request, reply) => {
     const token = bearerToken(request);
     if (!token) return reply.code(401).send({ error: 'missing agent key' });
-    const agent = deps.queries.findAgentByToken(token);
+    const agent = await deps.queries.findAgentByToken(token);
     if (!agent) return reply.code(401).send({ error: 'invalid agent key' });
 
     const body = request.body;
@@ -1769,12 +1768,12 @@ export async function registerHttpRoutes(
     }
 
     const { udid } = request.params as { udid: string };
-    const row = deps.queries.findDevice(agent.id, udid);
+    const row = await deps.queries.findDevice(agent.id, udid);
     if (!row) return reply.code(404).send({ error: 'device not found' });
 
     deps.thumbnails.save(row.id, body);
-    deps.queries.touchAgent(agent.id);
-    const device = deps.queries.markThumbnail(row.id);
+    await deps.queries.touchAgent(agent.id);
+    const device = await deps.queries.markThumbnail(row.id);
     if (device) deps.hub.broadcast({ t: 'device.updated', device });
     return reply.code(204).send();
   });

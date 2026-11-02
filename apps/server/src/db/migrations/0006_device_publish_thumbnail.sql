@@ -1,2 +1,0 @@
-ALTER TABLE devices ADD COLUMN thumbnail_source TEXT NOT NULL DEFAULT 'auto';
-ALTER TABLE devices ADD COLUMN published_at INTEGER NOT NULL DEFAULT 0;

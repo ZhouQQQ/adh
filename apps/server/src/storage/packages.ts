@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type Database from 'better-sqlite3';
+import type { Pool, RowDataPacket } from 'mysql2/promise';
 import type { OssStore } from './oss.js';
 
 const ID_PATTERN = /^[a-f0-9]{64}$/;
@@ -28,6 +28,12 @@ function reportOssError(error: unknown): void {
   console.warn(`[oss] 对象存储操作失败：${message}`);
 }
 
+interface CountRow extends RowDataPacket {
+  total: number;
+}
+
+interface PackageRow extends RowDataPacket, PackageRecord {}
+
 /**
  * 安装包元数据存 adh_packages 表，文件本体按 sha256 存在 data/packages 下，天然去重。
  * 配置了 OSS 时同步一份到 adh/packages/<id>.<kind>，本地保留作 adb 安装缓存。
@@ -35,14 +41,23 @@ function reportOssError(error: unknown): void {
 export class PackageStore {
   private readonly legacyIndexPath: string;
 
-  constructor(
+  private constructor(
     private readonly dir: string,
-    private readonly sqlite: Database.Database,
+    private readonly pool: Pool,
     private readonly oss: OssStore | null = null,
   ) {
     fs.mkdirSync(dir, { recursive: true });
     this.legacyIndexPath = path.join(dir, 'index.json');
-    this.importLegacyIndex();
+  }
+
+  static async create(
+    dir: string,
+    pool: Pool,
+    oss: OssStore | null = null,
+  ): Promise<PackageStore> {
+    const store = new PackageStore(dir, pool, oss);
+    await store.importLegacyIndex();
+    return store;
   }
 
   static hash(data: Buffer): string {
@@ -50,37 +65,32 @@ export class PackageStore {
   }
 
   /** 早期版本把索引写在 index.json，这里一次性搬进数据库。 */
-  private importLegacyIndex(): void {
+  private async importLegacyIndex(): Promise<void> {
     if (!fs.existsSync(this.legacyIndexPath)) return;
 
-    const count = (
-      this.sqlite.prepare('SELECT COUNT(*) AS total FROM adh_packages').get() as {
-        total: number;
-      }
-    ).total;
-    if (count > 0) return;
+    const [rows] = await this.pool.query<CountRow[]>(
+      'SELECT COUNT(*) AS total FROM adh_packages',
+    );
+    if (Number(rows[0]?.total ?? 0) > 0) return;
 
     try {
       const raw = JSON.parse(
         fs.readFileSync(this.legacyIndexPath, 'utf8'),
       ) as Partial<PackageRecord>[];
-      const insert = this.sqlite.prepare(
-        `INSERT OR IGNORE INTO adh_packages (id, name, kind, size, uploaded_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      );
-      const importAll = this.sqlite.transaction(() => {
-        for (const record of raw) {
-          if (!record?.id || !ID_PATTERN.test(record.id) || !record.name) continue;
-          insert.run(
+      for (const record of raw) {
+        if (!record?.id || !ID_PATTERN.test(record.id) || !record.name) continue;
+        await this.pool.query(
+          `INSERT IGNORE INTO adh_packages (id, name, kind, size, uploaded_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [
             record.id,
             record.name,
             record.kind === 'ipa' ? 'ipa' : packageKind(record.name),
             record.size ?? 0,
             record.uploadedAt ?? Date.now(),
-          );
-        }
-      });
-      importAll();
+          ],
+        );
+      }
       fs.renameSync(this.legacyIndexPath, `${this.legacyIndexPath}.bak`);
     } catch {
       /* 旧的 index.json 损坏时忽略，不影响启动 */
@@ -96,13 +106,13 @@ export class PackageStore {
     return this.oss ? this.oss.key('packages', `${id}.${kind}`) : null;
   }
 
-  private kindOf(id: string): PackageKind {
-    return this.record(id)?.kind ?? 'apk';
+  private async kindOf(id: string): Promise<PackageKind> {
+    return (await this.record(id))?.kind ?? 'apk';
   }
 
   async save(id: string, data: Buffer, name: string): Promise<PackageRecord> {
     const kind = packageKind(name);
-    const existing = this.record(id);
+    const existing = await this.record(id);
 
     // 同一份内容换了后缀：先清掉旧扩展名的文件，避免残留
     if (existing && existing.kind !== kind) {
@@ -117,16 +127,15 @@ export class PackageStore {
 
     fs.writeFileSync(this.filePath(id, kind), data);
 
-    this.sqlite
-      .prepare(
-        `INSERT INTO adh_packages (id, name, kind, size, uploaded_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           kind = excluded.kind,
-           size = excluded.size`,
-      )
-      .run(id, name, kind, data.length, existing?.uploadedAt ?? Date.now());
+    await this.pool.query(
+      `INSERT INTO adh_packages (id, name, kind, size, uploaded_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         kind = VALUES(kind),
+         size = VALUES(size)`,
+      [id, name, kind, data.length, existing?.uploadedAt ?? Date.now()],
+    );
 
     const key = this.ossKey(id, kind);
     if (key) {
@@ -141,13 +150,13 @@ export class PackageStore {
       }
     }
 
-    return this.record(id)!;
+    return (await this.record(id))!;
   }
 
   /** 本地缺文件时从 OSS 拉回来，供 adb install / 下载使用。 */
   async ensureLocal(id: string): Promise<boolean> {
-    const kind = this.kindOf(id);
-    if (this.has(id)) return true;
+    const kind = await this.kindOf(id);
+    if (await this.has(id)) return true;
     const key = this.ossKey(id, kind);
     if (!key) return false;
 
@@ -164,51 +173,53 @@ export class PackageStore {
   }
 
   /** 仅改显示名；后缀/类型不允许在这里变化。 */
-  rename(id: string, name: string): PackageRecord | null {
-    const record = this.record(id);
-    if (!record || !this.has(id)) return null;
-    this.sqlite
-      .prepare('UPDATE adh_packages SET name = ? WHERE id = ?')
-      .run(name, id);
-    return this.record(id) ?? null;
+  async rename(id: string, name: string): Promise<PackageRecord | null> {
+    const record = await this.record(id);
+    if (!record || !(await this.has(id))) return null;
+    await this.pool.query('UPDATE adh_packages SET name = ? WHERE id = ?', [
+      name,
+      id,
+    ]);
+    return (await this.record(id)) ?? null;
   }
 
-  list(): PackageRecord[] {
-    return this.sqlite
-      .prepare(
-        `SELECT ${SELECT_COLUMNS} FROM adh_packages ORDER BY uploaded_at DESC`,
-      )
-      .all() as PackageRecord[];
+  async list(): Promise<PackageRecord[]> {
+    const [rows] = await this.pool.query<PackageRow[]>(
+      `SELECT ${SELECT_COLUMNS} FROM adh_packages ORDER BY uploaded_at DESC`,
+    );
+    return rows.map((row) => ({ ...row }));
   }
 
-  record(id: string): PackageRecord | undefined {
+  async record(id: string): Promise<PackageRecord | undefined> {
     if (!ID_PATTERN.test(id)) return undefined;
-    return this.sqlite
-      .prepare(`SELECT ${SELECT_COLUMNS} FROM adh_packages WHERE id = ?`)
-      .get(id) as PackageRecord | undefined;
+    const [rows] = await this.pool.query<PackageRow[]>(
+      `SELECT ${SELECT_COLUMNS} FROM adh_packages WHERE id = ?`,
+      [id],
+    );
+    return rows[0];
   }
 
-  read(id: string): Buffer | null {
+  async read(id: string): Promise<Buffer | null> {
     try {
-      return fs.readFileSync(this.filePath(id, this.kindOf(id)));
+      return fs.readFileSync(this.filePath(id, await this.kindOf(id)));
     } catch {
       return null;
     }
   }
 
-  path(id: string): string {
-    return this.filePath(id, this.kindOf(id));
+  async path(id: string): Promise<string> {
+    return this.filePath(id, await this.kindOf(id));
   }
 
-  has(id: string): boolean {
+  async has(id: string): Promise<boolean> {
     if (!ID_PATTERN.test(id)) return false;
-    return fs.existsSync(this.filePath(id, this.kindOf(id)));
+    return fs.existsSync(this.filePath(id, await this.kindOf(id)));
   }
 
-  remove(id: string): boolean {
+  async remove(id: string): Promise<boolean> {
     if (!ID_PATTERN.test(id)) return false;
-    const kind = this.kindOf(id);
-    this.sqlite.prepare('DELETE FROM adh_packages WHERE id = ?').run(id);
+    const kind = await this.kindOf(id);
+    await this.pool.query('DELETE FROM adh_packages WHERE id = ?', [id]);
 
     const key = this.ossKey(id, kind);
     if (key) void this.oss?.delete(key).catch(reportOssError);

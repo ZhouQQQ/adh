@@ -24,13 +24,13 @@ import { WebHub } from './ws/web-hub.js';
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
-  const { sqlite, db } = openDatabase(config.dbPath);
+  const { pool, db, close: closeDatabase } = await openDatabase(config.mysql);
   const queries = createQueries(db);
   const registry = new AgentRegistry();
   const hub = new WebHub();
   const oss = config.oss ? new OssStore(config.oss) : null;
   const thumbnails = new ThumbnailStore(config.thumbnailDir, oss);
-  const packages = new PackageStore(config.packageDir, sqlite, oss);
+  const packages = await PackageStore.create(config.packageDir, pool, oss);
   const icons = new AppIconStore(config.appIconDir, oss);
   const commands = new CommandBus(registry);
   const streams = new StreamManager({ queries, registry, hub, logger });
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     streams.shutdown();
     commands.clear();
     await app.close();
-    sqlite.close();
+    await closeDatabase();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));

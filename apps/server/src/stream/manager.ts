@@ -95,7 +95,7 @@ export class StreamManager {
     const reuse = this.findSessionByDevice(deviceId);
     if (reuse) return { sessionId: reuse.id };
 
-    const device = this.deps.queries.getDevice(deviceId);
+    const device = await this.deps.queries.getDevice(deviceId);
     if (!device) throw new Error('设备不存在');
     if (device.platform !== 'android') throw new Error('目前只支持 Android 投屏');
 
@@ -184,13 +184,13 @@ export class StreamManager {
     });
   }
 
-  attachAgent(sessionId: string, socket: WebSocket, token: string): void {
+  async attachAgent(sessionId: string, socket: WebSocket, token: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       socket.close();
       return;
     }
-    const agent = this.deps.queries.findAgentByToken(token);
+    const agent = await this.deps.queries.findAgentByToken(token);
     if (!agent || agent.id !== session.device.agentId) {
       sendJson(socket, { t: 'error', message: '无效的 agent 凭证' });
       socket.close();
@@ -266,11 +266,12 @@ export class StreamManager {
   }
 
   private notifyDevice(deviceId: string): void {
-    const device = this.deps.queries.getDevice(deviceId);
-    if (!device) return;
-    this.deps.hub.broadcast({
-      t: 'device.updated',
-      device: { ...device, inUse: this.isInUse(deviceId) },
+    void this.deps.queries.getDevice(deviceId).then((device) => {
+      if (!device) return;
+      this.deps.hub.broadcast({
+        t: 'device.updated',
+        device: { ...device, inUse: this.isInUse(deviceId) },
+      });
     });
   }
 

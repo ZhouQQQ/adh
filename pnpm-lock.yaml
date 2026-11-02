@@ -72,21 +72,27 @@ importers:
       app-info-parser:
         specifier: ^1.1.6
         version: 1.1.6
-      better-sqlite3:
-        specifier: ^12.2.0
-        version: 12.11.1
       drizzle-orm:
         specifier: ^0.38.3
-        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@12.11.1)(react@19.3.1)
+        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@12.11.1)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
       fastify:
         specifier: ^5.2.1
         version: 5.12.7
+      mysql2:
+        specifier: ^3.24.6
+        version: 3.24.6(@types/node@22.20.5)
       pino:
         specifier: ^9.6.0
         version: 9.14.0
+      pino-pretty:
+        specifier: ^13.2.0
+        version: 13.2.0
       sharp:
         specifier: ^0.33.5
         version: 0.33.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
       ws:
         specifier: ^8.18.0
         version: 8.22.0
@@ -100,15 +106,9 @@ importers:
       '@types/ali-oss':
         specifier: ^6.23.4
         version: 6.23.4
-      '@types/better-sqlite3':
-        specifier: ^7.6.12
-        version: 7.6.13
       '@types/ws':
         specifier: ^8.5.13
         version: 8.18.2
-      pino-pretty:
-        specifier: ^13.0.0
-        version: 13.2.0
 
   apps/web:
     dependencies:
@@ -1089,6 +1089,10 @@ packages:
     resolution: {integrity: sha512-zJAaP9zxTcvTHRlejau3ZOY4V7SRpiByf3/dxx2uyKxxor19tpmpV2QRsTKikckwhaPmr2dVpxxMr7jOCYVp5g==}
     engines: {node: '>=6.0.0'}
 
+  aws-ssl-profiles@1.1.2:
+    resolution: {integrity: sha512-NZKeq9AfyQvEeNlN0zSYAaWrmBffJh3IELMZfRpJVWgrpEbtEpnjvzqBPf+mxoI287JohRDoa+/nsfqqiZmF6g==}
+    engines: {node: '>= 6.0.0'}
+
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
 
@@ -1505,6 +1509,9 @@ packages:
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
 
+  generate-function@2.3.1:
+    resolution: {integrity: sha512-eeB5GfMNeevm/GRYq20ShmsaGcmI81kIX2K9XQx5miC8KdHaC6Jm0qQ8ZNeGOi7wYB8OsdxKs+Y2oVuTFuVwKQ==}
+
   get-intrinsic@1.3.0:
     resolution: {integrity: sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==}
     engines: {node: '>= 0.4'}
@@ -1561,6 +1568,10 @@ packages:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
 
+  iconv-lite@0.7.3:
+    resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
+    engines: {node: '>=0.10.0'}
+
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
 
@@ -1586,6 +1597,9 @@ packages:
   is-extendable@0.1.1:
     resolution: {integrity: sha512-5BMULNob1vgFX6EjQw5izWDxrecWK9AM72rugNr0TFldMOi0fj6Jk+zeKIt0xGj4cEfQIJth4w3OKWOJ4f+AFw==}
     engines: {node: '>=0.10.0'}
+
+  is-property@1.0.2:
+    resolution: {integrity: sha512-Ks/IoX00TtClbGQr4TWXemAnktAQvYB7HzcCxDGqEZU6oCmb2INHuOoKxbtR+HFkmYWBKv/dOZtGRiAjDhj92g==}
 
   is-type-of@1.4.0:
     resolution: {integrity: sha512-EddYllaovi5ysMLMEN7yzHEKh8A850cZ7pykrY1aNRQGn/CDjRDE9qEWbIdt7xGEVJmjBXzU/fNnC4ABTm8tEQ==}
@@ -1720,9 +1734,16 @@ packages:
     resolution: {integrity: sha512-ZYvPPOMqUwPoDsbJaR10iQJYnMuZhRTvHYl62ErLIEX7RgFlziSBUUvrt3OVfc47QlHHpzPZYP17g3Fv7oeJkg==}
     engines: {node: '>=0.6'}
 
+  long@5.3.2:
+    resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
+
   lru-cache@11.5.3:
     resolution: {integrity: sha512-U4N8FgzmWxc8k1VH8Kr6lQg18U7Fjvby6wXHVRX/ZZ7IwWbRMgrRbP0Wrb5q5NVinryp4SQampHKdvtecItxUg==}
     engines: {node: 20 || >=22}
+
+  lru.min@1.1.5:
+    resolution: {integrity: sha512-5J9ysMYUpYIg9RF2vJpy9SinEmSviFSe0GyPpCQ4L5QSkLAgeLXlTAOu2ZwWUU5m+0SBl6gUU1R1ZQB3aKypfA==}
+    engines: {bun: '>=1.0.0', deno: '>=1.30.0', node: '>=8.0.0'}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -1776,6 +1797,12 @@ packages:
   muggle-string@0.4.1:
     resolution: {integrity: sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ==}
 
+  mysql2@3.24.6:
+    resolution: {integrity: sha512-enu73KhbAua2L3dIxjc6qg6ZJ7H3pt1BImZASWNWY5xSsmJ1ZuUPULTDGXgmJbI61vb+nJAG19IZclIq19UidQ==}
+    engines: {node: '>= 8.0'}
+    peerDependencies:
+      '@types/node': '>= 8'
+
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
 
@@ -1784,6 +1811,10 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       vue: ^3.0.0
+
+  named-placeholders@1.1.6:
+    resolution: {integrity: sha512-Tz09sEL2EEuv5fFowm419c1+a/jSMiBjI9gHxVLrVdbUkkNUUfjsVYs9pVZu5oCon/kmRh9TfLEObFtkVxmY0w==}
+    engines: {node: '>=8.0.0'}
 
   nanoid@3.3.20:
     resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
@@ -2072,6 +2103,10 @@ packages:
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
+
+  sql-escaper@1.5.2:
+    resolution: {integrity: sha512-6CKD38c31SENivxOADeMNLdukOnUxUcflKtzVWzace7Riv1v7cAEym5Cx9Q7gYZ3ezIJI7ZpqecQq8cqNeSSFg==}
+    engines: {bun: '>=1.0.0', deno: '>=2.0.0', node: '>=12.0.0'}
 
   statuses@1.5.0:
     resolution: {integrity: sha512-OpZ3zP+jT1PI7I8nemJX4AKmAX070ZkYPVWV/AaKTJl+tXCTGyVdC1a4SL8RUQYEwk/f34ZX8UTykN68FwrqAA==}
@@ -2987,6 +3022,7 @@ snapshots:
   '@types/better-sqlite3@7.6.13':
     dependencies:
       '@types/node': 22.20.5
+    optional: true
 
   '@types/estree@1.0.9': {}
 
@@ -3184,6 +3220,8 @@ snapshots:
 
   await-to-js@3.0.0: {}
 
+  aws-ssl-profiles@1.1.2: {}
+
   balanced-match@1.0.2: {}
 
   balanced-match@4.0.4: {}
@@ -3194,18 +3232,21 @@ snapshots:
     dependencies:
       bindings: 1.5.0
       prebuild-install: 7.1.3
+    optional: true
 
   big-integer@1.6.52: {}
 
   bindings@1.5.0:
     dependencies:
       file-uri-to-path: 1.0.0
+    optional: true
 
   bl@4.1.0:
     dependencies:
       buffer: 5.7.1
       inherits: 2.0.4
       readable-stream: 3.6.2
+    optional: true
 
   bmp-ts@1.0.9: {}
 
@@ -3255,7 +3296,8 @@ snapshots:
       stream-to-buffer: 0.1.0
       streamifier: 0.1.1
 
-  chownr@1.1.4: {}
+  chownr@1.1.4:
+    optional: true
 
   color-convert@2.0.1:
     dependencies:
@@ -3327,8 +3369,10 @@ snapshots:
   decompress-response@6.0.0:
     dependencies:
       mimic-response: 3.1.0
+    optional: true
 
-  deep-extend@0.6.0: {}
+  deep-extend@0.6.0:
+    optional: true
 
   default-user-agent@1.0.0:
     dependencies:
@@ -3344,11 +3388,12 @@ snapshots:
 
   digest-header@1.1.0: {}
 
-  drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@12.11.1)(react@19.3.1):
+  drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@12.11.1)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1):
     optionalDependencies:
       '@types/better-sqlite3': 7.6.13
       '@types/react': 19.3.0
       better-sqlite3: 12.11.1
+      mysql2: 3.24.6(@types/node@22.20.5)
       react: 19.3.1
 
   dunder-proto@1.0.1:
@@ -3448,7 +3493,8 @@ snapshots:
 
   exif-parser@0.1.12: {}
 
-  expand-template@2.0.3: {}
+  expand-template@2.0.3:
+    optional: true
 
   extend-shallow@2.0.1:
     dependencies:
@@ -3522,7 +3568,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  file-uri-to-path@1.0.0: {}
+  file-uri-to-path@1.0.0:
+    optional: true
 
   find-my-way@9.10.0:
     dependencies:
@@ -3542,12 +3589,17 @@ snapshots:
       node-hex: 1.0.1
       pause-stream: 0.0.11
 
-  fs-constants@1.0.0: {}
+  fs-constants@1.0.0:
+    optional: true
 
   fsevents@2.3.3:
     optional: true
 
   function-bind@1.1.2: {}
+
+  generate-function@2.3.1:
+    dependencies:
+      is-property: 1.0.2
 
   get-intrinsic@1.3.0:
     dependencies:
@@ -3574,7 +3626,8 @@ snapshots:
       image-q: 4.0.0
       omggif: 1.0.10
 
-  github-from-package@0.0.0: {}
+  github-from-package@0.0.0:
+    optional: true
 
   glob@11.1.0:
     dependencies:
@@ -3615,6 +3668,10 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
+  iconv-lite@0.7.3:
+    dependencies:
+      safer-buffer: 2.1.2
+
   ieee754@1.2.1: {}
 
   image-q@4.0.0:
@@ -3623,7 +3680,8 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  ini@1.3.8: {}
+  ini@1.3.8:
+    optional: true
 
   ipaddr.js@2.5.0: {}
 
@@ -3632,6 +3690,8 @@ snapshots:
   is-class-hotfix@0.0.6: {}
 
   is-extendable@0.1.1: {}
+
+  is-property@1.0.2: {}
 
   is-type-of@1.4.0:
     dependencies:
@@ -3766,7 +3826,11 @@ snapshots:
 
   long@3.2.0: {}
 
+  long@5.3.2: {}
+
   lru-cache@11.5.3: {}
+
+  lru.min@1.1.5: {}
 
   magic-string@0.30.21:
     dependencies:
@@ -3780,7 +3844,8 @@ snapshots:
 
   mime@3.0.0: {}
 
-  mimic-response@3.1.0: {}
+  mimic-response@3.1.0:
+    optional: true
 
   minimatch@10.2.6:
     dependencies:
@@ -3794,7 +3859,8 @@ snapshots:
 
   minipass@7.1.3: {}
 
-  mkdirp-classic@0.5.3: {}
+  mkdirp-classic@0.5.3:
+    optional: true
 
   mkdirp@0.5.6:
     dependencies:
@@ -3803,6 +3869,17 @@ snapshots:
   ms@2.1.3: {}
 
   muggle-string@0.4.1: {}
+
+  mysql2@3.24.6(@types/node@22.20.5):
+    dependencies:
+      '@types/node': 22.20.5
+      aws-ssl-profiles: 1.1.2
+      generate-function: 2.3.1
+      iconv-lite: 0.7.3
+      long: 5.3.2
+      lru.min: 1.1.5
+      named-placeholders: 1.1.6
+      sql-escaper: 1.5.2
 
   mz@2.7.0:
     dependencies:
@@ -3832,13 +3909,19 @@ snapshots:
       vue: 3.5.44(typescript@5.9.3)
       vueuc: 0.4.66(vue@3.5.44(typescript@5.9.3))
 
+  named-placeholders@1.1.6:
+    dependencies:
+      lru.min: 1.1.5
+
   nanoid@3.3.20: {}
 
-  napi-build-utils@2.0.0: {}
+  napi-build-utils@2.0.0:
+    optional: true
 
   node-abi@3.101.0:
     dependencies:
       semver: 7.8.5
+    optional: true
 
   node-hex@1.0.1: {}
 
@@ -3971,6 +4054,7 @@ snapshots:
       simple-get: 4.0.1
       tar-fs: 2.1.5
       tunnel-agent: 0.6.0
+    optional: true
 
   process-nextick-args@2.0.1: {}
 
@@ -3994,6 +4078,7 @@ snapshots:
       ini: 1.3.8
       minimist: 1.2.8
       strip-json-comments: 2.0.1
+    optional: true
 
   react@19.3.1:
     optional: true
@@ -4148,13 +4233,15 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  simple-concat@1.0.1: {}
+  simple-concat@1.0.1:
+    optional: true
 
   simple-get@4.0.1:
     dependencies:
       decompress-response: 6.0.0
       once: 1.4.0
       simple-concat: 1.0.1
+    optional: true
 
   simple-swizzle@0.2.4:
     dependencies:
@@ -4173,6 +4260,8 @@ snapshots:
   source-map-js@1.2.2: {}
 
   split2@4.2.0: {}
+
+  sql-escaper@1.5.2: {}
 
   statuses@1.5.0: {}
 
@@ -4206,7 +4295,8 @@ snapshots:
     dependencies:
       safe-buffer: 5.2.1
 
-  strip-json-comments@2.0.1: {}
+  strip-json-comments@2.0.1:
+    optional: true
 
   strip-json-comments@5.0.3: {}
 
@@ -4220,6 +4310,7 @@ snapshots:
       mkdirp-classic: 0.5.3
       pump: 3.0.4
       tar-stream: 2.2.0
+    optional: true
 
   tar-stream@2.2.0:
     dependencies:
@@ -4228,6 +4319,7 @@ snapshots:
       fs-constants: 1.0.0
       inherits: 2.0.4
       readable-stream: 3.6.2
+    optional: true
 
   thenify-all@1.6.0:
     dependencies:
@@ -4276,6 +4368,7 @@ snapshots:
   tunnel-agent@0.6.0:
     dependencies:
       safe-buffer: 5.2.1
+    optional: true
 
   typescript@5.9.3: {}
 
