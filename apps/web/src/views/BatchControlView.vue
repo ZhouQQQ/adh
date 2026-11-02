@@ -362,8 +362,8 @@ function goBack(): void {
 
 .tile-stage {
   position: relative;
-  /* 竖屏手机比例，随视口高度自适应 */
-  height: clamp(440px, 56vh, 640px);
+  /* 基本填满一屏，避免底部大片留白；设备多时自然滚动 */
+  height: clamp(520px, calc(100vh - 215px), 960px);
   background: #000;
 }
 
