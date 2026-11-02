@@ -38,24 +38,11 @@ iOS 设备额外需要：
 
 不需要安装 pnpm，也不需要拉源码。
 
-## 3. 解压并自检
+## 3. 解压（安装）
 
-把 zip 解压到任意目录，例如 `C:\adh-agent\`：
+把 zip 解压到任意目录，例如 `C:\adh-agent\`。目标机不需要安装 pnpm，也不需要拉源码。
 
-```bat
-cd C:\adh-agent
-adh-agent.cmd doctor
-```
-
-Linux / macOS：
-
-```bash
-cd ~/adh-agent
-chmod +x adh-agent.sh
-./adh-agent.sh doctor
-```
-
-`doctor` 会逐项检查 adb、go-ios、Apple 设备服务。`libimobiledevice` 显示未安装是正常的（有 go-ios 即可）。
+Windows 用 `adh-agent.cmd`，Linux / macOS 用 `adh-agent.sh`。
 
 ## 4. 接入 server
 
@@ -113,7 +100,22 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now adh-agent
 ```
 
-## 6. 常见问题
+## 6. 可选：环境自检
+
+接入前想确认 adb / go-ios 是否就绪，可以运行：
+
+```bat
+adh-agent.cmd doctor
+```
+
+```bash
+./adh-agent.sh doctor
+```
+
+这一步不是必需的：`connect` 启动时也会检测 adb，缺 adb 会在日志里提示。
+`libimobiledevice` 显示未安装是正常的（有 go-ios 即可）。
+
+## 7. 常见问题
 
 | 现象 | 处理 |
 | --- | --- |
@@ -123,6 +125,6 @@ sudo systemctl enable --now adh-agent
 | 提示 Key 无效 | Key 只能显示一次；在控制台「重置 Key」后用新命令重新接入 |
 | 设备不出现 | 确认 `adb devices` 能看到设备；`doctor` 通过后再看 agent 日志 |
 
-## 7. 可选：私有 npm
+## 8. 可选：私有 npm
 
 不想发离线包时，可以搭 Verdaccio / GitHub Packages，把 `@adh/protocol`、`@adh/device-host`、`@adh/agent` 依次发布（先把 `workspace:*` 改成实际版本号），目标机 `npm i -g @adh/agent` 即可获得全局 `adh-agent` 命令。

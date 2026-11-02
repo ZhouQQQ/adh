@@ -102,11 +102,11 @@ pnpm package:agent
 解压后运行：
 
 ```bash
-adh-agent.cmd doctor
 adh-agent.cmd connect --server ws://<hub地址>:8080 --key adh_xxxxxxxx
 ```
 
 Linux / macOS 用 `./adh-agent.sh`。目标机器不需要 pnpm，也不需要联网装依赖。
+想先检查 adb / go-ios 是否就绪，可以运行 `adh-agent.cmd doctor`（可选）。
 
 > `sharp` 带平台相关的原生二进制，Windows 上打的包只能给 Windows 用；给 Linux/macOS 分发时，在对应系统上执行一次 `pnpm package:agent`。
 

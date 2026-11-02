@@ -216,8 +216,8 @@ async function copy(value: string, which: string): Promise<void> {
           </div>
 
           <div class="steps">
-            <p>1. 解压安装包到任意目录</p>
-            <p>2. Windows 运行 <code>adh-agent.cmd doctor</code>，Linux / macOS 运行 <code>./adh-agent.sh doctor</code></p>
+            <p>1. 下载并解压安装包到任意目录</p>
+            <p>2. 宿主机安装 Node.js ≥ 22 与 adb（iOS 另需 go-ios）</p>
             <p>3. 执行上面的接入命令，设备会在几秒内出现在「设备管理」</p>
           </div>
         </section>
