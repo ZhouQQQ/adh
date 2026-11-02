@@ -14,7 +14,6 @@ import {
 } from 'naive-ui';
 import {
   AddOutline,
-  DownloadOutline,
   EllipsisHorizontalOutline,
   LogoApple,
   LogoTux,
@@ -23,6 +22,7 @@ import {
 } from '@vicons/ionicons5';
 import type { AgentSummary } from '@adh/protocol';
 import AgentDetailDrawer from '../components/AgentDetailDrawer.vue';
+import AgentDownloadButton from '../components/AgentDownloadButton.vue';
 import AgentKeyModal from '../components/AgentKeyModal.vue';
 import CreateAgentModal from '../components/CreateAgentModal.vue';
 import EditAgentModal from '../components/EditAgentModal.vue';
@@ -79,10 +79,6 @@ function openKeyModal(name: string, key: string, isNew: boolean): void {
 function onCreate(agent: AgentSummary, key: string): void {
   openKeyModal(agent.name, key, true);
   void refresh();
-}
-
-function downloadAgent(): void {
-  window.location.href = api.agentPackageUrl();
 }
 
 /** 节点宿主机系统：图标 + 名称，一眼分辨 Windows / macOS / Linux。 */
@@ -303,12 +299,7 @@ function confirmDelete(row: AgentSummary): void {
             <n-icon :component="RefreshOutline" />
           </template>
         </n-button>
-        <n-button size="small" @click="downloadAgent">
-          <template #icon>
-            <n-icon :component="DownloadOutline" />
-          </template>
-          下载 Agent
-        </n-button>
+        <AgentDownloadButton size="small" />
         <n-button type="primary" size="small" @click="showCreate = true">
           <template #icon>
             <n-icon :component="AddOutline" />

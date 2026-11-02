@@ -100,10 +100,6 @@ const cpuText = computed(() => {
 
 const brandText = computed(() => device.value?.brand ?? '—');
 
-const sdkText = computed(() =>
-  device.value?.sdk !== undefined ? `API ${device.value.sdk}` : '—',
-);
-
 const lastSeenText = computed(() =>
   device.value ? formatDateTime(device.value.lastSeen) : '—',
 );
@@ -115,8 +111,20 @@ const publishedText = computed(() => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 });
 
+const isIos = computed(() => device.value?.platform === 'ios');
+
 async function createSession(): Promise<void> {
   if (!device.value) return;
+
+  // iOS 走 WDA，没有 scrcpy 会话
+  if (device.value.platform === 'ios') {
+    sessionId.value = null;
+    errorText.value = null;
+    loading.value = false;
+    controller.value = true;
+    return;
+  }
+
   loading.value = true;
   errorText.value = null;
   sessionId.value = null;
@@ -300,10 +308,6 @@ onBeforeUnmount(() => {
           <CopyValue :value="osText" />
         </div>
         <div class="info-row">
-          <span>SDK</span>
-          <CopyValue :value="sdkText" />
-        </div>
-        <div class="info-row">
           <span>CPU</span>
           <CopyValue :value="cpuText" />
         </div>
@@ -345,9 +349,11 @@ onBeforeUnmount(() => {
       <div ref="stageRef" class="stage">
         <n-spin v-if="loading" :show="true" class="spin" />
         <DevicePlayer
-          v-else-if="sessionId"
+          v-if="sessionId || isIos"
           ref="playerRef"
-          :session-id="sessionId"
+          :session-id="sessionId ?? ''"
+          :platform="device?.platform"
+          :device-id="device?.id"
           @controller-change="controller = $event"
           @error="errorText = $event"
           @closed="onPlayerClosed"
@@ -425,7 +431,9 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">导航</div>
           <div class="grid-3">
-            <n-button size="small" @click="sendKey('back')">返回</n-button>
+            <n-button size="small" :disabled="isIos" @click="sendKey('back')">
+              返回
+            </n-button>
             <n-button size="small" @click="sendKey('home')">主页</n-button>
             <n-button size="small" @click="sendKey('recent')">任务</n-button>
           </div>
@@ -436,11 +444,13 @@ onBeforeUnmount(() => {
           <div class="grid-3">
             <n-button size="small" @click="sendKey('volumeDown')">音量−</n-button>
             <n-button size="small" @click="sendKey('volumeUp')">音量+</n-button>
-            <n-button size="small" @click="sendKey('mute')">静音</n-button>
+            <n-button size="small" :disabled="isIos" @click="sendKey('mute')">
+              静音
+            </n-button>
           </div>
         </section>
 
-        <section class="section">
+        <section v-if="!isIos" class="section">
           <div class="section-title">设备</div>
           <div class="grid-3">
             <n-button size="small" @click="sendKey('power')">电源</n-button>
@@ -466,7 +476,7 @@ onBeforeUnmount(() => {
           </n-button>
         </section>
 
-        <section class="section">
+        <section v-if="!isIos" class="section">
           <div class="section-title">应用</div>
           <div class="grid-2">
             <n-button size="small" @click="installShow = true">

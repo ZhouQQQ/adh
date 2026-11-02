@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   FRAME_KIND,
   annexBToAvcc,
@@ -9,7 +9,11 @@ import {
   type ViewerToStreamMessage,
 } from '@adh/protocol';
 
-const props = defineProps<{ sessionId: string }>();
+const props = defineProps<{
+  sessionId: string;
+  platform?: 'android' | 'ios';
+  deviceId?: string;
+}>();
 const emit = defineEmits<{
   'controller-change': [value: boolean];
   error: [message: string];
@@ -24,6 +28,7 @@ const pipVideoRef = ref<HTMLVideoElement | null>(null);
 const connected = ref(false);
 const controller = ref(false);
 const starting = ref(true);
+const isIos = computed(() => props.platform === 'ios');
 
 let socket: WebSocket | null = null;
 let decoder: VideoDecoder | null = null;
@@ -31,7 +36,12 @@ let timestamp = 0;
 let pressing = false;
 let recorder: MediaRecorder | null = null;
 let recordedChunks: Blob[] = [];
+let captureTrack: CanvasCaptureMediaStreamTrack | null = null;
+let recorderMime = 'video/webm';
 let unmounted = false;
+let iosTimer: ReturnType<typeof setTimeout> | null = null;
+let iosAbort: AbortController | null = null;
+let iosStart: { x: number; y: number; at: number } | null = null;
 
 function base64ToBytes(value: string): Uint8Array {
   const binary = atob(value);
@@ -54,6 +64,7 @@ function sendLocal(message: ViewerToStreamMessage): void {
 
 /** 接受联动转发的输入，只发送不再次广播，避免循环。 */
 function applyInput(message: ViewerToStreamMessage): void {
+  if (isIos.value) return;
   send(message);
 }
 
@@ -68,7 +79,10 @@ function configureDecoder(ready: StreamReady): void {
   decoder = new VideoDecoder({
     output: (frame) => {
       const context = canvas.getContext('2d');
-      if (context) context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+      if (context) {
+        context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        captureTrack?.requestFrame();
+      }
       frame.close();
     },
     error: (error) => emit('error', error.message),
@@ -139,6 +153,13 @@ function handleText(raw: string): void {
 }
 
 function connect(): void {
+  if (isIos.value) {
+    controller.value = true;
+    emit('controller-change', true);
+    void startIosStream();
+    return;
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(
     `${protocol}://${window.location.host}/ws/stream/${props.sessionId}`,
@@ -160,6 +181,128 @@ function connect(): void {
   ws.addEventListener('error', () => ws.close());
 }
 
+const IOS_POLL_MS = 200;
+
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
+  const output = new Uint8Array(a.length + b.length);
+  output.set(a, 0);
+  output.set(b, a.length);
+  return output;
+}
+
+function indexOfMarker(
+  buffer: Uint8Array,
+  first: number,
+  second: number,
+  from = 0,
+): number {
+  for (let i = from; i < buffer.length - 1; i += 1) {
+    if (buffer[i] === first && buffer[i + 1] === second) return i;
+  }
+  return -1;
+}
+
+async function drawIosFrame(data: Uint8Array): Promise<void> {
+  const bitmap = await createImageBitmap(
+    new Blob([data as unknown as BlobPart], { type: 'image/jpeg' }),
+  );
+  const canvas = canvasRef.value;
+  if (canvas) {
+    if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
+    if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (context) {
+      context.drawImage(bitmap, 0, 0);
+      captureTrack?.requestFrame();
+    }
+  }
+  bitmap.close();
+  starting.value = false;
+  connected.value = true;
+}
+
+/** 优先消费 WDA 的 MJPEG 流（约 10fps），失败再退回截图轮询。 */
+async function startIosStream(): Promise<void> {
+  iosAbort?.abort();
+  const controller = new AbortController();
+  iosAbort = controller;
+
+  try {
+    const response = await fetch(
+      `/api/devices/${props.deviceId}/ios/mjpeg`,
+      { signal: controller.signal, cache: 'no-store' },
+    );
+    if (!response.ok || !response.body) throw new Error('mjpeg unavailable');
+
+    const reader = response.body.getReader();
+    let buffer = new Uint8Array(0);
+
+    while (!unmounted && !controller.signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.length > 0) buffer = concatBytes(buffer, value);
+
+      while (true) {
+        const start = indexOfMarker(buffer, 0xff, 0xd8);
+        const end = start >= 0 ? indexOfMarker(buffer, 0xff, 0xd9, start + 2) : -1;
+        if (start < 0 || end < 0) break;
+
+        const frame = buffer.slice(start, end + 2);
+        buffer = buffer.slice(end + 2);
+        await drawIosFrame(frame);
+      }
+
+      if (buffer.length > 4_000_000) buffer = buffer.slice(buffer.length - 2);
+    }
+  } catch {
+    /* 流不可用时退回轮询 */
+  }
+
+  if (!unmounted && !controller.signal.aborted) {
+    void pollIosFrame();
+  }
+}
+
+async function pollIosFrame(): Promise<void> {
+  if (unmounted || !isIos.value) return;
+  try {
+    const response = await fetch(
+      `/api/devices/${props.deviceId}/ios/screenshot`,
+      { cache: 'no-store' },
+    );
+    if (!response.ok) throw new Error('screenshot');
+
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    await drawIosFrame(buffer);
+  } catch {
+    connected.value = false;
+  }
+
+  iosTimer = setTimeout(() => void pollIosFrame(), IOS_POLL_MS);
+}
+
+async function iosInput(payload: Record<string, unknown>): Promise<void> {
+  if (!props.deviceId) return;
+  try {
+    const response = await fetch(
+      `/api/devices/${props.deviceId}/ios/input`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      emit('error', body?.error ?? 'iOS 操作失败');
+    }
+  } catch (error) {
+    emit('error', error instanceof Error ? error.message : 'iOS 操作失败');
+  }
+}
+
 function pointerPosition(event: PointerEvent): { x: number; y: number } {
   const canvas = canvasRef.value;
   if (!canvas) return { x: 0, y: 0 };
@@ -173,6 +316,15 @@ function pointerPosition(event: PointerEvent): { x: number; y: number } {
 function onPointerDown(event: PointerEvent): void {
   // 只处理左键 / 触摸，右键留给「返回」
   if (event.button !== 0) return;
+
+  if (isIos.value) {
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
+    const position = pointerPosition(event);
+    iosStart = { ...position, at: Date.now() };
+    pressing = true;
+    return;
+  }
+
   if (!controller.value) return;
   (event.target as HTMLElement).setPointerCapture(event.pointerId);
   pressing = true;
@@ -183,6 +335,10 @@ function onPointerDown(event: PointerEvent): void {
 /** 右键 = 系统返回键。 */
 function onContextMenu(event: MouseEvent): void {
   event.preventDefault();
+  if (isIos.value) {
+    void iosInput({ type: 'button', name: 'home' });
+    return;
+  }
   if (!controller.value) return;
   sendLocal({ t: 'key', key: 'back' });
 }
@@ -191,17 +347,50 @@ function onContextMenu(event: MouseEvent): void {
 function onAuxClick(event: MouseEvent): void {
   if (event.button !== 1) return;
   event.preventDefault();
+  if (isIos.value) {
+    void iosInput({ type: 'button', name: 'home' });
+    return;
+  }
   if (!controller.value) return;
   sendLocal({ t: 'key', key: 'home' });
 }
 
 function onPointerMove(event: PointerEvent): void {
+  if (isIos.value) return;
   if (!pressing || !controller.value) return;
   const { x, y } = pointerPosition(event);
   sendLocal({ t: 'touch', phase: 'moved', x, y, pointerId: 0, pressure: 1 });
 }
 
 function onPointerUp(event: PointerEvent): void {
+  if (isIos.value) {
+    if (!iosStart) return;
+    pressing = false;
+    const start = iosStart;
+    iosStart = null;
+    const position = pointerPosition(event);
+    try {
+      (event.target as HTMLElement).releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    const distance = Math.hypot(position.x - start.x, position.y - start.y);
+    if (distance < 0.02) {
+      void iosInput({ type: 'tap', x: start.x, y: start.y });
+    } else {
+      void iosInput({
+        type: 'swipe',
+        fromX: start.x,
+        fromY: start.y,
+        toX: position.x,
+        toY: position.y,
+        duration: Math.min(4, (Date.now() - start.at) / 1000),
+      });
+    }
+    return;
+  }
+
   if (!pressing) return;
   pressing = false;
   const { x, y } = pointerPosition(event);
@@ -223,16 +412,29 @@ function sendKey(
     | 'volumeDown'
     | 'mute',
 ): void {
+  if (isIos.value) {
+    if (key === 'home') void iosInput({ type: 'button', name: 'home' });
+    else if (key === 'recent') void iosInput({ type: 'appSwitcher' });
+    else if (key === 'volumeUp') void iosInput({ type: 'button', name: 'volumeUp' });
+    else if (key === 'volumeDown') void iosInput({ type: 'button', name: 'volumeDown' });
+    return;
+  }
   if (!controller.value) return;
   sendLocal({ t: 'key', key });
 }
 
 function sendText(text: string): void {
-  if (!controller.value || !text) return;
+  if (!text) return;
+  if (isIos.value) {
+    void iosInput({ type: 'text', text });
+    return;
+  }
+  if (!controller.value) return;
   sendLocal({ t: 'text', text });
 }
 
 function sendRotate(): void {
+  if (isIos.value) return;
   if (!controller.value) return;
   sendLocal({ t: 'rotate' });
 }
@@ -349,6 +551,13 @@ onBeforeUnmount(() => {
   }
   decoder?.close();
   decoder = null;
+
+  if (iosTimer) {
+    clearTimeout(iosTimer);
+    iosTimer = null;
+  }
+  iosAbort?.abort();
+  iosAbort = null;
 });
 
 defineExpose({

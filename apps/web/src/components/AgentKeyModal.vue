@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { NAlert, NButton, NIcon, NModal, NSpace, useMessage } from 'naive-ui';
-import {
-  CheckmarkOutline,
-  CopyOutline,
-  DownloadOutline,
-} from '@vicons/ionicons5';
+import { CheckmarkOutline, CopyOutline } from '@vicons/ionicons5';
 import { api } from '../api';
 import { copyText } from '../utils/clipboard';
 import { buildConnectCommand } from '../utils/command';
+import AgentDownloadButton from './AgentDownloadButton.vue';
 
 const props = defineProps<{
   show: boolean;
@@ -40,10 +37,6 @@ watch(
 const command = computed(() =>
   buildConnectCommand(props.agentKey, serverPort.value),
 );
-
-function downloadAgent(): void {
-  window.location.href = api.agentPackageUrl();
-}
 
 async function copy(value: string, which: 'command'): Promise<void> {
   const ok = await copyText(value);
@@ -94,14 +87,9 @@ function close(): void {
       <div class="field">
         <span class="label">还没安装 Agent？</span>
         <div class="install-row">
-          <n-button size="small" @click="downloadAgent">
-            <template #icon>
-              <n-icon :component="DownloadOutline" />
-            </template>
-            下载安装包
-          </n-button>
+          <AgentDownloadButton size="small" />
           <span class="install-hint">
-            目标机需要 Node.js ≥ 22 与 adb；iOS 还需要 go-ios
+            目标机需要 Node.js ≥ 22；adb / go-ios 可忽略或用 init 内置安装
           </span>
         </div>
       </div>

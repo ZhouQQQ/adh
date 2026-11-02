@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import { Jimp } from 'jimp';
 import { runCommandBuffer } from './exec.js';
 
 /** 截屏并压缩成适合卡片展示的小图。 */
@@ -11,10 +11,11 @@ export async function captureThumbnail(udid: string): Promise<Buffer | null> {
   if (result.code !== 0 || result.stdout.byteLength < 64) return null;
 
   try {
-    return await sharp(result.stdout)
-      .resize({ width: 360, withoutEnlargement: true })
-      .jpeg({ quality: 72 })
-      .toBuffer();
+    const image = await Jimp.read(result.stdout);
+    if (image.bitmap.width > 360) {
+      image.resize({ w: 360 });
+    }
+    return await image.getBuffer('image/jpeg', { quality: 72 });
   } catch {
     return null;
   }

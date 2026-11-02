@@ -3,6 +3,7 @@ export * from './soc.js';
 export * from './android-discover.js';
 export * from './android-screenshot.js';
 export * from './ios-discover.js';
+export * from './ios-models.js';
 export * from './scrcpy-control.js';
 export * from './scrcpy-session.js';
 export * from './scrcpy-translator.js';

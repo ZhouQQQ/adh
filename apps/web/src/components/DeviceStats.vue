@@ -30,8 +30,11 @@ function formatGb(mb: number): string {
   return `${(mb / 1024).toFixed(1)} GB`;
 }
 
-function percentOf(used: number | undefined, total: number | undefined): number | null {
-  if (used === undefined || !total) return null;
+function percentOf(
+  used: number | null | undefined,
+  total: number | null | undefined,
+): number | null {
+  if (used === null || used === undefined || !total) return null;
   return Math.min(100, Math.round((used / total) * 100));
 }
 
@@ -63,7 +66,9 @@ const metrics = computed(() => {
       icon: SpeedometerOutline,
       label: '内存',
       hint: current.memory
-        ? `${formatGb(current.memory.usedMb)} / ${formatGb(current.memory.totalMb)}`
+        ? current.memory.usedMb === null
+          ? `${formatGb(current.memory.totalMb)} 总量`
+          : `${formatGb(current.memory.usedMb)} / ${formatGb(current.memory.totalMb)}`
         : '—',
       percent: memoryPercent,
       text: memoryPercent === null ? '—' : `${memoryPercent}%`,
@@ -85,9 +90,11 @@ const metrics = computed(() => {
 
 const wifiText = computed(() => {
   const wifi = stats.value?.wifi;
-  if (!wifi) return '—';
-  if (wifi.connected) return wifi.ssid ?? '已连接';
-  return wifi.enabled ? '未连接' : '已关闭';
+  if (!wifi) return '不可用';
+  if (!wifi.connected) return wifi.enabled ? '未连接' : '已关闭';
+
+  const ssid = wifi.ssid ?? 'SSID 不可获取';
+  return wifi.ip ? `${ssid} · ${wifi.ip}` : ssid;
 });
 
 async function load(): Promise<void> {

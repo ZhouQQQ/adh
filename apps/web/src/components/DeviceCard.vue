@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { NButton, NIcon, NTag } from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import DeviceBattery from './DeviceBattery.vue';
+import { api } from '../api';
 import { formatMemory, formatAgo } from '../utils/format';
 
 const props = defineProps<{
@@ -45,6 +46,44 @@ const osText = computed(() => {
 });
 
 const memoryText = computed(() => formatMemory(props.device.memoryMb));
+
+/** Android 在线即可控制；iOS 需要 WDA 已就绪。 */
+const canControl = computed(
+  () =>
+    props.device.status === 'online' &&
+    (props.device.platform === 'android' ||
+      props.device.capabilities.includes('wda')),
+);
+
+const network = ref<{ ip: string | null } | null>(null);
+let networkTimer: ReturnType<typeof setInterval> | null = null;
+
+async function loadNetwork(): Promise<void> {
+  if (props.device.status !== 'online') {
+    network.value = null;
+    return;
+  }
+  try {
+    network.value = await api.deviceNetwork(props.device.id);
+  } catch {
+    network.value = null;
+  }
+}
+
+function startNetwork(): void {
+  stopNetwork();
+  void loadNetwork();
+  networkTimer = setInterval(() => void loadNetwork(), 30_000);
+}
+
+function stopNetwork(): void {
+  if (networkTimer) clearInterval(networkTimer);
+  networkTimer = null;
+}
+
+onMounted(startNetwork);
+onBeforeUnmount(stopNetwork);
+watch(() => [props.device.id, props.device.status] as const, startNetwork);
 
 const cpuText = computed(() => {
   const device = props.device;
@@ -125,6 +164,10 @@ const cpuText = computed(() => {
           <span class="k">UDID</span>
           <span class="v mono" :title="device.udid">{{ device.udid }}</span>
         </div>
+        <div class="kv span-2">
+          <span class="k">IP</span>
+          <span class="v mono">{{ network?.ip ?? '—' }}</span>
+        </div>
       </div>
 
       <div v-if="device.status === 'offline'" class="offline-line">
@@ -140,7 +183,7 @@ const cpuText = computed(() => {
         size="tiny"
         type="primary"
         secondary
-        :disabled="device.platform !== 'android' || device.status !== 'online'"
+        :disabled="!canControl"
         @click="emit('control', device)"
       >
         控制

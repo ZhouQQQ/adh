@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { z } from 'zod';
 import {
   BUILTIN_AGENT_ID,
@@ -23,6 +24,17 @@ import type { StreamManager } from '../stream/manager.js';
 import type { WebHub } from '../ws/web-hub.js';
 import AppInfoParser from 'app-info-parser';
 import sharp from 'sharp';
+import {
+  wdaAppSwitcher,
+  wdaPressButton,
+  wdaScreenshot,
+  wdaStatus,
+  wdaSwipe,
+  wdaTap,
+  wdaTypeText,
+  wdaWindow,
+} from '../ios/wda.js';
+import { ensureMjpegPort } from '../ios/mjpeg.js';
 
 export interface HttpDeps {
   queries: Queries;
@@ -49,6 +61,31 @@ const InstallBody = z.object({
 const RenamePackageBody = z.object({
   name: z.string().trim().min(1).max(160),
 });
+
+const IosInputBody = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('tap'),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+  }),
+  z.object({
+    type: z.literal('swipe'),
+    fromX: z.number().min(0).max(1),
+    fromY: z.number().min(0).max(1),
+    toX: z.number().min(0).max(1),
+    toY: z.number().min(0).max(1),
+    duration: z.number().min(0).max(5).optional(),
+  }),
+  z.object({
+    type: z.literal('button'),
+    name: z.enum(['home', 'volumeUp', 'volumeDown']),
+  }),
+  z.object({ type: z.literal('appSwitcher') }),
+  z.object({
+    type: z.literal('text'),
+    text: z.string().min(1).max(2000),
+  }),
+]);
 
 const FilePathsBody = z.object({
   paths: z.array(z.string().min(1)).min(1).max(200),
@@ -210,9 +247,72 @@ async function fetchAppIcon(udid: string, packageName: string): Promise<Buffer |
 
 interface RuntimeStats {
   battery: { level: number | null; charging: boolean; status: string };
-  memory: { totalMb: number; usedMb: number } | null;
+  memory: { totalMb: number; usedMb: number | null } | null;
   storage: { totalMb: number; usedMb: number } | null;
-  wifi: { connected: boolean; ssid: string | null; enabled: boolean };
+  wifi: { connected: boolean; ssid: string | null; enabled: boolean; ip?: string | null } | null;
+}
+
+/** go-ios 的命令名兼容 ios / go-ios。 */
+let iosCliCache: { at: number; command: string | null } | null = null;
+
+async function runIos(args: string[], timeout = 15_000) {
+  if (!iosCliCache || Date.now() - iosCliCache.at > 60_000) {
+    let command: string | null = null;
+    for (const candidate of ['ios', 'go-ios']) {
+      const probe = await runCommand(candidate, ['version'], 5_000);
+      if (!probe.failedToStart) {
+        command = candidate;
+        break;
+      }
+    }
+    iosCliCache = { at: Date.now(), command };
+  }
+  if (!iosCliCache.command) return null;
+  return runCommand(iosCliCache.command, args, timeout);
+}
+
+function parseJsonLoose<T>(raw: string): T | null {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1)) as T;
+  } catch {
+    return null;
+  }
+}
+
+interface IosBatteryInfo {
+  BatteryCurrentCapacity?: number;
+  BatteryIsCharging?: boolean;
+  ExternalConnected?: boolean;
+}
+
+function parseIosBattery(raw: string): RuntimeStats['battery'] | null {
+  const info = parseJsonLoose<IosBatteryInfo>(raw);
+  if (!info) return null;
+  const charging = Boolean(info.BatteryIsCharging || info.ExternalConnected);
+  return {
+    level: typeof info.BatteryCurrentCapacity === 'number' ? info.BatteryCurrentCapacity : null,
+    charging,
+    status: charging ? 'charging' : 'discharging',
+  };
+}
+
+interface IosDiskInfo {
+  TotalBytes?: number;
+  FreeBytes?: number;
+}
+
+function parseIosStorage(raw: string): RuntimeStats['storage'] {
+  const info = parseJsonLoose<IosDiskInfo>(raw);
+  const total = Number(info?.TotalBytes ?? 0);
+  const free = Number(info?.FreeBytes ?? 0);
+  if (!total || total <= 0) return null;
+  return {
+    totalMb: Math.round(total / 1024 / 1024),
+    usedMb: Math.round(Math.max(0, total - free) / 1024 / 1024),
+  };
 }
 
 function parseBattery(raw: string): RuntimeStats['battery'] {
@@ -277,6 +377,12 @@ function parseWifi(raw: string): RuntimeStats['wifi'] {
   };
 }
 
+/** 从 `ip -f inet addr show wlan0` 里取 IPv4。 */
+function parseWifiIp(raw: string): string | null {
+  const match = /inet\s+(\d+\.\d+\.\d+\.\d+)/.exec(raw);
+  return match?.[1] ?? null;
+}
+
 function bearerToken(request: FastifyRequest): string | null {
   const header = request.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) return null;
@@ -339,33 +445,61 @@ export async function registerHttpRoutes(
   /* Agent 安装包                                                      */
   /* ---------------------------------------------------------------- */
 
-  /** 下载最近一次 `pnpm package:agent` 生成的离线包。 */
-  app.get('/api/agent/download', async (_request, reply) => {
-    let name: string | null = null;
-    let newest = 0;
+  const AGENT_PLATFORMS = ['win32', 'darwin'] as const;
+
+  /** 每个平台取最新的一份 zip，兼容 adh-agent-win32.zip 与 adh-agent-win32-x64.zip。 */
+  const listAgentPackages = (): {
+    platform: string;
+    file: string;
+    size: number;
+    updatedAt: number;
+  }[] => {
+    let entries: string[] = [];
     try {
-      for (const entry of fs.readdirSync(deps.agentDistDir)) {
-        if (!/^adh-agent-.*\.zip$/.test(entry)) continue;
-        const stat = fs.statSync(path.join(deps.agentDistDir, entry));
-        if (stat.mtimeMs > newest) {
-          newest = stat.mtimeMs;
-          name = entry;
-        }
-      }
+      entries = fs.readdirSync(deps.agentDistDir);
     } catch {
-      /* dist 目录还没生成 */
+      return [];
     }
 
-    if (!name) {
+    const result = [];
+    for (const platform of AGENT_PLATFORMS) {
+      const pattern = new RegExp(`^adh-agent-${platform}(-[a-z0-9_]+)?\\.zip$`, 'i');
+      let newest: { file: string; size: number; updatedAt: number } | null = null;
+      for (const entry of entries) {
+        if (!pattern.test(entry)) continue;
+        const stat = fs.statSync(path.join(deps.agentDistDir, entry));
+        if (!newest || stat.mtimeMs > newest.updatedAt) {
+          newest = { file: entry, size: stat.size, updatedAt: stat.mtimeMs };
+        }
+      }
+      if (newest) result.push({ platform, ...newest });
+    }
+    return result;
+  };
+
+  app.get('/api/agent/platforms', async () => ({
+    platforms: listAgentPackages(),
+  }));
+
+  /** 按平台下载 `pnpm package:agent` 生成的离线包；不传平台时用服务器当前平台。 */
+  app.get('/api/agent/download', async (request, reply) => {
+    const { platform } = request.query as { platform?: string };
+    const packages = listAgentPackages();
+    const target =
+      packages.find((item) => item.platform === platform) ??
+      packages.find((item) => item.platform === process.platform) ??
+      packages[0];
+
+    if (!target) {
       return reply.code(404).send({
         error: '还没有生成 Agent 安装包，请在服务器执行 pnpm package:agent',
       });
     }
 
-    const data = fs.readFileSync(path.join(deps.agentDistDir, name));
+    const data = fs.readFileSync(path.join(deps.agentDistDir, target.file));
     return reply
       .header('content-type', 'application/zip')
-      .header('content-disposition', `attachment; filename="${name}"`)
+      .header('content-disposition', `attachment; filename="${target.file}"`)
       .send(data);
   });
 
@@ -977,8 +1111,20 @@ export async function registerHttpRoutes(
     const { id } = request.params as { id: string };
     const device = requireLocalDevice(id, reply);
     if (!device) return reply;
+
+    if (device.platform === 'ios') {
+      const result = await runIos(['batterycheck', `--udid=${device.udid}`]);
+      const battery = result?.code === 0 ? parseIosBattery(result.stdout) : null;
+      if (!battery) {
+        return reply
+          .code(503)
+          .send({ error: '读取 iOS 电量失败（确认 go-ios 可用且设备已信任）' });
+      }
+      return { battery };
+    }
+
     if (device.platform !== 'android') {
-      return reply.code(400).send({ error: '仅支持 Android 设备' });
+      return reply.code(400).send({ error: '仅支持 Android / iOS 设备' });
     }
 
     const result = await runCommand(
@@ -993,24 +1139,205 @@ export async function registerHttpRoutes(
     const { id } = request.params as { id: string };
     const device = requireLocalDevice(id, reply);
     if (!device) return reply;
-    if (device.platform !== 'android') {
-      return reply.code(400).send({ error: '仅支持 Android 设备' });
+
+    if (device.platform === 'ios') {
+      const [batteryResult, diskResult, wda] = await Promise.all([
+        runIos(['batterycheck', `--udid=${device.udid}`]),
+        runIos(['diskspace', `--udid=${device.udid}`]),
+        wdaStatus(),
+      ]);
+
+      const stats: RuntimeStats = {
+        battery:
+          (batteryResult?.code === 0 && parseIosBattery(batteryResult.stdout)) || {
+            level: null,
+            charging: false,
+            status: 'unknown',
+          },
+        memory: device.memoryMb
+          ? { totalMb: device.memoryMb, usedMb: null }
+          : null,
+        storage:
+          diskResult?.code === 0 ? parseIosStorage(diskResult.stdout) : null,
+        wifi: wda
+          ? { connected: true, ssid: null, enabled: true, ip: wda.ip }
+          : null,
+      };
+      return stats;
     }
 
-    const [battery, meminfo, df, wifi] = await Promise.all([
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '仅支持 Android / iOS 设备' });
+    }
+
+    const [battery, meminfo, df, wifi, wifiIp] = await Promise.all([
       runCommand('adb', ['-s', device.udid, 'shell', 'dumpsys', 'battery'], 10_000),
       runCommand('adb', ['-s', device.udid, 'shell', 'cat', '/proc/meminfo'], 10_000),
       runCommand('adb', ['-s', device.udid, 'shell', 'df', '-k', '/data'], 10_000),
       runCommand('adb', ['-s', device.udid, 'shell', 'cmd', 'wifi', 'status'], 10_000),
+      runCommand('adb', ['-s', device.udid, 'shell', 'ip', '-f', 'inet', 'addr', 'show', 'wlan0'], 10_000),
     ]);
+
+    const wifiInfo = parseWifi(wifi.stdout);
+    const ip = parseWifiIp(wifiIp.stdout);
+    if (wifiInfo && ip) wifiInfo.ip = ip;
 
     const stats: RuntimeStats = {
       battery: parseBattery(battery.stdout),
       memory: parseMemory(meminfo.stdout),
       storage: parseStorage(df.stdout),
-      wifi: parseWifi(wifi.stdout),
+      wifi: wifiInfo,
     };
     return stats;
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* iOS 实时控制（WDA）                                                */
+  /* ---------------------------------------------------------------- */
+
+  app.get('/api/devices/:id/ios/screenshot', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+
+    const png = await wdaScreenshot();
+    if (!png) {
+      return reply.code(503).send({
+        error: '无法从 WDA 获取截图，请确认 WebDriverAgent 正在运行并已端口转发到 8100',
+      });
+    }
+
+    // WDA 截图是 828×1792 PNG；牺牲画质换延迟，压到约 20KB
+    const jpeg = await sharp(png)
+      .resize({ width: 360, withoutEnlargement: true })
+      .jpeg({ quality: 40 })
+      .toBuffer();
+    return reply
+      .header('content-type', 'image/jpeg')
+      .header('cache-control', 'no-store')
+      .send(jpeg);
+  });
+
+  app.post('/api/devices/:id/ios/input', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+
+    const parsed = IosInputBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '无效的输入指令' });
+    }
+
+    const payload = parsed.data;
+    try {
+      if (payload.type === 'tap') {
+        const size = await wdaWindow();
+        await wdaTap(payload.x * size.width, payload.y * size.height);
+      } else if (payload.type === 'swipe') {
+        const size = await wdaWindow();
+        await wdaSwipe(
+          payload.fromX * size.width,
+          payload.fromY * size.height,
+          payload.toX * size.width,
+          payload.toY * size.height,
+          payload.duration ?? 0.3,
+        );
+      } else if (payload.type === 'button') {
+        await wdaPressButton(payload.name);
+      } else if (payload.type === 'appSwitcher') {
+        await wdaAppSwitcher();
+      } else {
+        await wdaTypeText(payload.text);
+      }
+      return { ok: true };
+    } catch (error) {
+      return reply.code(502).send({
+        error: error instanceof Error ? error.message : 'WDA 操作失败',
+      });
+    }
+  });
+
+  /** 设备网络信息：SSID（iOS 不支持）+ IP，卡片与详情共用。 */
+  app.get('/api/devices/:id/network', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    if (device.platform === 'ios') {
+      const status = await wdaStatus();
+      return {
+        platform: 'ios',
+        connected: Boolean(status),
+        ssid: null,
+        ip: status?.ip ?? null,
+      };
+    }
+
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '仅支持 Android / iOS 设备' });
+    }
+
+    const [wifi, ip] = await Promise.all([
+      runCommand('adb', ['-s', device.udid, 'shell', 'cmd', 'wifi', 'status'], 8_000),
+      runCommand(
+        'adb',
+        ['-s', device.udid, 'shell', 'ip', '-f', 'inet', 'addr', 'show', 'wlan0'],
+        8_000,
+      ),
+    ]);
+    const info = parseWifi(wifi.stdout);
+    return {
+      platform: 'android',
+      connected: info?.connected ?? false,
+      ssid: info?.ssid ?? null,
+      ip: parseWifiIp(ip.stdout),
+    };
+  });
+
+  /** WDA 自带的 MJPEG 流，用于高帧率预览（~10fps）。 */
+  app.get('/api/devices/:id/ios/mjpeg', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+
+    const port = await ensureMjpegPort(device.udid);
+    if (!port) {
+      return reply
+        .code(503)
+        .send({ error: '无法建立 WDA MJPEG 转发，请确认 go-ios 可用' });
+    }
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(`http://127.0.0.1:${port}/`);
+    } catch {
+      return reply.code(503).send({ error: 'WDA MJPEG 流不可用' });
+    }
+    if (!upstream.ok || !upstream.body) {
+      return reply.code(503).send({ error: 'WDA MJPEG 流不可用' });
+    }
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type':
+        upstream.headers.get('content-type') ??
+        'multipart/x-mixed-replace; boundary=--BoundaryString',
+      'cache-control': 'no-store',
+      connection: 'close',
+    });
+
+    const stream = Readable.fromWeb(upstream.body as never);
+    stream.pipe(reply.raw);
+    request.raw.on('close', () => stream.destroy());
   });
 
   /* ---------------------------------------------------------------- */

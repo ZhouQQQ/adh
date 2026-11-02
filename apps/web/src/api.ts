@@ -33,9 +33,9 @@ export interface DeviceApp {
 
 export interface DeviceRuntime {
   battery: { level: number | null; charging: boolean; status: string };
-  memory: { totalMb: number; usedMb: number } | null;
+  memory: { totalMb: number; usedMb: number | null } | null;
   storage: { totalMb: number; usedMb: number } | null;
-  wifi: { connected: boolean; ssid: string | null; enabled: boolean };
+  wifi: { connected: boolean; ssid: string | null; enabled: boolean; ip?: string | null } | null;
 }
 
 export interface ServerInfo {
@@ -161,8 +161,25 @@ export const api = {
     return request(`/api/devices/${deviceId}/battery`);
   },
 
-  agentPackageUrl(): string {
-    return '/api/agent/download';
+  agentPackageUrl(platform?: string): string {
+    const query = platform ? `?platform=${encodeURIComponent(platform)}` : '';
+    return `/api/agent/download${query}`;
+  },
+
+  agentPlatforms(): Promise<{
+    platforms: { platform: string; file: string; size: number; updatedAt: number }[];
+  }> {
+    return request('/api/agent/platforms');
+  },
+
+  /** 设备网络信息（SSID / IP）。 */
+  deviceNetwork(deviceId: string): Promise<{
+    platform: string;
+    connected: boolean;
+    ssid: string | null;
+    ip: string | null;
+  }> {
+    return request(`/api/devices/${deviceId}/network`);
   },
 
   /** 创建投屏会话。 */

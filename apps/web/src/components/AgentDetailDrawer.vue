@@ -17,13 +17,13 @@ import {
 import {
   CheckmarkOutline,
   CopyOutline,
-  DownloadOutline,
 } from '@vicons/ionicons5';
 import type { AgentDetail } from '@adh/protocol';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { copyText } from '../utils/clipboard';
 import { buildConnectCommand } from '../utils/command';
+import AgentDownloadButton from './AgentDownloadButton.vue';
 import { formatAgo, formatDateTime } from '../utils/format';
 
 const props = defineProps<{ show: boolean; agentId: string | null }>();
@@ -108,10 +108,6 @@ const runtimeEnv = computed(() => {
   if (!current || !current.os) return '尚未接入';
   return `${current.os} / ${current.arch}`;
 });
-
-function downloadAgent(): void {
-  window.location.href = api.agentPackageUrl();
-}
 
 function deviceStatusLabel(status: string): string {
   if (status === 'online') return '在线';
@@ -204,14 +200,9 @@ async function copy(value: string, which: string): Promise<void> {
 
           <h4 class="spaced">安装 Agent</h4>
           <div class="install-row">
-            <n-button size="small" @click="downloadAgent">
-              <template #icon>
-                <n-icon :component="DownloadOutline" />
-              </template>
-              下载安装包
-            </n-button>
+            <AgentDownloadButton size="small" />
             <span class="install-hint">
-              目标机需要 Node.js ≥ 22 与 adb；iOS 还需要 go-ios
+              目标机需要 Node.js ≥ 22；adb / go-ios 可忽略或用 init 内置安装
             </span>
           </div>
 

@@ -50,6 +50,11 @@ const DEFAULT_CORES = [4, 6, 8, 10, 12];
 const DEFAULT_MEMORY = [4, 6, 8, 12, 16, 24];
 const DEFAULT_CPU_VENDORS = ['联发科', '高通', '华为', '三星', 'Google', '紫光展锐'];
 
+/** 系统版本只比较大版本：iOS 26.4.2 → 26。 */
+function majorVersion(version?: string): string {
+  return (version ?? '').split('.')[0] ?? '';
+}
+
 /** 版本用 platform:version 作为值，避免 Android 14 与 iOS 14 冲突。 */
 const versionOptions = computed(() => {
   const candidates = new Map<
@@ -66,12 +71,13 @@ const versionOptions = computed(() => {
   const present = new Set<string>();
   for (const device of devices.value) {
     if (!device.osVersion) continue;
-    const key = `${device.platform}:${device.osVersion}`;
+    const major = majorVersion(device.osVersion);
+    const key = `${device.platform}:${major}`;
     present.add(key);
     if (!candidates.has(key)) {
       candidates.set(key, {
         platform: device.platform,
-        version: device.osVersion,
+        version: major,
       });
     }
   }
@@ -194,7 +200,7 @@ const filtered = computed(() => {
       }
       if (status.value !== 'all' && device.status !== status.value) return false;
       if (version.value !== 'all') {
-        const key = `${device.platform}:${device.osVersion ?? ''}`;
+        const key = `${device.platform}:${majorVersion(device.osVersion)}`;
         if (key !== version.value) return false;
       }
       if (cpuVendor.value !== 'all' && device.cpuVendor !== cpuVendor.value) {
@@ -351,7 +357,8 @@ watch(devices, () => {
   }
   if (version.value !== 'all') {
     const hasDevice = devices.value.some(
-      (device) => `${device.platform}:${device.osVersion ?? ''}` === version.value,
+      (device) =>
+        `${device.platform}:${majorVersion(device.osVersion)}` === version.value,
     );
     if (!hasDevice) version.value = 'all';
   }

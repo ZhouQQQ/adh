@@ -214,9 +214,6 @@ async function onImageSelected(event: Event): Promise<void> {
           <n-descriptions-item label="系统版本">
             <CopyValue :value="osLabel" />
           </n-descriptions-item>
-          <n-descriptions-item label="SDK">
-            <CopyValue :value="device.sdk" />
-          </n-descriptions-item>
           <n-descriptions-item label="CPU">
             <CopyValue :value="device.cpu" />
           </n-descriptions-item>
