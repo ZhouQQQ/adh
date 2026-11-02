@@ -4,7 +4,7 @@ import { NButton, NIcon, NTag } from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import DeviceBattery from './DeviceBattery.vue';
-import { formatMemory, formatResolution, formatAgo } from '../utils/format';
+import { formatMemory, formatAgo } from '../utils/format';
 
 const props = defineProps<{
   device: DeviceSummary;
@@ -45,10 +45,6 @@ const osText = computed(() => {
 });
 
 const memoryText = computed(() => formatMemory(props.device.memoryMb));
-
-const resolutionText = computed(() =>
-  formatResolution(props.device.resolution),
-);
 
 const cpuText = computed(() => {
   const device = props.device;
@@ -120,14 +116,6 @@ const cpuText = computed(() => {
         <div class="kv">
           <span class="k">内存</span>
           <span class="v">{{ memoryText }}</span>
-        </div>
-        <div class="kv">
-          <span class="k">分辨率</span>
-          <span class="v">{{ resolutionText }}</span>
-        </div>
-        <div class="kv">
-          <span class="k">SDK</span>
-          <span class="v">{{ device.sdk ?? '—' }}</span>
         </div>
         <div class="kv span-2">
           <span class="k">CPU</span>
