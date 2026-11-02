@@ -538,14 +538,29 @@ function screenshot(): Promise<Blob | null> {
 
 function startRecording(): boolean {
   const canvas = canvasRef.value;
-  if (!canvas || recorder) return false;
+  if (!canvas || recorder || canvas.width === 0) return false;
   try {
-    const stream = canvas.captureStream(30);
-    const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9'
-      : 'video/webm';
+    // captureStream(0) + requestFrame：每画一帧才编码，避免录到黑屏
+    const stream = canvas.captureStream(0);
+    const track = stream.getVideoTracks()[0];
+    captureTrack =
+      track && 'requestFrame' in track
+        ? (track as CanvasCaptureMediaStreamTrack)
+        : null;
+
+    const candidates = [
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4',
+      'video/webm;codecs=vp8',
+      'video/webm;codecs=vp9',
+      'video/webm',
+    ];
+    recorderMime =
+      candidates.find((item) => MediaRecorder.isTypeSupported(item)) ??
+      'video/webm';
+
     recorder = new MediaRecorder(stream, {
-      mimeType: mime,
+      mimeType: recorderMime,
       videoBitsPerSecond: 4_000_000,
     });
     recordedChunks = [];
@@ -553,9 +568,11 @@ function startRecording(): boolean {
       if (event.data.size > 0) recordedChunks.push(event.data);
     };
     recorder.start(1000);
+    captureTrack?.requestFrame();
     return true;
   } catch {
     recorder = null;
+    captureTrack = null;
     return false;
   }
 }
@@ -565,13 +582,65 @@ function stopRecording(): Promise<Blob | null> {
   if (!current) return Promise.resolve(null);
   return new Promise((resolve) => {
     current.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const blob = new Blob(recordedChunks, { type: recorderMime });
       recordedChunks = [];
       recorder = null;
+      captureTrack = null;
       resolve(blob);
     };
     current.stop();
   });
+}
+
+/** 录屏文件扩展名要跟实际编码格式一致。 */
+function recordingExtension(): string {
+  return recorderMime.startsWith('video/mp4') ? 'mp4' : 'webm';
+}
+
+/** 小窗用：把当前 canvas 输出成 MediaStream，避免二次开流导致黑屏/抢控制权。 */
+function createMirrorStream(): MediaStream | null {
+  const canvas = canvasRef.value;
+  if (!canvas || canvas.width === 0) return null;
+  return canvas.captureStream(30);
+}
+
+function mirrorTap(x: number, y: number): void {
+  if (isIos.value) {
+    void iosInput({ type: 'tap', x, y });
+    return;
+  }
+  send({ t: 'touch', phase: 'began', x, y, pointerId: 0, pressure: 1 });
+  send({ t: 'touch', phase: 'ended', x, y, pointerId: 0, pressure: 0 });
+}
+
+function mirrorSwipe(
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  duration = 0.25,
+): void {
+  if (isIos.value) {
+    void iosInput({
+      type: 'swipe',
+      fromX,
+      fromY,
+      toX,
+      toY,
+      duration: Math.min(0.35, Math.max(0.12, duration)),
+    });
+    return;
+  }
+  send({ t: 'touch', phase: 'began', x: fromX, y: fromY, pointerId: 0, pressure: 1 });
+  send({
+    t: 'touch',
+    phase: 'moved',
+    x: (fromX + toX) / 2,
+    y: (fromY + toY) / 2,
+    pointerId: 0,
+    pressure: 1,
+  });
+  send({ t: 'touch', phase: 'ended', x: toX, y: toY, pointerId: 0, pressure: 0 });
 }
 
 /** 画中画：把画布内容转成 MediaStream 交给 video 元素，兼容内网 http。 */
@@ -643,6 +712,10 @@ defineExpose({
   screenshot,
   startRecording,
   stopRecording,
+  recordingExtension,
+  createMirrorStream,
+  mirrorTap,
+  mirrorSwipe,
   togglePip,
   controller,
   connected,

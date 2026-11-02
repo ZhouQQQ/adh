@@ -27,7 +27,7 @@ const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const { devices, agents, refresh } = useFleet();
-const { openPreview } = usePreviews();
+const { openPreview, closePreview, previews } = usePreviews();
 
 const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
 const sessionId = ref<string | null>(null);
@@ -116,6 +116,14 @@ const publishedText = computed(() => {
 
 const isIos = computed(() => device.value?.platform === 'ios');
 const quality = ref<'low' | 'medium' | 'high'>('medium');
+const pipActive = ref(false);
+
+watch(previews, (list) => {
+  const id = device.value?.id;
+  if (pipActive.value && id && !list.some((item) => item.deviceId === id)) {
+    pipActive.value = false;
+  }
+});
 
 async function onQualityChange(
   value: 'low' | 'medium' | 'high',
@@ -263,7 +271,10 @@ async function toggleRecording(): Promise<void> {
     message.warning('录制内容为空');
     return;
   }
-  saveBlob(blob, deviceFileName('webm'));
+  saveBlob(
+    blob,
+    deviceFileName(playerRef.value?.recordingExtension() ?? 'webm'),
+  );
   message.success('录屏已保存');
 }
 
@@ -276,13 +287,16 @@ async function goBack(): Promise<void> {
   void router.push('/devices');
 }
 
-/** 把当前画面收进右下角小窗，然后返回设备列表继续其它操作。 */
-async function openSmallWindow(): Promise<void> {
+/** 把当前画面投射到可拖动的画中画窗口，当前页面保持不动。 */
+function openSmallWindow(): void {
   const current = device.value;
-  if (!current) return;
+  const player = playerRef.value;
+  if (!current || !player) return;
 
-  if (current.platform === 'android' && !sessionId.value) {
-    message.warning('画面还没连接，稍后再试');
+  // 用主画面 canvas 的镜像流，避免二次开流黑屏和抢控制权
+  const stream = player.createMirrorStream();
+  if (!stream) {
+    message.warning('画面还没就绪，稍后再试');
     return;
   }
 
@@ -290,12 +304,22 @@ async function openSmallWindow(): Promise<void> {
     deviceId: current.id,
     deviceName: current.name,
     platform: current.platform === 'ios' ? 'ios' : 'android',
-    sessionId: current.platform === 'android' ? sessionId.value ?? '' : '',
+    stream,
+    tap: (x, y) => player.mirrorTap(x, y),
+    swipe: (fromX, fromY, toX, toY, duration) =>
+      player.mirrorSwipe(fromX, fromY, toX, toY, duration),
+    home: () => player.sendKey('home'),
   });
+  pipActive.value = true;
+}
 
-  // 给小窗留出建立连接/接管控制权的时间
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await router.push('/devices');
+function togglePip(): void {
+  if (pipActive.value) {
+    if (device.value) closePreview(device.value.id);
+    pipActive.value = false;
+    return;
+  }
+  openSmallWindow();
 }
 
 onMounted(async () => {
@@ -310,6 +334,8 @@ onBeforeUnmount(() => {
   if (document.fullscreenElement === stageRef.value) {
     void document.exitFullscreen();
   }
+  // 主画面销毁后镜像流就失效了，同步关掉画中画
+  if (pipActive.value && device.value) closePreview(device.value.id);
   sessionId.value = null;
 });
 </script>
@@ -406,18 +432,23 @@ onBeforeUnmount(() => {
 
       <div ref="stageRef" class="stage">
         <n-spin v-if="loading" :show="true" class="spin" />
-        <DevicePlayer
+        <div
           v-if="sessionId || isIos"
-          ref="playerRef"
-          :key="`${sessionId ?? ''}-${quality}`"
-          :session-id="sessionId ?? ''"
-          :platform="device?.platform"
-          :device-id="device?.id"
-          :quality="quality"
-          @controller-change="controller = $event"
-          @error="errorText = $event"
-          @closed="onPlayerClosed"
-        />
+          class="player-shell"
+          :class="{ covered: pipActive }"
+        >
+          <DevicePlayer
+            ref="playerRef"
+            :key="`${sessionId ?? ''}-${quality}`"
+            :session-id="sessionId ?? ''"
+            :platform="device?.platform"
+            :device-id="device?.id"
+            :quality="quality"
+            @controller-change="controller = $event"
+            @error="errorText = $event"
+            @closed="onPlayerClosed"
+          />
+        </div>
         <div v-else class="placeholder">
           <div class="placeholder-icon">
             <n-icon :size="32"><CloudOfflineOutline /></n-icon>
@@ -432,9 +463,19 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <div v-if="pipActive" class="pip-notice">
+          <div class="pip-title">画面已切换到画中画</div>
+          <div class="pip-desc">
+            浮窗可以拖动、缩放，并直接操作设备。
+          </div>
+          <button type="button" class="placeholder-btn" @click="togglePip">
+            收回画面
+          </button>
+        </div>
+
         <div class="stage-actions">
-          <button type="button" class="overlay-btn" @click="openSmallWindow">
-            画中画
+          <button type="button" class="overlay-btn" @click="togglePip">
+            {{ pipActive ? '收回画中画' : '画中画' }}
           </button>
           <button type="button" class="overlay-btn" @click="toggleFullscreen">
             {{ isFullscreen ? '退出全屏' : '全屏' }}
@@ -716,6 +757,44 @@ onBeforeUnmount(() => {
   background: #0b0b0d;
   border-radius: 10px;
   overflow: hidden;
+}
+
+.player-shell {
+  position: absolute;
+  inset: 0;
+}
+
+/* 画中画开启时保留组件与 canvas（镜像流不断），只是隐藏 */
+.player-shell.covered {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pip-notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #d4d4d8;
+  text-align: center;
+}
+
+.pip-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.pip-desc {
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+.pip-notice .placeholder-btn {
+  margin-top: 6px;
 }
 
 .spin {

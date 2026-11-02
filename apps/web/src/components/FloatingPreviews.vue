@@ -1,10 +1,22 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import DevicePlayer from './DevicePlayer.vue';
 import { usePreviews, type FloatingPreview } from '../stores/previews';
 
 const router = useRouter();
 const { previews, closePreview, focusPreview, updateRect } = usePreviews();
+
+const videos = new Map<string, HTMLVideoElement>();
+
+function setVideo(deviceId: string, element: unknown): void {
+  const video = element as HTMLVideoElement | null;
+  if (!video) {
+    videos.delete(deviceId);
+    return;
+  }
+  videos.set(deviceId, video);
+  const item = previews.value.find((entry) => entry.deviceId === deviceId);
+  if (item?.stream) video.srcObject = item.stream;
+}
 
 let drag: {
   deviceId: string;
@@ -20,6 +32,13 @@ let resize: {
   startY: number;
   originWidth: number;
   originHeight: number;
+} | null = null;
+
+let gesture: {
+  deviceId: string;
+  startX: number;
+  startY: number;
+  at: number;
 } | null = null;
 
 function clampX(x: number, width: number): number {
@@ -83,7 +102,7 @@ function onResizeMove(event: PointerEvent): void {
   );
   if (!item) return;
   const width = Math.max(
-    200,
+    220,
     Math.min(
       window.innerWidth - item.x,
       resize.originWidth + (event.clientX - resize.startX),
@@ -102,6 +121,63 @@ function onResizeMove(event: PointerEvent): void {
 function stopResize(): void {
   resize = null;
   window.removeEventListener('pointermove', onResizeMove);
+}
+
+/** 把鼠标坐标换算成视频内容区（object-fit: contain 会有黑边）。 */
+function contentPoint(
+  event: PointerEvent,
+  video: HTMLVideoElement,
+): { x: number; y: number } | null {
+  const rect = video.getBoundingClientRect();
+  const width = video.videoWidth || 1;
+  const height = video.videoHeight || 1;
+  const scale = Math.min(rect.width / width, rect.height / height);
+  const drawWidth = width * scale;
+  const drawHeight = height * scale;
+  const offsetX = rect.left + (rect.width - drawWidth) / 2;
+  const offsetY = rect.top + (rect.height - drawHeight) / 2;
+  const x = (event.clientX - offsetX) / drawWidth;
+  const y = (event.clientY - offsetY) / drawHeight;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { x, y };
+}
+
+function onPointerDown(event: PointerEvent, item: FloatingPreview): void {
+  if (event.button !== 0) return;
+  focusPreview(item.deviceId);
+  const video = videos.get(item.deviceId);
+  if (!video) return;
+  const point = contentPoint(event, video);
+  if (!point) return;
+  gesture = {
+    deviceId: item.deviceId,
+    startX: point.x,
+    startY: point.y,
+    at: Date.now(),
+  };
+}
+
+function onPointerUp(event: PointerEvent, item: FloatingPreview): void {
+  const current = gesture;
+  gesture = null;
+  if (!current || current.deviceId !== item.deviceId) return;
+
+  const video = videos.get(item.deviceId);
+  if (!video) return;
+  const point = contentPoint(event, video) ?? { x: current.startX, y: current.startY };
+
+  const distance = Math.hypot(point.x - current.startX, point.y - current.startY);
+  if (distance < 0.02) {
+    item.tap(current.startX, current.startY);
+  } else {
+    item.swipe(
+      current.startX,
+      current.startY,
+      point.x,
+      point.y,
+      Math.min(0.35, Math.max(0.12, (Date.now() - current.at) / 1000)),
+    );
+  }
 }
 
 function goControl(item: FloatingPreview): void {
@@ -131,33 +207,53 @@ function goControl(item: FloatingPreview): void {
           <span class="win-title" :title="item.deviceName">
             {{ item.deviceName }}
           </span>
-          <button
-            type="button"
-            class="win-btn"
-            title="回到控制台"
-            @pointerdown.stop
-            @click="goControl(item)"
-          >
-            ⤢
-          </button>
-          <button
-            type="button"
-            class="win-btn"
-            title="关闭画中画"
-            @pointerdown.stop
-            @click="closePreview(item.deviceId)"
-          >
-            ×
-          </button>
         </header>
-        <div class="win-body">
-          <DevicePlayer
-            :session-id="item.sessionId"
-            :platform="item.platform"
-            :device-id="item.deviceId"
-            quality="medium"
-          />
+
+        <div class="win-content">
+          <div
+            class="win-body"
+            @pointerdown="onPointerDown($event, item)"
+            @pointerup="onPointerUp($event, item)"
+            @pointercancel="onPointerUp($event, item)"
+            @contextmenu.prevent
+          >
+            <video
+              :ref="(el) => setVideo(item.deviceId, el)"
+              class="win-video"
+              autoplay
+              muted
+              playsinline
+            />
+          </div>
+
+          <aside class="win-rail">
+            <button
+              type="button"
+              class="rail-btn"
+              title="回到控制页"
+              @click="goControl(item)"
+            >
+              ⤢
+            </button>
+            <button
+              type="button"
+              class="rail-btn"
+              title="主页"
+              @click="item.home()"
+            >
+              ⌂
+            </button>
+            <button
+              type="button"
+              class="rail-btn danger"
+              title="关闭画中画"
+              @click="closePreview(item.deviceId)"
+            >
+              ×
+            </button>
+          </aside>
         </div>
+
         <span
           class="win-resize"
           title="拖动调整大小"
@@ -192,9 +288,8 @@ function goControl(item: FloatingPreview): void {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 30px;
-  padding: 0 6px 0 10px;
+  height: 26px;
+  padding: 0 10px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   cursor: move;
@@ -211,10 +306,45 @@ function goControl(item: FloatingPreview): void {
   white-space: nowrap;
 }
 
-.win-btn {
+.win-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.win-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: #000;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.win-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* 竖屏下把操作按钮放到右侧，避免挤占画面 */
+.win-rail {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+.rail-btn {
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   border: none;
@@ -226,27 +356,25 @@ function goControl(item: FloatingPreview): void {
   cursor: pointer;
 }
 
-.win-btn:hover {
+.rail-btn:hover {
   background: var(--surface-2);
   color: var(--text);
 }
 
-.win-body {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  background: #000;
+.rail-btn.danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
 }
 
 .win-resize {
   position: absolute;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: 14px;
   height: 14px;
-  cursor: nwse-resize;
+  cursor: nesw-resize;
   background: linear-gradient(
-    135deg,
+    -45deg,
     transparent 0 50%,
     var(--border-strong) 50% 100%
   );

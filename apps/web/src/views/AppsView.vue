@@ -22,7 +22,6 @@ const uploading = ref(false);
 const uploadingName = ref('');
 const keyword = ref('');
 const kindFilter = ref<'all' | 'apk' | 'ipa'>('all');
-const dragging = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const renameTarget = ref<PackageRecord | null>(null);
@@ -133,12 +132,6 @@ function onFileSelected(event: Event): void {
   void uploadFiles(files);
 }
 
-function onDrop(event: DragEvent): void {
-  dragging.value = false;
-  const files = [...(event.dataTransfer?.files ?? [])];
-  void uploadFiles(files);
-}
-
 function remove(record: PackageRecord): void {
   dialog.warning({
     title: '删除安装包',
@@ -219,6 +212,9 @@ void load();
         {{ packages.length }} 个 · APK {{ counts.apk }} · IPA {{ counts.ipa }}
       </span>
       <span class="storage" :title="storageText">{{ storageText }}</span>
+      <span v-if="uploading" class="uploading">
+        正在上传 {{ uploadingName }} …
+      </span>
       <input
         ref="fileInput"
         type="file"
@@ -227,22 +223,6 @@ void load();
         hidden
         @change="onFileSelected"
       />
-    </div>
-
-    <div
-      class="dropzone"
-      :class="{ active: dragging }"
-      @click="pickFiles"
-      @dragover.prevent="dragging = true"
-      @dragleave.prevent="dragging = false"
-      @drop.prevent="onDrop"
-    >
-      <template v-if="uploading">
-        正在上传 {{ uploadingName }} …
-      </template>
-      <template v-else>
-        拖入 .apk / .ipa 文件，或点击选择（IPA 仅留存，不支持安装）
-      </template>
     </div>
 
     <n-spin :show="loading">
@@ -263,8 +243,8 @@ void load();
               {{ formatSize(record.size) }} · {{ formatTime(record.uploadedAt) }}
             </span>
           </div>
-          <n-tag v-if="record.kind === 'ipa'" size="tiny" :bordered="false" type="warning">
-            不安装
+          <n-tag v-if="record.kind === 'ipa'" size="tiny" :bordered="false">
+            IPA
           </n-tag>
           <div class="actions">
             <n-button size="tiny" @click="download(record)">下载</n-button>
@@ -348,27 +328,10 @@ void load();
   white-space: nowrap;
 }
 
-.dropzone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 64px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
+.uploading {
+  font-size: 11px;
   color: var(--text-dim);
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    border-color 0.12s ease,
-    background-color 0.12s ease;
-}
-
-.dropzone:hover,
-.dropzone.active {
-  border-color: #18181b;
-  background: var(--surface-2);
-  color: var(--text);
+  white-space: nowrap;
 }
 
 .list {

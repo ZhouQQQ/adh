@@ -4,7 +4,17 @@ export interface FloatingPreview {
   deviceId: string;
   deviceName: string;
   platform: 'android' | 'ios';
-  sessionId: string;
+  /** 主画面 canvas 的镜像流，避免二次开流导致黑屏 */
+  stream: MediaStream | null;
+  tap: (x: number, y: number) => void;
+  swipe: (
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    duration: number,
+  ) => void;
+  home: () => void;
   x: number;
   y: number;
   width: number;
@@ -15,7 +25,7 @@ const previews = ref<FloatingPreview[]>([]);
 
 const DEFAULT_WIDTH = 260;
 const DEFAULT_HEIGHT = 470;
-const MIN_WIDTH = 200;
+const MIN_WIDTH = 220;
 const MIN_HEIGHT = 320;
 
 function clamp(value: number, min: number, max: number): number {
@@ -23,18 +33,24 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export function usePreviews() {
-  /** 打开小窗；同一台设备只保留一个。 */
+  /** 打开画中画；同一台设备只保留一个。 */
   function openPreview(input: {
     deviceId: string;
     deviceName: string;
     platform: 'android' | 'ios';
-    sessionId: string;
+    stream: MediaStream | null;
+    tap: (x: number, y: number) => void;
+    swipe: FloatingPreview['swipe'];
+    home: () => void;
   }): void {
     const existing = previews.value.find(
       (item) => item.deviceId === input.deviceId,
     );
     if (existing) {
-      existing.sessionId = input.sessionId;
+      existing.stream = input.stream;
+      existing.tap = input.tap;
+      existing.swipe = input.swipe;
+      existing.home = input.home;
       existing.deviceName = input.deviceName;
       return;
     }

@@ -103,6 +103,16 @@ const crumbs = computed(() => {
   return list;
 });
 
+const parentPath = computed(() => {
+  const parts = path.value.split('/').filter(Boolean);
+  if (parts.length <= 1) return '/';
+  return `/${parts.slice(0, -1).join('/')}`;
+});
+
+function goUp(): void {
+  if (path.value !== '/') void load(parentPath.value);
+}
+
 const allSelected = computed(
   () => entries.value.length > 0 && selected.value.length === entries.value.length,
 );
@@ -381,6 +391,12 @@ const selectedSingle = computed(() =>
       </div>
 
       <div class="toolbar">
+        <n-button size="tiny" :disabled="path === '/'" @click="goUp">
+          ↑ 上一级
+        </n-button>
+
+        <span class="divider" />
+
         <n-checkbox
           :checked="allSelected"
           :disabled="entries.length === 0"
