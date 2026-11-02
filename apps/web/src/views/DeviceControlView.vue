@@ -440,11 +440,12 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .control-page {
-  flex: 1;
-  min-height: 0;
+  /* 不依赖父级高度链，避免 n-layout-content 内部 wrapper 不传递高度导致画面塌陷 */
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  overflow: hidden;
 }
 
 .toolbar {
@@ -474,6 +475,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   display: flex;
+  align-items: stretch;
   gap: 14px;
   padding: 14px;
 }
@@ -481,7 +483,6 @@ onBeforeUnmount(() => {
 .info-col {
   width: 216px;
   flex: none;
-  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -529,8 +530,7 @@ onBeforeUnmount(() => {
 .stage {
   flex: 1;
   min-width: 0;
-  min-height: 0;
-  height: 100%;
+  min-height: 240px;
   position: relative;
   background: #0b0b0d;
   border-radius: 10px;
@@ -628,7 +628,6 @@ onBeforeUnmount(() => {
 .side {
   width: 200px;
   flex: none;
-  height: 100%;
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
