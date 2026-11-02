@@ -12,6 +12,13 @@ export interface DeviceFileEntry {
   mtime: string;
 }
 
+export interface PackageRecord {
+  id: string;
+  name: string;
+  size: number;
+  uploadedAt: number;
+}
+
 export interface ServerInfo {
   version: string;
   port: number;
@@ -159,6 +166,36 @@ export const api = {
     return request(`/api/devices/${deviceId}/install`, {
       method: 'POST',
       body: JSON.stringify({ packageId }),
+    });
+  },
+
+  listPackages(): Promise<{ packages: PackageRecord[] }> {
+    return request('/api/packages');
+  },
+
+  deletePackage(id: string): Promise<void> {
+    return request(`/api/packages/${id}`, { method: 'DELETE' });
+  },
+
+  packageFileUrl(id: string): string {
+    return `/api/packages/${id}/file`;
+  },
+
+  listDeviceApps(deviceId: string): Promise<{ packages: string[] }> {
+    return request(`/api/devices/${deviceId}/apps`);
+  },
+
+  deviceAppExportUrl(deviceId: string, packageName: string): string {
+    return `/api/devices/${deviceId}/apps/export?package=${encodeURIComponent(packageName)}`;
+  },
+
+  uninstallDeviceApp(
+    deviceId: string,
+    packageName: string,
+  ): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/apps/uninstall`, {
+      method: 'POST',
+      body: JSON.stringify({ package: packageName }),
     });
   },
 

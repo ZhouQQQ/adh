@@ -6,6 +6,7 @@ import {
   injectTouch,
   rotateDevice,
   setClipboard,
+  setScreenPowerMode,
 } from './scrcpy-control.js';
 
 /**
@@ -28,6 +29,8 @@ export class ScrcpyControlTranslator {
         return [setClipboard(message.text, true)];
       case 'rotate':
         return [rotateDevice()];
+      case 'screen':
+        return [setScreenPowerMode(message.on)];
       default:
         return [];
     }

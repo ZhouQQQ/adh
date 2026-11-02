@@ -18,6 +18,7 @@ const emit = defineEmits<{
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
+const pipVideoRef = ref<HTMLVideoElement | null>(null);
 const connected = ref(false);
 const controller = ref(false);
 const starting = ref(true);
@@ -223,6 +224,12 @@ function sendRotate(): void {
   send({ t: 'rotate' });
 }
 
+/** 关闭 / 点亮屏幕（不锁屏）。 */
+function setScreen(on: boolean): void {
+  if (!controller.value) return;
+  send({ t: 'screen', on });
+}
+
 /** 把当前画面导出成 PNG。 */
 function screenshot(): Promise<Blob | null> {
   return new Promise((resolve) => {
@@ -273,10 +280,44 @@ function stopRecording(): Promise<Blob | null> {
   });
 }
 
-onMounted(connect);
+/** 画中画：把画布内容转成 MediaStream 交给 video 元素，兼容内网 http。 */
+async function togglePip(): Promise<'opened' | 'closed' | 'failed'> {
+  const canvas = canvasRef.value;
+  const video = pipVideoRef.value;
+  if (!canvas || !video) return 'failed';
+
+  if (document.pictureInPictureElement) {
+    await document.exitPictureInPicture();
+    return 'closed';
+  }
+
+  try {
+    const stream = canvas.captureStream(30);
+    video.srcObject = stream;
+    await video.play();
+    await video.requestPictureInPicture();
+    return 'opened';
+  } catch {
+    return 'failed';
+  }
+}
+
+function releasePipStream(): void {
+  const video = pipVideoRef.value;
+  if (!video) return;
+  const stream = video.srcObject as MediaStream | null;
+  stream?.getTracks().forEach((track) => track.stop());
+  video.srcObject = null;
+}
+
+onMounted(() => {
+  pipVideoRef.value?.addEventListener('leavepictureinpicture', releasePipStream);
+  connect();
+});
 
 onBeforeUnmount(() => {
   unmounted = true;
+  releasePipStream();
   socket?.close();
   socket = null;
   if (recorder) {
@@ -295,9 +336,11 @@ defineExpose({
   sendKey,
   sendText,
   sendRotate,
+  setScreen,
   screenshot,
   startRecording,
   stopRecording,
+  togglePip,
   controller,
   connected,
 });
@@ -314,6 +357,13 @@ defineExpose({
       @pointercancel="onPointerUp"
       @contextmenu="onContextMenu"
       @auxclick="onAuxClick"
+    />
+    <video
+      ref="pipVideoRef"
+      class="pip-video"
+      muted
+      playsinline
+      autoplay
     />
     <div v-if="starting" class="overlay">正在连接设备…</div>
     <div v-else-if="!connected" class="overlay">连接已断开</div>
@@ -341,6 +391,14 @@ defineExpose({
   cursor: crosshair;
   outline: none;
   border-radius: 6px;
+}
+
+.pip-video {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .overlay {

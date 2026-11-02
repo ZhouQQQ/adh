@@ -8,8 +8,10 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui';
+import { CloudOfflineOutline } from '@vicons/ionicons5';
 import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
+import ApkManagerDrawer from '../components/ApkManagerDrawer.vue';
 import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
@@ -27,12 +29,11 @@ const loading = ref(false);
 const errorText = ref<string | null>(null);
 const controller = ref(false);
 const text = ref('');
-const installing = ref(false);
-const fileInput = ref<HTMLInputElement | null>(null);
+const fileShow = ref(false);
+const apkShow = ref(false);
 const stageRef = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
 const recording = ref(false);
-const fileShow = ref(false);
 
 async function toggleFullscreen(): Promise<void> {
   const element = stageRef.value;
@@ -158,6 +159,22 @@ function deviceFileName(extension: string): string {
   return `${name}-${fileTimestamp()}.${extension}`;
 }
 
+function setScreen(on: boolean): void {
+  if (!requireController()) return;
+  playerRef.value?.setScreen(on);
+}
+
+async function togglePip(): Promise<void> {
+  const result = await playerRef.value?.togglePip();
+  if (result === 'failed') {
+    message.warning('当前浏览器不支持画中画');
+    return;
+  }
+  if (result === 'opened') {
+    message.success('已开启画中画，窗口可拖动');
+  }
+}
+
 async function takeScreenshot(): Promise<void> {
   const blob = await playerRef.value?.screenshot();
   if (!blob) {
@@ -188,34 +205,6 @@ async function toggleRecording(): Promise<void> {
   }
   saveBlob(blob, deviceFileName('webm'));
   message.success('录屏已保存');
-}
-
-function pickApk(): void {
-  if (!device.value) return;
-  fileInput.value?.click();
-}
-
-async function onApkSelected(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file || !device.value) return;
-
-  if (!file.name.toLowerCase().endsWith('.apk')) {
-    message.error('请选择 .apk 文件');
-    return;
-  }
-
-  installing.value = true;
-  try {
-    const uploaded = await api.uploadPackage(file);
-    await api.installPackage(device.value.id, uploaded.id);
-    message.success(`已安装 ${file.name}`);
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : '安装失败');
-  } finally {
-    installing.value = false;
-  }
 }
 
 function onPlayerClosed(): void {
@@ -324,10 +313,17 @@ onBeforeUnmount(() => {
           @closed="onPlayerClosed"
         />
         <div v-else class="placeholder">
-          <span>{{ errorText ?? '正在建立投屏连接…' }}</span>
-          <n-button v-if="errorText" size="small" @click="createSession">
-            重试
-          </n-button>
+          <div class="placeholder-icon">
+            <n-icon :size="32"><CloudOfflineOutline /></n-icon>
+          </div>
+          <div class="placeholder-title">画面连接已断开</div>
+          <div class="placeholder-desc">
+            可能是网络波动，或设备被其他操作占用。<br />
+            重新连接会重新建立投屏会话。
+          </div>
+          <button type="button" class="placeholder-btn" @click="createSession">
+            重新连接
+          </button>
         </div>
 
         <button type="button" class="overlay-btn fs-toggle" @click="toggleFullscreen">
@@ -354,12 +350,23 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="fs-group">
-            <div class="fs-title">抓取</div>
+            <div class="fs-title">屏幕</div>
             <div class="fs-grid">
               <button type="button" class="bar-btn" @click="sendKey('power')">电源</button>
+              <button type="button" class="bar-btn" @click="setScreen(false)">息屏</button>
+              <button type="button" class="bar-btn" @click="setScreen(true)">亮屏</button>
+            </div>
+          </div>
+
+          <div class="fs-group">
+            <div class="fs-title">抓取</div>
+            <div class="fs-grid cols-2">
               <button type="button" class="bar-btn" @click="takeScreenshot">截图</button>
               <button type="button" class="bar-btn" @click="toggleRecording">
                 {{ recording ? '停止' : '录屏' }}
+              </button>
+              <button type="button" class="bar-btn span-2" @click="togglePip">
+                画中画
               </button>
             </div>
           </div>
@@ -393,41 +400,32 @@ onBeforeUnmount(() => {
 
         <section class="section">
           <div class="section-title">设备</div>
-          <div class="grid-2">
+          <div class="grid-3">
             <n-button size="small" @click="sendKey('power')">电源</n-button>
-            <n-button size="small" @click="fileShow = true">文件管理</n-button>
+            <n-button size="small" @click="setScreen(false)">息屏</n-button>
+            <n-button size="small" @click="setScreen(true)">亮屏</n-button>
           </div>
+          <n-button size="small" block @click="fileShow = true">
+            文件管理
+          </n-button>
         </section>
 
         <section class="section">
           <div class="section-title">抓取</div>
-          <div class="grid-2">
+          <div class="grid-3">
             <n-button size="small" @click="takeScreenshot">截图</n-button>
             <n-button size="small" @click="toggleRecording">
-              <span v-if="recording" class="rec-dot" />
-              {{ recording ? '停止录制' : '录屏' }}
+              {{ recording ? '停止' : '录屏' }}
             </n-button>
+            <n-button size="small" @click="togglePip">画中画</n-button>
           </div>
         </section>
 
         <section class="section">
           <div class="section-title">应用</div>
-          <n-button
-            size="small"
-            block
-            :loading="installing"
-            :disabled="!device"
-            @click="pickApk"
-          >
-            安装 APK
+          <n-button size="small" block @click="apkShow = true">
+            APK 管理
           </n-button>
-          <input
-            ref="fileInput"
-            type="file"
-            accept=".apk"
-            hidden
-            @change="onApkSelected"
-          />
         </section>
 
         <section class="section">
@@ -456,6 +454,11 @@ onBeforeUnmount(() => {
 
     <DeviceFileBrowser
       v-model:show="fileShow"
+      :device-id="device?.id ?? ''"
+      :device-name="device?.name ?? ''"
+    />
+    <ApkManagerDrawer
+      v-model:show="apkShow"
       :device-id="device?.id ?? ''"
       :device-name="device?.name ?? ''"
     />
@@ -623,6 +626,10 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+.fs-grid.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .bar-btn {
   padding: 6px 0;
   border-radius: 6px;
@@ -642,6 +649,10 @@ onBeforeUnmount(() => {
 
 .bar-btn.wide {
   grid-column: span 3;
+}
+
+.bar-btn.span-2 {
+  grid-column: span 2;
 }
 
 .bar-divider {
@@ -665,9 +676,59 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.placeholder-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #71717a;
+}
+
+.placeholder-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #e4e4e7;
+}
+
+.placeholder-desc {
+  max-width: 320px;
   font-size: 12px;
-  color: #a1a1aa;
+  line-height: 1.7;
+  color: #71717a;
+}
+
+.placeholder-btn {
+  margin-top: 8px;
+  padding: 7px 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #fafafa;
+  color: #09090b;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.placeholder-btn:hover {
+  background: #e4e4e7;
+}
+
+.placeholder-btn:active {
+  transform: scale(0.98);
 }
 
 .side {

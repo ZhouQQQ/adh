@@ -312,6 +312,12 @@ export const ViewerRotateSchema = z.object({
   t: z.literal('rotate'),
 });
 
+/** 关闭 / 点亮屏幕（不锁屏）。 */
+export const ViewerScreenSchema = z.object({
+  t: z.literal('screen'),
+  on: z.boolean(),
+});
+
 /** viewer 发送的请求关键帧（背压恢复时使用）。 */
 export const ViewerRequestIdrSchema = z.object({
   t: z.literal('requestIdr'),
@@ -322,6 +328,7 @@ export const ViewerToStreamMessageSchema = z.discriminatedUnion('t', [
   ViewerKeySchema,
   ViewerTextSchema,
   ViewerRotateSchema,
+  ViewerScreenSchema,
   ViewerRequestIdrSchema,
 ]);
 export type ViewerToStreamMessage = z.infer<typeof ViewerToStreamMessageSchema>;

@@ -319,15 +319,46 @@ export async function registerHttpRoutes(
     }
 
     const id = PackageStore.hash(body);
-    deps.packages.save(id, body);
-
     const rawName = request.headers['x-file-name'];
     const name =
       typeof rawName === 'string' && rawName
         ? decodeURIComponent(rawName)
         : `${id.slice(0, 8)}.apk`;
 
-    return { id, name, size: body.length };
+    const record = deps.packages.save(id, body, name);
+    return { id: record.id, name: record.name, size: record.size };
+  });
+
+  /** 已上传的安装包列表。 */
+  app.get('/api/packages', async () => {
+    return { packages: deps.packages.list() };
+  });
+
+  /** 删除已上传的安装包。 */
+  app.delete('/api/packages/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!deps.packages.has(id)) {
+      return reply.code(404).send({ error: '安装包不存在' });
+    }
+    deps.packages.remove(id);
+    return reply.code(204).send();
+  });
+
+  /** 前端导出安装包（无需 agent 鉴权）。 */
+  app.get('/api/packages/:id/file', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const record = deps.packages.record(id);
+    const data = deps.packages.read(id);
+    if (!record || !data) {
+      return reply.code(404).send({ error: '安装包不存在' });
+    }
+    return reply
+      .header('content-type', 'application/vnd.android.package-archive')
+      .header(
+        'content-disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(record.name)}`,
+      )
+      .send(data);
   });
 
   /** agent 下载安装包（用自身 Key 鉴权）。 */
@@ -639,6 +670,102 @@ export async function registerHttpRoutes(
       }
     }
     return { ok: true, count: sources.length };
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* 设备应用（APK）管理                                                */
+  /* ---------------------------------------------------------------- */
+
+  app.get('/api/devices/:id/apps', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '仅支持 Android 设备' });
+    }
+
+    const result = await runCommand(
+      'adb',
+      ['-s', device.udid, 'shell', 'pm', 'list', 'packages', '-3'],
+      20_000,
+    );
+    if (result.code !== 0) {
+      return reply.code(400).send({ error: '读取应用列表失败' });
+    }
+
+    const packages = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('package:'))
+      .map((line) => line.slice('package:'.length).trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
+    return { packages };
+  });
+
+  /** 把设备上已安装的 APK 导出到浏览器。 */
+  app.get('/api/devices/:id/apps/export', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const { package: packageName } = request.query as { package?: string };
+    if (!packageName) {
+      return reply.code(400).send({ error: '缺少应用包名' });
+    }
+
+    const pathResult = await runCommand(
+      'adb',
+      ['-s', device.udid, 'shell', 'pm', 'path', packageName],
+      10_000,
+    );
+    const match = /package:(.+)/.exec(pathResult.stdout);
+    if (!match) {
+      return reply.code(404).send({ error: '应用未安装或无法读取路径' });
+    }
+    const apkPath = match[1]!.trim();
+
+    const data = await runCommandBuffer(
+      'adb',
+      ['-s', device.udid, 'exec-out', 'cat', apkPath],
+      180_000,
+    );
+    if (data.code !== 0 || data.stdout.length === 0) {
+      return reply.code(400).send({ error: '导出安装包失败' });
+    }
+
+    return reply
+      .header('content-type', 'application/vnd.android.package-archive')
+      .header(
+        'content-disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(`${packageName}.apk`)}`,
+      )
+      .send(data.stdout);
+  });
+
+  app.post('/api/devices/:id/apps/uninstall', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const body = request.body as { package?: string } | undefined;
+    const packageName = body?.package;
+    if (!packageName) {
+      return reply.code(400).send({ error: '缺少应用包名' });
+    }
+
+    const result = await runCommand(
+      'adb',
+      ['-s', device.udid, 'uninstall', packageName],
+      90_000,
+    );
+    const output = `${result.stdout}\n${result.stderr}`.trim();
+    if (result.code !== 0 || !/success/i.test(result.stdout)) {
+      return reply.code(400).send({ error: output || '卸载失败' });
+    }
+    return { ok: true };
   });
 
   app.get('/api/devices/:id/thumbnail', async (request, reply: FastifyReply) => {

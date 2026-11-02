@@ -23,6 +23,7 @@ const MSG_INJECT_TEXT = 1;
 const MSG_INJECT_TOUCH_EVENT = 2;
 const MSG_BACK_OR_SCREEN_ON = 4;
 const MSG_SET_CLIPBOARD = 9;
+const MSG_SET_SCREEN_POWER_MODE = 10;
 const MSG_ROTATE_DEVICE = 11;
 
 export function injectKeycode(
@@ -117,5 +118,13 @@ export function backOrScreenOn(action: 0 | 1): Buffer {
 export function rotateDevice(): Buffer {
   const buf = Buffer.alloc(1);
   buf.writeUInt8(MSG_ROTATE_DEVICE, 0);
+  return buf;
+}
+
+/** 关闭 / 点亮屏幕，不触发锁屏。 */
+export function setScreenPowerMode(on: boolean): Buffer {
+  const buf = Buffer.alloc(2);
+  buf.writeUInt8(MSG_SET_SCREEN_POWER_MODE, 0);
+  buf.writeUInt8(on ? 1 : 0, 1);
   return buf;
 }
