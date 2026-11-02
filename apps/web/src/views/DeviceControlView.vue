@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
               <button type="button" class="bar-btn" @click="copyScreenshot">
                 复制截图
               </button>
-              <button type="button" class="bar-btn" @click="takeScreenshot">截图</button>
+              <button type="button" class="bar-btn" @click="takeScreenshot">截图保存</button>
               <button type="button" class="bar-btn span-2" @click="toggleRecording">
                 {{ recording ? '停止' : '录屏' }}
               </button>
@@ -459,7 +459,7 @@ onBeforeUnmount(() => {
             <n-button size="small" title="截图到剪贴板" @click="copyScreenshot">
               复制截图
             </n-button>
-            <n-button size="small" @click="takeScreenshot">截图</n-button>
+            <n-button size="small" @click="takeScreenshot">截图保存</n-button>
           </div>
           <n-button size="small" block @click="toggleRecording">
             {{ recording ? '停止' : '录屏' }}

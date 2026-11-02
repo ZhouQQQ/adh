@@ -24,6 +24,7 @@ const message = useMessage();
 
 const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
+const agentFilter = ref<string>('all');
 const status = ref<DeviceStatus | 'all'>('all');
 const version = ref<string | 'all'>('all');
 const cpuVendor = ref<string | 'all'>('all');
@@ -185,6 +186,9 @@ const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
   return devices.value
     .filter((device) => {
+      if (agentFilter.value !== 'all' && device.agentId !== agentFilter.value) {
+        return false;
+      }
       if (platform.value !== 'all' && device.platform !== platform.value) {
         return false;
       }
@@ -234,6 +238,15 @@ const agentNames = computed(
   () => new Map(agents.value.map((agent) => [agent.id, agent.name])),
 );
 
+/** 节点筛选项，没有设备的节点置灰。 */
+const agentOptions = computed(() =>
+  agents.value.map((agent) => ({
+    value: agent.id,
+    label: agent.name,
+    enabled: devices.value.some((device) => device.agentId === agent.id),
+  })),
+);
+
 const STATUS_LABEL: Record<DeviceStatus, string> = {
   online: '在线',
   offline: '离线',
@@ -251,6 +264,12 @@ const activeFilters = computed(() => {
     list.push({
       key: 'platform',
       label: platform.value === 'android' ? 'Android' : 'iOS',
+    });
+  }
+  if (agentFilter.value !== 'all') {
+    list.push({
+      key: 'agent',
+      label: `节点: ${agentNames.value.get(agentFilter.value) ?? agentFilter.value}`,
     });
   }
   if (status.value !== 'all') {
@@ -287,6 +306,9 @@ function removeFilter(key: string): void {
     case 'platform':
       platform.value = 'all';
       break;
+    case 'agent':
+      agentFilter.value = 'all';
+      break;
     case 'status':
       status.value = 'all';
       break;
@@ -315,6 +337,12 @@ function removeFilter(key: string): void {
 
 /** 选中的选项被拔掉后自动回到「全部」，避免筛选结果永远是空。 */
 watch(devices, () => {
+  if (
+    agentFilter.value !== 'all' &&
+    !agents.value.some((agent) => agent.id === agentFilter.value)
+  ) {
+    agentFilter.value = 'all';
+  }
   if (platform.value !== 'all' && !platformPresent.value.has(platform.value)) {
     platform.value = 'all';
   }
@@ -382,6 +410,7 @@ function batchControl(): void {
 function resetFilters(): void {
   keyword.value = '';
   platform.value = 'all';
+  agentFilter.value = 'all';
   status.value = 'all';
   version.value = 'all';
   cpuVendor.value = 'all';
@@ -476,6 +505,31 @@ function resetFilters(): void {
             @click="platform = 'ios'"
           >
             iOS
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">节点:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: agentFilter === 'all' }"
+            @click="agentFilter = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="agent in agentOptions"
+            :key="agent.value"
+            type="button"
+            class="opt"
+            :class="{ active: agentFilter === agent.value }"
+            :disabled="!agent.enabled"
+            @click="agentFilter = agent.value"
+          >
+            {{ agent.label }}
           </button>
         </div>
       </div>
