@@ -14,13 +14,12 @@ async function request<T>(
   url: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  });
+  const headers = new Headers(init?.headers);
+  // 只有真正带 body 时才声明 JSON，否则 DELETE 这类空请求会被 Fastify 判定为 400
+  if (init?.body !== undefined && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
+  const response = await fetch(url, { ...init, headers });
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {
@@ -76,6 +75,19 @@ export const api = {
 
   listDevices(): Promise<DeviceSummary[]> {
     return request('/api/devices');
+  },
+
+  deleteDevice(id: string): Promise<void> {
+    return request(`/api/devices/${id}`, { method: 'DELETE' });
+  },
+
+  cleanupOfflineDevices(): Promise<{ removed: number }> {
+    return request('/api/devices/cleanup', { method: 'POST' });
+  },
+
+  /** 创建投屏会话。 */
+  createStream(deviceId: string): Promise<{ sessionId: string }> {
+    return request(`/api/devices/${deviceId}/stream`, { method: 'POST' });
   },
 };
 

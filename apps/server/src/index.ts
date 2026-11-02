@@ -12,7 +12,9 @@ import { LocalAgent } from './local-agent.js';
 import { createLogger } from './log.js';
 import { AgentRegistry } from './registry.js';
 import { ThumbnailStore } from './storage/thumbnails.js';
+import { StreamManager } from './stream/manager.js';
 import { registerAgentChannel } from './ws/agent.js';
+import { registerStreamChannel } from './ws/stream.js';
 import { WebHub } from './ws/web-hub.js';
 
 async function main(): Promise<void> {
@@ -23,6 +25,7 @@ async function main(): Promise<void> {
   const registry = new AgentRegistry();
   const hub = new WebHub();
   const thumbnails = new ThumbnailStore(config.thumbnailDir);
+  const streams = new StreamManager({ queries, registry, logger });
 
   const localAgent = new LocalAgent({
     queries,
@@ -61,11 +64,14 @@ async function main(): Promise<void> {
     socket.on('close', () => hub.remove(socket));
   });
 
+  registerStreamChannel(app, streams);
+
   await registerHttpRoutes(app, {
     queries,
     registry,
     hub,
     thumbnails,
+    streams,
     port: config.port,
   });
 
@@ -104,6 +110,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutting down');
     localAgent.stop();
+    streams.shutdown();
     await app.close();
     sqlite.close();
     process.exit(0);

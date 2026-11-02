@@ -79,6 +79,7 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
     thumbnailAt: row.thumbnailAt ?? 0,
   };
   if (row.model) summary.model = row.model;
+  if (row.marketName) summary.marketName = row.marketName;
   if (row.brand) summary.brand = row.brand;
   if (row.osVersion) summary.osVersion = row.osVersion;
   if (row.sdk != null) summary.sdk = row.sdk;
@@ -262,6 +263,7 @@ export function createQueries(db: Db) {
         platform: info.platform,
         name: info.name,
         model: info.model ?? null,
+        marketName: info.marketName ?? null,
         brand: info.brand ?? null,
         osVersion: info.osVersion ?? null,
         sdk: info.sdk ?? null,
@@ -295,6 +297,7 @@ export function createQueries(db: Db) {
       const set: Partial<DeviceRow> = { lastSeen: Date.now() };
       if (patch.name !== undefined) set.name = patch.name;
       if (patch.model !== undefined) set.model = patch.model ?? null;
+      if (patch.marketName !== undefined) set.marketName = patch.marketName ?? null;
       if (patch.brand !== undefined) set.brand = patch.brand ?? null;
       if (patch.osVersion !== undefined) set.osVersion = patch.osVersion ?? null;
       if (patch.sdk !== undefined) set.sdk = patch.sdk ?? null;
@@ -326,6 +329,34 @@ export function createQueries(db: Db) {
         .run();
       const row = db.select().from(devices).where(eq(devices.id, deviceId)).get();
       return row ? rowToDevice(row) : undefined;
+    },
+
+    /** 设备从 agent 侧消失时只标记离线，保留记录以便查看历史。 */
+    markDeviceOffline(agentId: string, udid: string): DeviceSummary | undefined {
+      const existing = this.findDevice(agentId, udid);
+      if (!existing) return undefined;
+      if (existing.status === 'offline') return rowToDevice(existing);
+      db.update(devices)
+        .set({ status: 'offline' })
+        .where(eq(devices.id, existing.id))
+        .run();
+      return rowToDevice({ ...existing, status: 'offline' });
+    },
+
+    /** 清理指定 agent 下的离线设备，返回被删除的设备。 */
+    purgeOfflineDevices(agentId?: string): DeviceSummary[] {
+      const rows = agentId
+        ? db
+            .select()
+            .from(devices)
+            .where(and(eq(devices.agentId, agentId), eq(devices.status, 'offline')))
+            .all()
+        : db.select().from(devices).where(eq(devices.status, 'offline')).all();
+      if (rows.length === 0) return [];
+      for (const row of rows) {
+        db.delete(devices).where(eq(devices.id, row.id)).run();
+      }
+      return rows.map(rowToDevice);
     },
 
     markAgentDevicesOffline(agentId: string): DeviceSummary[] {

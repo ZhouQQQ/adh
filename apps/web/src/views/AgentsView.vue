@@ -124,7 +124,7 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     render: (row) =>
       row.os
         ? `${row.os} / ${row.arch} · v${row.version}`
-        : h('span', { style: 'color:#5c5c66' }, '尚未接入'),
+        : h('span', { style: 'color:var(--text-faint)' }, '尚未接入'),
   },
   {
     title: '能力',
@@ -162,7 +162,7 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     render: (row) =>
       h(
         'code',
-        { style: 'font-size:11px;color:#8a8a94' },
+        { style: 'font-size:11px;color:var(--text-dim)' },
         row.keyPreview,
       ),
   },
@@ -319,9 +319,9 @@ function confirmDelete(row: AgentSummary): void {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 14px;
-  background: #18181c;
-  border: 1px solid #2a2a30;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 
@@ -329,12 +329,12 @@ function confirmDelete(row: AgentSummary): void {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #6f6f78;
+  color: var(--text-dim);
 }
 
 :deep(.n-data-table) {
-  background: #18181c;
+  background: var(--surface);
   border-radius: 10px;
-  border: 1px solid #2a2a30;
+  border: 1px solid var(--border);
 }
 </style>

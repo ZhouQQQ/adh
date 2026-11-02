@@ -241,7 +241,7 @@ async function copy(value: string, which: string): Promise<void> {
 .key-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: #8a8a94;
+  color: var(--text-dim);
 }
 
 .section {
@@ -252,7 +252,7 @@ h4 {
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #c9c9d1;
+  color: var(--text);
 }
 
 h4.spaced {
@@ -269,19 +269,19 @@ h4.spaced {
   flex: 1;
   margin: 0;
   padding: 10px 12px;
-  background: #101014;
-  border: 1px solid #2a2a30;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.7;
-  color: #63e2b7;
+  color: #15803d;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
 .code.muted {
-  color: #8a8a94;
+  color: var(--text-dim);
 }
 
 .device-list {
@@ -292,8 +292,8 @@ h4.spaced {
 
 .device-row {
   padding: 9px 12px;
-  background: #18181c;
-  border: 1px solid #2a2a30;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
@@ -315,7 +315,7 @@ h4.spaced {
 .device-meta {
   margin-top: 3px;
   font-size: 11px;
-  color: #6f6f78;
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import AgentsView from './views/AgentsView.vue';
+import DeviceControlView from './views/DeviceControlView.vue';
 import DevicesView from './views/DevicesView.vue';
 
 export const router = createRouter({
@@ -11,6 +12,12 @@ export const router = createRouter({
       name: 'devices',
       component: DevicesView,
       meta: { title: '设备管理' },
+    },
+    {
+      path: '/devices/:id/control',
+      name: 'device-control',
+      component: DeviceControlView,
+      meta: { title: '设备控制', fullscreen: true },
     },
     {
       path: '/agents',

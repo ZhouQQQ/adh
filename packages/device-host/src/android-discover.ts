@@ -3,6 +3,7 @@ import { runCommand } from './exec.js';
 
 interface AndroidDetail {
   model?: string;
+  marketName?: string;
   brand?: string;
   osVersion?: string;
   sdk?: number;
@@ -46,6 +47,28 @@ function parseWmSize(raw: string): Resolution | undefined {
   return { width: Number(last[1]), height: Number(last[2]) };
 }
 
+/**
+ * 各家 ROM 的市场名称属性不统一，按常见厂商依次尝试。
+ * 取不到就回退到 ro.product.model（型号代码）。
+ */
+const MARKET_NAME_KEYS = [
+  'ro.vivo.market.name',
+  'ro.product.marketname',
+  'ro.vendor.oplus.market.name',
+  'ro.config.marketing_name',
+  'ro.product.odm.marketname',
+  'ro.vendor.product.marketname',
+  'ro.product.vendor.marketname',
+];
+
+function readMarketName(props: Map<string, string>): string | undefined {
+  for (const key of MARKET_NAME_KEYS) {
+    const value = props.get(key)?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
 /** Android 12+ 有 ro.soc.model，更早的机型只能退到 board platform / ABI。 */
 function buildCpuName(props: Map<string, string>): string | undefined {
   const socModel = props.get('ro.soc.model')?.trim();
@@ -87,6 +110,8 @@ async function queryDetails(udid: string): Promise<AndroidDetail> {
 
   const model = props.get('ro.product.model')?.trim();
   if (model) detail.model = model;
+  const marketName = readMarketName(props);
+  if (marketName) detail.marketName = marketName;
   const brand = props.get('ro.product.brand')?.trim();
   if (brand) detail.brand = brand;
   const release = props.get('ro.build.version.release')?.trim();
@@ -152,12 +177,13 @@ export async function discoverAndroid(): Promise<AndroidScanResult> {
     const info: DeviceInfo = {
       udid,
       platform: 'android',
-      name: detail.model ?? udid,
+      name: detail.marketName ?? detail.model ?? udid,
       status: 'online',
       capabilities: ['adb', 'shell', 'screenshot', 'input'],
       tags: [],
     };
     if (detail.model) info.model = detail.model;
+    if (detail.marketName) info.marketName = detail.marketName;
     if (detail.brand) info.brand = detail.brand;
     if (detail.osVersion) info.osVersion = detail.osVersion;
     if (detail.sdk) info.sdk = detail.sdk;

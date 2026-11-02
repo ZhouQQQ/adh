@@ -102,15 +102,13 @@ export class LocalAgent {
         next.set(device.udid, device);
       }
 
-      const { queries, hub, thumbnails } = this.deps;
+      const { queries, hub } = this.deps;
 
       for (const udid of this.tracked.keys()) {
         if (next.has(udid)) continue;
-        const removed = queries.removeDevice(BUILTIN_AGENT_ID, udid);
-        if (removed) {
-          thumbnails.remove(removed.id);
-          hub.broadcast({ t: 'device.removed', deviceId: removed.id });
-        }
+        // 只标记离线，记录留给控制台查看
+        const offline = queries.markDeviceOffline(BUILTIN_AGENT_ID, udid);
+        if (offline) hub.broadcast({ t: 'device.updated', device: offline });
       }
 
       for (const [udid, info] of next) {

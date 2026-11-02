@@ -3,15 +3,19 @@ import {
   NConfigProvider,
   NDialogProvider,
   NMessageProvider,
-  darkTheme,
   dateZhCN,
   zhCN,
 } from 'naive-ui';
 import MainLayout from './layouts/MainLayout.vue';
+import { shadcnTheme } from './theme';
 </script>
 
 <template>
-  <n-config-provider :theme="darkTheme" :locale="zhCN" :date-locale="dateZhCN">
+  <n-config-provider
+    :theme-overrides="shadcnTheme"
+    :locale="zhCN"
+    :date-locale="dateZhCN"
+  >
     <n-message-provider>
       <n-dialog-provider>
         <MainLayout />

@@ -28,6 +28,8 @@ export const DeviceInfoSchema = z.object({
   udid: z.string().min(1),
   platform: PlatformSchema,
   name: z.string(),
+  /** 厂商市场名称，如 "iQOO Z10 Turbo+"；取不到时回退到型号。 */
+  marketName: z.string().optional(),
   model: z.string().optional(),
   brand: z.string().optional(),
   osVersion: z.string().optional(),
@@ -227,6 +229,8 @@ export const StreamReadySchema = z.object({
   sessionId: z.string(),
   platform: PlatformSchema,
   codec: StreamCodecSchema,
+  /** WebCodecs 用的 codec 字符串，如 avc1.640028 */
+  videoCodec: z.string().optional(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   rotation: z.number().int().default(0),
@@ -248,10 +252,17 @@ export const StreamErrorSchema = z.object({
   message: z.string(),
 });
 
+/** 告诉 viewer 当前是否持有控制权。 */
+export const StreamRoleSchema = z.object({
+  t: z.literal('role'),
+  controller: z.boolean(),
+});
+
 export const StreamAgentToViewerMessageSchema = z.discriminatedUnion('t', [
   StreamReadySchema,
   StreamRotatedSchema,
   StreamErrorSchema,
+  StreamRoleSchema,
 ]);
 export type StreamAgentToViewerMessage = z.infer<
   typeof StreamAgentToViewerMessageSchema

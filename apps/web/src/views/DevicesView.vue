@@ -1,19 +1,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   NButton,
   NEmpty,
   NIcon,
   NInput,
   NSelect,
+  useDialog,
+  useMessage,
 } from 'naive-ui';
 import { RefreshOutline, SearchOutline } from '@vicons/ionicons5';
-import type { DeviceStatus, Platform } from '@adh/protocol';
+import type { DeviceStatus, DeviceSummary, Platform } from '@adh/protocol';
 import DeviceCard from '../components/DeviceCard.vue';
+import DeviceDetailDrawer from '../components/DeviceDetailDrawer.vue';
+import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { memoryGb } from '../utils/format';
 
+const router = useRouter();
 const { devices, agents, refresh } = useFleet();
+const dialog = useDialog();
+const message = useMessage();
 
 const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
@@ -126,6 +134,45 @@ const agentNames = computed(
   () => new Map(agents.value.map((agent) => [agent.id, agent.name])),
 );
 
+const offlineCount = computed(
+  () => devices.value.filter((device) => device.status === 'offline').length,
+);
+
+const selectedId = ref<string | null>(null);
+const detailShow = ref(false);
+
+const selectedDevice = computed<DeviceSummary | null>(
+  () => devices.value.find((device) => device.id === selectedId.value) ?? null,
+);
+
+function openDetail(device: DeviceSummary): void {
+  selectedId.value = device.id;
+  detailShow.value = true;
+}
+
+function openControl(device: DeviceSummary): void {
+  detailShow.value = false;
+  void router.push(`/devices/${device.id}/control`);
+}
+
+function cleanupOffline(): void {
+  dialog.warning({
+    title: '清理离线设备',
+    content: `将移除 ${offlineCount.value} 台离线设备记录。设备重新接入后会自动再次出现。`,
+    positiveText: '清理',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        const result = await api.cleanupOfflineDevices();
+        message.success(`已清理 ${result.removed} 台离线设备`);
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '清理失败');
+      }
+    },
+  });
+}
+
 function resetFilters(): void {
   keyword.value = '';
   platform.value = 'all';
@@ -189,6 +236,14 @@ function resetFilters(): void {
       />
 
       <n-button quaternary size="small" @click="resetFilters">重置</n-button>
+      <n-button
+        quaternary
+        size="small"
+        :disabled="offlineCount === 0"
+        @click="cleanupOffline"
+      >
+        清理离线{{ offlineCount > 0 ? ` (${offlineCount})` : '' }}
+      </n-button>
       <n-button quaternary size="small" @click="refresh">
         <template #icon>
           <n-icon :component="RefreshOutline" />
@@ -206,6 +261,8 @@ function resetFilters(): void {
         :key="device.id"
         :device="device"
         :agent-name="agentNames.get(device.agentId) ?? '未知节点'"
+        @detail="openDetail"
+        @control="openControl"
       />
     </div>
 
@@ -222,6 +279,12 @@ function resetFilters(): void {
         <n-button v-else size="small" @click="resetFilters">清空筛选条件</n-button>
       </template>
     </n-empty>
+
+    <DeviceDetailDrawer
+      v-model:show="detailShow"
+      :device="selectedDevice"
+      @control="openControl"
+    />
   </div>
 </template>
 
@@ -237,9 +300,9 @@ function resetFilters(): void {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 12px;
-  background: #18181c;
-  border: 1px solid #2a2a30;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 
@@ -262,7 +325,7 @@ function resetFilters(): void {
 .result-count {
   margin-left: auto;
   font-size: 11px;
-  color: #6f6f78;
+  color: var(--text-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -281,6 +344,6 @@ function resetFilters(): void {
   max-width: 460px;
   font-size: 12px;
   line-height: 1.7;
-  color: #6f6f78;
+  color: var(--text-dim);
 }
 </style>

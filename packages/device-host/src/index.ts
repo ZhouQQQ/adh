@@ -2,3 +2,6 @@ export * from './exec.js';
 export * from './android-discover.js';
 export * from './android-screenshot.js';
 export * from './ios-discover.js';
+export * from './scrcpy-control.js';
+export * from './scrcpy-session.js';
+export * from './scrcpy-translator.js';

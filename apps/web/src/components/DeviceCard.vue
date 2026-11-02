@@ -1,15 +1,25 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NIcon, NTag } from 'naive-ui';
+import { NButton, NIcon, NTag } from 'naive-ui';
 import { PhonePortraitOutline } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import { thumbnailUrl } from '../api';
-import { formatMemory, formatResolution } from '../utils/format';
+import { formatMemory, formatResolution, formatAgo } from '../utils/format';
 
 const props = defineProps<{
   device: DeviceSummary;
   agentName: string;
 }>();
+
+const emit = defineEmits<{
+  detail: [device: DeviceSummary];
+  control: [device: DeviceSummary];
+}>();
+
+const shortUdid = computed(() => {
+  const udid = props.device.udid;
+  return udid.length > 12 ? `…${udid.slice(-12)}` : udid;
+});
 
 const broken = ref(false);
 const imageUrl = computed(() => thumbnailUrl(props.device));
@@ -33,13 +43,13 @@ const statusMeta = computed(() => {
 });
 
 const subtitle = computed(() => {
+  const device = props.device;
   const parts: string[] = [];
-  if (props.device.brand) parts.push(props.device.brand);
-  if (props.device.osVersion) {
+  if (device.brand) parts.push(device.brand);
+  if (device.model && device.model !== device.name) parts.push(device.model);
+  if (device.osVersion) {
     parts.push(
-      props.device.platform === 'ios'
-        ? `iOS ${props.device.osVersion}`
-        : `Android ${props.device.osVersion}`,
+      device.platform === 'ios' ? `iOS ${device.osVersion}` : `Android ${device.osVersion}`,
     );
   }
   return parts.join(' · ') || '未知系统';
@@ -81,10 +91,46 @@ const subtitle = computed(() => {
         <span class="spec">{{ formatMemory(device.memoryMb) }}</span>
       </div>
 
-      <div class="footer">
-        <span>{{ formatResolution(device.resolution) }}</span>
-        <span class="agent" :title="agentName">{{ agentName }}</span>
+      <div class="details">
+        <div class="detail-row">
+          <span class="k">分辨率</span>
+          <span class="v">{{ formatResolution(device.resolution) }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="k">型号</span>
+          <span class="v" :title="device.model">{{ device.model ?? '—' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="k">SDK</span>
+          <span class="v">{{ device.sdk ?? '—' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="k">节点</span>
+          <span class="v" :title="agentName">{{ agentName }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="k">UDID</span>
+          <span class="v mono" :title="device.udid">{{ shortUdid }}</span>
+        </div>
       </div>
+      <div v-if="device.status === 'offline'" class="offline-line">
+        最后在线 {{ formatAgo(device.lastSeen) }}
+      </div>
+    </div>
+
+    <div class="actions">
+      <n-button size="tiny" quaternary @click="emit('detail', device)">
+        详情
+      </n-button>
+      <n-button
+        size="tiny"
+        type="primary"
+        secondary
+        :disabled="device.platform !== 'android' || device.status !== 'online'"
+        @click="emit('control', device)"
+      >
+        实时控制
+      </n-button>
     </div>
   </article>
 </template>
@@ -93,29 +139,28 @@ const subtitle = computed(() => {
 .device-card {
   display: flex;
   flex-direction: column;
-  background: #18181c;
-  border: 1px solid #2a2a30;
-  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   overflow: hidden;
   transition:
-    border-color 0.18s ease,
-    transform 0.18s ease;
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .device-card:hover {
-  border-color: #3a3a44;
-  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  background: #fcfcfd;
 }
 
 .device-card.offline {
-  opacity: 0.72;
+  opacity: 0.65;
 }
 
 .thumb {
   position: relative;
   height: 210px;
-  background:
-    radial-gradient(circle at 50% 45%, #1d1d24 0%, #101014 70%);
+  background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
   display: grid;
   place-items: center;
 }
@@ -131,7 +176,7 @@ const subtitle = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  color: #4a4a54;
+  color: var(--border-strong);
   font-size: 11px;
 }
 
@@ -141,9 +186,10 @@ const subtitle = computed(() => {
   left: 8px;
   font-size: 10px;
   letter-spacing: 0.4px;
-  background: rgba(16, 16, 20, 0.72);
-  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text-dim);
   backdrop-filter: blur(6px);
+  border: 1px solid var(--border);
 }
 
 .status-tag {
@@ -170,7 +216,7 @@ const subtitle = computed(() => {
 
 .subtitle {
   font-size: 11px;
-  color: #6f6f78;
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -179,16 +225,17 @@ const subtitle = computed(() => {
 .specs {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   margin-top: 2px;
 }
 
 .spec {
   font-size: 10px;
-  color: #9ca3af;
-  background: #232329;
-  border-radius: 5px;
-  padding: 2px 6px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
   max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
@@ -201,7 +248,7 @@ const subtitle = computed(() => {
   gap: 8px;
   margin-top: 2px;
   font-size: 10px;
-  color: #5c5c66;
+  color: var(--text-faint);
 }
 
 .agent {
@@ -209,5 +256,54 @@ const subtitle = computed(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.detail-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: 10px;
+}
+
+.k {
+  flex: none;
+  color: var(--text-faint);
+}
+
+.v {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.offline-line {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #b45309;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+.actions :deep(.n-button) {
+  flex: 1;
 }
 </style>

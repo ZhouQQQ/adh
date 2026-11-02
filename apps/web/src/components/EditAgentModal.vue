@@ -103,6 +103,6 @@ async function submit(): Promise<void> {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #6f6f78;
+  color: var(--text-dim);
 }
 </style>

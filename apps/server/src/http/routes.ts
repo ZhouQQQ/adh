@@ -10,6 +10,7 @@ import { SERVER_VERSION } from '../config.js';
 import type { Queries } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
+import type { StreamManager } from '../stream/manager.js';
 import type { WebHub } from '../ws/web-hub.js';
 
 export interface HttpDeps {
@@ -17,6 +18,7 @@ export interface HttpDeps {
   registry: AgentRegistry;
   hub: WebHub;
   thumbnails: ThumbnailStore;
+  streams: StreamManager;
   port: number;
 }
 
@@ -188,6 +190,18 @@ export async function registerHttpRoutes(
     return device;
   });
 
+  /** 创建投屏会话，返回 sessionId 供浏览器连接 /ws/stream/:id。 */
+  app.post('/api/devices/:id/stream', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      return await deps.streams.create(id);
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : '无法创建投屏会话',
+      });
+    }
+  });
+
   app.get('/api/devices/:id/thumbnail', async (request, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
     const data = deps.thumbnails.read(id);
@@ -196,6 +210,26 @@ export async function registerHttpRoutes(
       .header('content-type', 'image/jpeg')
       .header('cache-control', 'no-cache')
       .send(data);
+  });
+
+  app.delete('/api/devices/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: 'device not found' });
+    deps.queries.removeDevice(device.agentId, device.udid);
+    deps.thumbnails.remove(id);
+    deps.hub.broadcast({ t: 'device.removed', deviceId: id });
+    return reply.code(204).send();
+  });
+
+  /** 清空所有离线设备记录。 */
+  app.post('/api/devices/cleanup', async () => {
+    const removed = deps.queries.purgeOfflineDevices();
+    for (const device of removed) {
+      deps.thumbnails.remove(device.id);
+      deps.hub.broadcast({ t: 'device.removed', deviceId: device.id });
+    }
+    return { removed: removed.length };
   });
 
   /** agent 用自身 key 上传设备缩略图。 */

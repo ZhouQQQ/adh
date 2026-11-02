@@ -7,6 +7,7 @@ import {
   type ServerToAgentMessage,
 } from '@adh/protocol';
 import type { Logger } from './log.js';
+import { AgentStreamManager } from './stream-client.js';
 
 export interface AgentClientOptions {
   serverUrl: string;
@@ -43,6 +44,7 @@ function sameDevice(a: DeviceInfo, b: DeviceInfo): boolean {
 
 export class AgentClient {
   private readonly options: AgentClientOptions;
+  private readonly streams: AgentStreamManager;
   private token: string;
   private socket: WebSocket | null = null;
   private synced = new Map<string, DeviceInfo>();
@@ -55,6 +57,11 @@ export class AgentClient {
   constructor(options: AgentClientOptions) {
     this.options = options;
     this.token = options.token;
+    this.streams = new AgentStreamManager(
+      options.serverUrl,
+      options.token,
+      options.logger,
+    );
   }
 
   start(): void {
@@ -71,6 +78,7 @@ export class AgentClient {
     this.stopped = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.stopPeriodicSync();
+    this.streams.stopAll();
     this.socket?.close(1000, 'agent shutdown');
   }
 
@@ -123,7 +131,28 @@ export class AgentClient {
     }
     if (message.t === 'stop') {
       this.options.logger.warn({ reason: message.reason }, 'server stopped session');
+      return;
     }
+    if (message.t === 'cmd') {
+      this.handleCommand(message);
+    }
+  }
+
+  private handleCommand(
+    message: Extract<ServerToAgentMessage, { t: 'cmd' }>,
+  ): void {
+    const params = (message.params ?? {}) as {
+      sessionId?: string;
+      udid?: string;
+    };
+
+    if (message.action === 'screen.start' && params.sessionId && params.udid) {
+      void this.streams.start(params.sessionId, params.udid);
+    } else if (message.action === 'screen.stop' && params.sessionId) {
+      this.streams.stop(params.sessionId);
+    }
+
+    this.send({ t: 'cmd.result', id: message.id, ok: true });
   }
 
   private send(message: AgentToServerMessage): void {
@@ -164,7 +193,10 @@ export class AgentClient {
         else if (!sameDevice(previous, device)) update.push({ udid, patch: device });
       }
       for (const udid of this.synced.keys()) {
-        if (!next.has(udid)) remove.push(udid);
+        if (!next.has(udid)) {
+          // 设备从 adb 消失：上报离线而不是删除，控制台仍能看到它
+          update.push({ udid, patch: { status: 'offline' } });
+        }
       }
 
       if (add.length || update.length || remove.length) {

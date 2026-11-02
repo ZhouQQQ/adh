@@ -130,7 +130,7 @@ function close(): void {
 
 .label {
   font-size: 12px;
-  color: #8a8a94;
+  color: var(--text-dim);
 }
 
 .code-row {
@@ -143,25 +143,25 @@ function close(): void {
   flex: 1;
   margin: 0;
   padding: 11px 13px;
-  background: #101014;
-  border: 1px solid #2a2a30;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.7;
-  color: #63e2b7;
+  color: #15803d;
   white-space: pre-wrap;
   word-break: break-all;
   overflow-x: auto;
 }
 
 .code.muted {
-  color: #8a8a94;
+  color: var(--text-dim);
 }
 
 .steps {
   font-size: 12px;
-  color: #6f6f78;
+  color: var(--text-dim);
   line-height: 1.9;
 }
 
@@ -170,10 +170,10 @@ function close(): void {
 }
 
 .steps code {
-  background: #232329;
+  background: var(--surface-2);
   border-radius: 4px;
   padding: 1px 5px;
   font-size: 11px;
-  color: #c9c9d1;
+  color: var(--text);
 }
 </style>

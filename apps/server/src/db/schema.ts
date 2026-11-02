@@ -31,6 +31,7 @@ export const devices = sqliteTable(
     platform: text('platform').notNull(),
     name: text('name').notNull(),
     model: text('model'),
+    marketName: text('market_name'),
     brand: text('brand'),
     osVersion: text('os_version'),
     sdk: integer('sdk'),
