@@ -256,11 +256,6 @@ onBeforeUnmount(() => {
       >
         只读
       </n-tag>
-      <div class="meta">
-        <span>{{ resolutionText }}</span>
-        <span v-if="device?.osVersion">Android {{ device.osVersion }}</span>
-        <span>{{ agentName }}</span>
-      </div>
     </header>
 
     <div class="body">
