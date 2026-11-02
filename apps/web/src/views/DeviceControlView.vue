@@ -335,16 +335,40 @@ onBeforeUnmount(() => {
         </button>
 
         <div v-if="isFullscreen" class="fullscreen-bar">
-          <button type="button" class="bar-btn" @click="sendKey('back')">返回</button>
-          <button type="button" class="bar-btn" @click="sendKey('home')">主页</button>
-          <button type="button" class="bar-btn" @click="sendKey('recent')">任务</button>
-          <span class="bar-divider" />
-          <button type="button" class="bar-btn" @click="sendKey('volumeDown')">音量−</button>
-          <button type="button" class="bar-btn" @click="sendKey('volumeUp')">音量+</button>
-          <button type="button" class="bar-btn" @click="sendKey('mute')">静音</button>
-          <button type="button" class="bar-btn" @click="sendKey('power')">电源</button>
-          <span class="bar-divider" />
-          <button type="button" class="bar-btn" @click="toggleFullscreen">退出全屏</button>
+          <div class="fs-group">
+            <div class="fs-title">导航</div>
+            <div class="fs-grid">
+              <button type="button" class="bar-btn" @click="sendKey('back')">返回</button>
+              <button type="button" class="bar-btn" @click="sendKey('home')">主页</button>
+              <button type="button" class="bar-btn" @click="sendKey('recent')">任务</button>
+            </div>
+          </div>
+
+          <div class="fs-group">
+            <div class="fs-title">音量</div>
+            <div class="fs-grid">
+              <button type="button" class="bar-btn" @click="sendKey('volumeDown')">音量−</button>
+              <button type="button" class="bar-btn" @click="sendKey('volumeUp')">音量+</button>
+              <button type="button" class="bar-btn" @click="sendKey('mute')">静音</button>
+            </div>
+          </div>
+
+          <div class="fs-group">
+            <div class="fs-title">抓取</div>
+            <div class="fs-grid">
+              <button type="button" class="bar-btn" @click="sendKey('power')">电源</button>
+              <button type="button" class="bar-btn" @click="takeScreenshot">截图</button>
+              <button type="button" class="bar-btn" @click="toggleRecording">
+                {{ recording ? '停止' : '录屏' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="fs-grid">
+            <button type="button" class="bar-btn wide" @click="toggleFullscreen">
+              退出全屏
+            </button>
+          </div>
         </div>
       </div>
 
@@ -569,20 +593,37 @@ onBeforeUnmount(() => {
   right: 16px;
   top: 50%;
   transform: translateY(-50%);
+  width: 216px;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  padding: 10px;
+  gap: 10px;
+  padding: 12px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(10, 10, 11, 0.82);
+  background: rgba(10, 10, 11, 0.85);
   backdrop-filter: blur(12px);
   z-index: 10;
 }
 
+.fs-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fs-title {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.fs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .bar-btn {
-  width: 84px;
   padding: 6px 0;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -597,6 +638,10 @@ onBeforeUnmount(() => {
 
 .bar-btn:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.bar-btn.wide {
+  grid-column: span 3;
 }
 
 .bar-divider {

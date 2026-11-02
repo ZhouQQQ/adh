@@ -173,6 +173,14 @@ function onContextMenu(event: MouseEvent): void {
   send({ t: 'key', key: 'back' });
 }
 
+/** 中键 = Home 键。 */
+function onAuxClick(event: MouseEvent): void {
+  if (event.button !== 1) return;
+  event.preventDefault();
+  if (!controller.value) return;
+  send({ t: 'key', key: 'home' });
+}
+
 function onPointerMove(event: PointerEvent): void {
   if (!pressing || !controller.value) return;
   const { x, y } = pointerPosition(event);
@@ -305,6 +313,7 @@ defineExpose({
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
       @contextmenu="onContextMenu"
+      @auxclick="onAuxClick"
     />
     <div v-if="starting" class="overlay">正在连接设备…</div>
     <div v-else-if="!connected" class="overlay">连接已断开</div>
