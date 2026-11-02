@@ -44,14 +44,21 @@ const versionPlatform = computed(() => {
   return map;
 });
 
-const versionOptions = computed(() =>
-  [...versionPlatform.value.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true }))
-    .map(([value, platform]) => ({
+const versionOptions = computed(() => {
+  const values = new Set([...DEFAULT_VERSIONS, ...versionPlatform.value.keys()]);
+  return [...values]
+    .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+    .map((value) => ({
       value,
-      label: `${platform === 'ios' ? 'iOS' : 'Android'} ${value}`,
-    })),
-);
+      label: `${versionPlatform.value.get(value) === 'ios' ? 'iOS' : 'Android'} ${value}`,
+      enabled: versionPlatform.value.has(value),
+    }));
+});
+/** 默认内置候选，配合设备实际值一起展示，没有设备命中的置灰。 */
+const DEFAULT_VERSIONS = ['10', '11', '12', '13', '14', '15', '16'];
+const DEFAULT_CORES = [4, 6, 8, 10, 12];
+const DEFAULT_MEMORY = [4, 6, 8, 12, 16, 24];
+
 const platformPresent = computed(
   () => new Set(devices.value.map((device) => device.platform)),
 );
@@ -96,17 +103,27 @@ const cpuOptions = computed(() =>
     .map((value) => ({ value, label: value })),
 );
 
-const coresOptions = computed(() =>
-  [...coresPresent.value]
+const coresOptions = computed(() => {
+  const values = new Set([...DEFAULT_CORES, ...coresPresent.value]);
+  return [...values]
     .sort((a, b) => a - b)
-    .map((value) => ({ value, label: `${value} 核` })),
-);
+    .map((value) => ({
+      value,
+      label: `${value} 核`,
+      enabled: coresPresent.value.has(value),
+    }));
+});
 
-const memoryOptions = computed(() =>
-  [...memoryPresent.value]
+const memoryOptions = computed(() => {
+  const values = new Set([...DEFAULT_MEMORY, ...memoryPresent.value]);
+  return [...values]
     .sort((a, b) => a - b)
-    .map((value) => ({ value, label: `${value} GB` })),
-);
+    .map((value) => ({
+      value,
+      label: `${value} GB`,
+      enabled: memoryPresent.value.has(value),
+    }));
+});
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
@@ -323,13 +340,29 @@ function resetFilters(): void {
           </template>
           <span v-else class="filter-hint">全部设备</span>
         </div>
-        <button
-          type="button"
-          class="opt toggle"
-          @click="collapsed = !collapsed"
-        >
-          {{ collapsed ? '展开' : '收起' }}
-        </button>
+
+        <div class="header-actions">
+          <button type="button" class="opt" @click="resetFilters">重置</button>
+          <button
+            type="button"
+            class="opt"
+            :disabled="offlineCount === 0"
+            @click="cleanupOffline"
+          >
+            清理离线{{ offlineCount > 0 ? ` (${offlineCount})` : '' }}
+          </button>
+          <button type="button" class="opt" @click="refresh">刷新</button>
+          <span class="result-count">
+            {{ filtered.length }} / {{ devices.length }}
+          </span>
+          <button
+            type="button"
+            class="opt toggle"
+            @click="collapsed = !collapsed"
+          >
+            {{ collapsed ? '展开' : '收起' }}
+          </button>
+        </div>
       </div>
 
       <n-collapse-transition :show="!collapsed">
@@ -363,19 +396,19 @@ function resetFilters(): void {
             全部
           </button>
           <button
-            v-if="platformPresent.has('android')"
             type="button"
             class="opt"
             :class="{ active: platform === 'android' }"
+            :disabled="!platformPresent.has('android')"
             @click="platform = 'android'"
           >
             Android
           </button>
           <button
-            v-if="platformPresent.has('ios')"
             type="button"
             class="opt"
             :class="{ active: platform === 'ios' }"
+            :disabled="!platformPresent.has('ios')"
             @click="platform = 'ios'"
           >
             iOS
@@ -395,28 +428,28 @@ function resetFilters(): void {
             全部
           </button>
           <button
-            v-if="statusPresent.has('online')"
             type="button"
             class="opt"
             :class="{ active: status === 'online' }"
+            :disabled="!statusPresent.has('online')"
             @click="status = 'online'"
           >
             在线
           </button>
           <button
-            v-if="statusPresent.has('offline')"
             type="button"
             class="opt"
             :class="{ active: status === 'offline' }"
+            :disabled="!statusPresent.has('offline')"
             @click="status = 'offline'"
           >
             离线
           </button>
           <button
-            v-if="statusPresent.has('unauthorized')"
             type="button"
             class="opt"
             :class="{ active: status === 'unauthorized' }"
+            :disabled="!statusPresent.has('unauthorized')"
             @click="status = 'unauthorized'"
           >
             未授权
@@ -436,19 +469,19 @@ function resetFilters(): void {
             全部
           </button>
           <button
-            v-if="usagePresent.idle"
             type="button"
             class="opt"
             :class="{ active: usage === 'idle' }"
+            :disabled="!usagePresent.idle"
             @click="usage = 'idle'"
           >
             空闲
           </button>
           <button
-            v-if="usagePresent.busy"
             type="button"
             class="opt"
             :class="{ active: usage === 'busy' }"
+            :disabled="!usagePresent.busy"
             @click="usage = 'busy'"
           >
             使用中
@@ -473,7 +506,7 @@ function resetFilters(): void {
             type="button"
             class="opt"
             :class="{ active: version === option.value }"
-            
+            :disabled="!option.enabled"
             @click="version = option.value"
           >
             {{ option.label }}
@@ -525,7 +558,7 @@ function resetFilters(): void {
             type="button"
             class="opt"
             :class="{ active: cores === option.value }"
-            
+            :disabled="!option.enabled"
             @click="cores = option.value"
           >
             {{ option.label }}
@@ -550,30 +583,11 @@ function resetFilters(): void {
             type="button"
             class="opt"
             :class="{ active: memory === option.value }"
-            
+            :disabled="!option.enabled"
             @click="memory = option.value"
           >
             {{ option.label }}
           </button>
-        </div>
-      </div>
-
-      <div class="filter-row">
-        <span class="filter-label">操作:</span>
-        <div class="filter-options">
-          <button type="button" class="opt" @click="resetFilters">重置筛选</button>
-          <button
-            type="button"
-            class="opt"
-            :disabled="offlineCount === 0"
-            @click="cleanupOffline"
-          >
-            清理离线{{ offlineCount > 0 ? ` (${offlineCount})` : '' }}
-          </button>
-          <button type="button" class="opt" @click="refresh">刷新</button>
-          <span class="result-count">
-            {{ filtered.length }} / {{ devices.length }}
-          </span>
         </div>
       </div>
         </div>
@@ -652,6 +666,13 @@ function resetFilters(): void {
 .filter-hint {
   font-size: 12px;
   color: var(--text-faint);
+}
+
+.header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .toggle {

@@ -113,10 +113,6 @@ const cpuText = computed(() => {
           <span class="v" :title="cpuText">{{ cpuText }}</span>
         </div>
         <div class="kv span-2">
-          <span class="k">节点</span>
-          <span class="v" :title="agentName">{{ agentName }}</span>
-        </div>
-        <div class="kv span-2">
           <span class="k">UDID</span>
           <span class="v mono" :title="device.udid">{{ device.udid }}</span>
         </div>
