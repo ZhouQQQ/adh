@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { NButton, NEmpty, NSelect, NSwitch, NTag, useMessage } from 'naive-ui';
+import { NButton, NEmpty, NIcon, NSwitch, NTag, useMessage } from 'naive-ui';
+import { AddOutline } from '@vicons/ionicons5';
 import type { ViewerToStreamMessage } from '@adh/protocol';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import BulkInstallModal from '../components/BulkInstallModal.vue';
+import AddBatchDevicesModal from '../components/AddBatchDevicesModal.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 
@@ -25,6 +27,7 @@ const sessions = ref<Record<string, string>>({});
 const controllers = ref<Record<string, boolean>>({});
 const connecting = ref<Record<string, boolean>>({});
 const installShow = ref(false);
+const addShow = ref(false);
 /** 联动：一台设备的输入同步到其余设备。 */
 const linkEnabled = ref(false);
 /** 按住 Alt 时临时解除联动。 */
@@ -52,7 +55,7 @@ function releaseMirrors(): void {
     pressure: 0,
   };
   for (const [id, player] of playerRefs) {
-    if (id === pending.id || !sessions.value[id]) continue;
+    if (id === pending.id) continue;
     player.applyInput(end);
   }
 }
@@ -65,7 +68,7 @@ function onInput(sourceId: string, message: ViewerToStreamMessage): void {
 
   if (!linkEnabled.value || linkPaused.value) return;
   for (const [id, player] of playerRefs) {
-    if (id === sourceId || !sessions.value[id]) continue;
+    if (id === sourceId) continue;
     player.applyInput(message);
   }
 }
@@ -108,10 +111,12 @@ watch(linkEnabled, (enabled) => {
   }
 });
 
-const deviceOptions = computed(() =>
-  devices.value
-    .filter((device) => device.status === 'online' && device.platform === 'android')
-    .map((device) => ({ label: device.name, value: device.id })),
+const controlDevices = computed(() =>
+  devices.value.filter(
+    (device) =>
+      device.status === 'online' &&
+      (device.platform === 'android' || device.capabilities.includes('wda')),
+  ),
 );
 
 const selectedDevices = computed(() =>
@@ -120,14 +125,24 @@ const selectedDevices = computed(() =>
     .filter((device): device is NonNullable<typeof device> => Boolean(device)),
 );
 
+/** 批量安装只支持 Android。 */
 const installTargets = computed(() =>
-  selectedDevices.value.map((device) => ({ id: device.id, name: device.name })),
+  selectedDevices.value
+    .filter((device) => device.platform === 'android')
+    .map((device) => ({ id: device.id, name: device.name })),
 );
+
+function addDevices(ids: string[]): void {
+  selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
+}
 
 async function syncSessions(): Promise<void> {
   const ids = selectedIds.value;
 
   for (const id of ids) {
+    const device = devices.value.find((item) => item.id === id);
+    // iOS 走 WDA，不需要 scrcpy 会话
+    if (!device || device.platform === 'ios') continue;
     if (sessions.value[id]) continue;
 
     connecting.value = { ...connecting.value, [id]: true };
@@ -135,7 +150,7 @@ async function syncSessions(): Promise<void> {
       const { sessionId } = await api.createStream(id);
       sessions.value = { ...sessions.value, [id]: sessionId };
     } catch (error) {
-      const name = devices.value.find((device) => device.id === id)?.name ?? id;
+      const name = device.name ?? id;
       message.error(
         `${name}: ${error instanceof Error ? error.message : '连接失败'}`,
       );
@@ -153,7 +168,7 @@ async function syncSessions(): Promise<void> {
   sessions.value = nextSessions;
 }
 
-watch(selectedIds, () => void syncSessions(), { immediate: true });
+watch([selectedIds, devices], () => void syncSessions(), { immediate: true });
 
 function removeDevice(id: string): void {
   selectedIds.value = selectedIds.value.filter((item) => item !== id);
@@ -167,16 +182,12 @@ function onControllerChange(deviceId: string, value: boolean): void {
 <template>
   <div class="batch-page">
     <header class="batch-toolbar">
-      <n-select
-        v-model:value="selectedIds"
-        class="device-picker"
-        multiple
-        filterable
-        clearable
-        :options="deviceOptions"
-        placeholder="添加设备"
-        :max-tag-count="2"
-      />
+      <n-button size="small" @click="addShow = true">
+        <template #icon>
+          <n-icon :component="AddOutline" />
+        </template>
+        添加设备
+      </n-button>
       <span class="batch-count">{{ selectedIds.length }} 台</span>
       <label class="link-switch">
         <n-switch v-model:value="linkEnabled" size="small" />
@@ -215,7 +226,8 @@ function onControllerChange(deviceId: string, value: boolean): void {
             只读
           </n-tag>
           <span class="tile-meta">
-            {{ device.osVersion ? `Android ${device.osVersion}` : '' }}
+            {{ device.platform === 'ios' ? 'iOS' : 'Android' }}
+            {{ device.osVersion ?? '' }}
           </span>
           <button type="button" class="tile-remove" @click="removeDevice(device.id)">
             移除
@@ -223,9 +235,11 @@ function onControllerChange(deviceId: string, value: boolean): void {
         </div>
         <div class="tile-stage">
           <DevicePlayer
-            v-if="sessions[device.id]"
+            v-if="sessions[device.id] || device.platform === 'ios'"
             :ref="(el) => setPlayerRef(device.id, el)"
-            :session-id="sessions[device.id]!"
+            :session-id="sessions[device.id] ?? ''"
+            :platform="device.platform"
+            :device-id="device.id"
             @controller-change="onControllerChange(device.id, $event)"
             @input="onInput(device.id, $event)"
           />
@@ -239,12 +253,19 @@ function onControllerChange(deviceId: string, value: boolean): void {
     <n-empty
       v-else
       class="batch-empty"
-      description="在上方选择设备开始批量控制"
+      description="点击右上角「添加设备」开始批量控制"
     />
 
     <BulkInstallModal
       v-model:show="installShow"
       :devices="installTargets"
+    />
+
+    <AddBatchDevicesModal
+      v-model:show="addShow"
+      :devices="controlDevices"
+      :selected="selectedIds"
+      @add="addDevices"
     />
   </div>
 </template>

@@ -62,10 +62,54 @@ function sendLocal(message: ViewerToStreamMessage): void {
   emit('input', message);
 }
 
+let remoteIosTouch: { x: number; y: number; at: number } | null = null;
+
 /** 接受联动转发的输入，只发送不再次广播，避免循环。 */
 function applyInput(message: ViewerToStreamMessage): void {
-  if (isIos.value) return;
-  send(message);
+  if (!isIos.value) {
+    send(message);
+    return;
+  }
+
+  if (message.t === 'touch') {
+    if (message.phase === 'began') {
+      remoteIosTouch = { x: message.x, y: message.y, at: Date.now() };
+    } else if (message.phase === 'ended') {
+      const start = remoteIosTouch;
+      remoteIosTouch = null;
+      if (!start) return;
+
+      const distance = Math.hypot(message.x - start.x, message.y - start.y);
+      if (distance < 0.02) {
+        void iosInput({ type: 'tap', x: start.x, y: start.y });
+      } else {
+        void iosInput({
+          type: 'swipe',
+          fromX: start.x,
+          fromY: start.y,
+          toX: message.x,
+          toY: message.y,
+          duration: Math.min(4, (Date.now() - start.at) / 1000),
+        });
+      }
+    }
+    return;
+  }
+
+  if (message.t === 'key') {
+    if (message.key === 'home') void iosInput({ type: 'button', name: 'home' });
+    else if (message.key === 'recent') void iosInput({ type: 'appSwitcher' });
+    else if (message.key === 'volumeUp') {
+      void iosInput({ type: 'button', name: 'volumeUp' });
+    } else if (message.key === 'volumeDown') {
+      void iosInput({ type: 'button', name: 'volumeDown' });
+    }
+    return;
+  }
+
+  if (message.t === 'text') {
+    void iosInput({ type: 'text', text: message.text });
+  }
 }
 
 function configureDecoder(ready: StreamReady): void {
@@ -322,6 +366,14 @@ function onPointerDown(event: PointerEvent): void {
     const position = pointerPosition(event);
     iosStart = { ...position, at: Date.now() };
     pressing = true;
+    emit('input', {
+      t: 'touch',
+      phase: 'began',
+      x: position.x,
+      y: position.y,
+      pointerId: 0,
+      pressure: 1,
+    });
     return;
   }
 
@@ -356,7 +408,19 @@ function onAuxClick(event: MouseEvent): void {
 }
 
 function onPointerMove(event: PointerEvent): void {
-  if (isIos.value) return;
+  if (isIos.value) {
+    if (!iosStart) return;
+    const { x, y } = pointerPosition(event);
+    emit('input', {
+      t: 'touch',
+      phase: 'moved',
+      x,
+      y,
+      pointerId: 0,
+      pressure: 1,
+    });
+    return;
+  }
   if (!pressing || !controller.value) return;
   const { x, y } = pointerPosition(event);
   sendLocal({ t: 'touch', phase: 'moved', x, y, pointerId: 0, pressure: 1 });
@@ -376,6 +440,14 @@ function onPointerUp(event: PointerEvent): void {
     }
 
     const distance = Math.hypot(position.x - start.x, position.y - start.y);
+    emit('input', {
+      t: 'touch',
+      phase: 'ended',
+      x: position.x,
+      y: position.y,
+      pointerId: 0,
+      pressure: 0,
+    });
     if (distance < 0.02) {
       void iosInput({ type: 'tap', x: start.x, y: start.y });
     } else {
