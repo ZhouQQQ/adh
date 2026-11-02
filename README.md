@@ -78,6 +78,38 @@ pnpm --filter @adh/agent dev connect --server ws://<hub地址>:8080 --key adh_xx
 
 Key 会保存在宿主机的 `~/.adh/agent.json`，之后重启 agent 只需带 `--server`。
 
+#### 不发布到 npm 也能装：离线分发包
+
+在开发机执行：
+
+```bash
+pnpm package:agent
+```
+
+产物：
+
+- `dist/agent/`：自包含目录，已带 `tsx`、`sharp`、`scrcpy-server.jar`
+- `dist/adh-agent-<platform>-<arch>.zip`：约 15MB，直接发给别人
+
+目标机器只需要三样东西：
+
+1. Node.js 22+（https://nodejs.org）
+2. `adb` 在 PATH 中（[Android Platform Tools](https://developer.android.com/studio/releases/platform-tools)；Windows 还要装手机 USB 驱动）
+3. 能访问 server 的 8080 端口
+
+解压后运行：
+
+```bash
+adh-agent.cmd doctor
+adh-agent.cmd connect --server ws://<hub地址>:8080 --key adh_xxxxxxxx
+```
+
+Linux / macOS 用 `./adh-agent.sh`。目标机器不需要 pnpm，也不需要联网装依赖。
+
+> `sharp` 带平台相关的原生二进制，Windows 上打的包只能给 Windows 用；给 Linux/macOS 分发时，在对应系统上执行一次 `pnpm package:agent`。
+
+如果坚持走 npm 生态，可以搭私有 registry（Verdaccio / GitHub Packages），把 `@adh/protocol`、`@adh/device-host`、`@adh/agent` 依次发布（`workspace:*` 需要改成实际版本号），目标机器 `npm i -g @adh/agent` 即可获得全局 `adh-agent` 命令。
+
 ### 2. 连接设备
 
 Agent 启动后每 5 秒扫描一次 `adb devices`，检测到新设备会立即采集硬件信息：
@@ -120,6 +152,7 @@ pnpm start          # 单进程托管 API + 前端
 | `pnpm dev:web` | 只启动 web |
 | `pnpm --filter @adh/agent dev connect --server ... --key ...` | 启动节点 |
 | `pnpm --filter @adh/agent dev doctor` | 检查 adb / go-ios / Apple 服务 |
+| `pnpm package:agent` | 打离线分发包 `dist/agent` + zip |
 | `pnpm -r typecheck` | 全量类型检查 |
 | `pnpm build` | 构建前端 |
 

@@ -27,6 +27,9 @@ pnpm start                   # 单进程托管 API + 前端（需先 build）
 # 接入一台设备宿主机（key 必须先由 Web 控制台创建）
 pnpm --filter @adh/agent dev connect --server ws://<ip>:8080 --key adh_xxx
 pnpm --filter @adh/agent dev doctor
+
+# 打离线分发包（dist/agent + zip），目标机只需 Node 22+ 与 adb
+pnpm package:agent
 ```
 
 数据默认在 `.data/`：`adh.sqlite`、`thumbnails/`、`packages/`。

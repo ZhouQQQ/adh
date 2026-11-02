@@ -15,6 +15,8 @@ const emit = defineEmits<{
   error: [message: string];
   ready: [];
   closed: [];
+  /** 本地产生的输入（触摸/按键/文本/屏幕），用于批量联动的镜像转发。 */
+  input: [message: ViewerToStreamMessage];
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -42,6 +44,17 @@ function base64ToBytes(value: string): Uint8Array {
 
 function send(message: ViewerToStreamMessage): void {
   if (socket?.readyState === 1) socket.send(JSON.stringify(message));
+}
+
+/** 本地输入：发给自己并通知外部，供批量联动转发。 */
+function sendLocal(message: ViewerToStreamMessage): void {
+  send(message);
+  emit('input', message);
+}
+
+/** 接受联动转发的输入，只发送不再次广播，避免循环。 */
+function applyInput(message: ViewerToStreamMessage): void {
+  send(message);
 }
 
 function configureDecoder(ready: StreamReady): void {
@@ -164,14 +177,14 @@ function onPointerDown(event: PointerEvent): void {
   (event.target as HTMLElement).setPointerCapture(event.pointerId);
   pressing = true;
   const { x, y } = pointerPosition(event);
-  send({ t: 'touch', phase: 'began', x, y, pointerId: 0, pressure: 1 });
+  sendLocal({ t: 'touch', phase: 'began', x, y, pointerId: 0, pressure: 1 });
 }
 
 /** 右键 = 系统返回键。 */
 function onContextMenu(event: MouseEvent): void {
   event.preventDefault();
   if (!controller.value) return;
-  send({ t: 'key', key: 'back' });
+  sendLocal({ t: 'key', key: 'back' });
 }
 
 /** 中键 = Home 键。 */
@@ -179,20 +192,20 @@ function onAuxClick(event: MouseEvent): void {
   if (event.button !== 1) return;
   event.preventDefault();
   if (!controller.value) return;
-  send({ t: 'key', key: 'home' });
+  sendLocal({ t: 'key', key: 'home' });
 }
 
 function onPointerMove(event: PointerEvent): void {
   if (!pressing || !controller.value) return;
   const { x, y } = pointerPosition(event);
-  send({ t: 'touch', phase: 'moved', x, y, pointerId: 0, pressure: 1 });
+  sendLocal({ t: 'touch', phase: 'moved', x, y, pointerId: 0, pressure: 1 });
 }
 
 function onPointerUp(event: PointerEvent): void {
   if (!pressing) return;
   pressing = false;
   const { x, y } = pointerPosition(event);
-  send({ t: 'touch', phase: 'ended', x, y, pointerId: 0, pressure: 0 });
+  sendLocal({ t: 'touch', phase: 'ended', x, y, pointerId: 0, pressure: 0 });
   try {
     (event.target as HTMLElement).releasePointerCapture(event.pointerId);
   } catch {
@@ -211,23 +224,23 @@ function sendKey(
     | 'mute',
 ): void {
   if (!controller.value) return;
-  send({ t: 'key', key });
+  sendLocal({ t: 'key', key });
 }
 
 function sendText(text: string): void {
   if (!controller.value || !text) return;
-  send({ t: 'text', text });
+  sendLocal({ t: 'text', text });
 }
 
 function sendRotate(): void {
   if (!controller.value) return;
-  send({ t: 'rotate' });
+  sendLocal({ t: 'rotate' });
 }
 
 /** 关闭 / 点亮屏幕（不锁屏）。 */
 function setScreen(on: boolean): void {
   if (!controller.value) return;
-  send({ t: 'screen', on });
+  sendLocal({ t: 'screen', on });
 }
 
 /** 把当前画面导出成 PNG。 */
@@ -337,6 +350,7 @@ defineExpose({
   sendText,
   sendRotate,
   setScreen,
+  applyInput,
   screenshot,
   startRecording,
   stopRecording,

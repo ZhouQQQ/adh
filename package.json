@@ -15,6 +15,7 @@
     "agent": "pnpm --filter @adh/agent dev",
     "build": "pnpm -r --filter @adh/protocol --filter @adh/agent --filter @adh/server build && pnpm --filter @adh/web build",
     "typecheck": "pnpm -r typecheck",
+    "package:agent": "node scripts/package-agent.mjs",
     "start": "pnpm --filter @adh/server start"
   },
   "devDependencies": {

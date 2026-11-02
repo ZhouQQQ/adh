@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { NButton, NEmpty, NSelect, NTag, useMessage } from 'naive-ui';
+import { NButton, NEmpty, NSelect, NSwitch, NTag, useMessage } from 'naive-ui';
+import type { ViewerToStreamMessage } from '@adh/protocol';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import BulkInstallModal from '../components/BulkInstallModal.vue';
 import { api } from '../api';
@@ -25,6 +26,88 @@ const sessions = ref<Record<string, string>>({});
 const controllers = ref<Record<string, boolean>>({});
 const connecting = ref<Record<string, boolean>>({});
 const installShow = ref(false);
+/** 联动：一台设备的输入同步到其余设备。 */
+const linkEnabled = ref(false);
+/** 按住 Alt 时临时解除联动。 */
+const linkPaused = ref(false);
+
+const playerRefs = new Map<string, InstanceType<typeof DevicePlayer>>();
+/** 最近一次正在进行的触摸，临时解除联动时用它补一个 ended，避免其他设备卡住。 */
+let lastTouch: { id: string; message: ViewerToStreamMessage } | null = null;
+
+function setPlayerRef(id: string, value: unknown): void {
+  if (value) playerRefs.set(id, value as InstanceType<typeof DevicePlayer>);
+  else playerRefs.delete(id);
+}
+
+function releaseMirrors(): void {
+  const pending = lastTouch;
+  if (!pending || pending.message.t !== 'touch') return;
+  lastTouch = null;
+  const end: ViewerToStreamMessage = {
+    t: 'touch',
+    phase: 'ended',
+    x: pending.message.x,
+    y: pending.message.y,
+    pointerId: 0,
+    pressure: 0,
+  };
+  for (const [id, player] of playerRefs) {
+    if (id === pending.id || !sessions.value[id]) continue;
+    player.applyInput(end);
+  }
+}
+
+function onInput(sourceId: string, message: ViewerToStreamMessage): void {
+  lastTouch =
+    message.t === 'touch' && message.phase !== 'ended'
+      ? { id: sourceId, message }
+      : null;
+
+  if (!linkEnabled.value || linkPaused.value) return;
+  for (const [id, player] of playerRefs) {
+    if (id === sourceId || !sessions.value[id]) continue;
+    player.applyInput(message);
+  }
+}
+
+function onAltDown(event: KeyboardEvent): void {
+  if (event.key !== 'Alt' || !linkEnabled.value) return;
+  // 阻止 Windows 浏览器把 Alt 用于聚焦菜单栏
+  event.preventDefault();
+  if (linkPaused.value) return;
+  releaseMirrors();
+  linkPaused.value = true;
+}
+
+function onAltUp(event: KeyboardEvent): void {
+  if (event.key !== 'Alt') return;
+  linkPaused.value = false;
+}
+
+function onWindowBlur(): void {
+  if (linkPaused.value) releaseMirrors();
+  linkPaused.value = false;
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onAltDown);
+  window.addEventListener('keyup', onAltUp);
+  window.addEventListener('blur', onWindowBlur);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onAltDown);
+  window.removeEventListener('keyup', onAltUp);
+  window.removeEventListener('blur', onWindowBlur);
+});
+
+watch(linkEnabled, (enabled) => {
+  if (!enabled) {
+    releaseMirrors();
+    linkPaused.value = false;
+  }
+});
 
 const deviceOptions = computed(() =>
   devices.value
@@ -101,6 +184,13 @@ function goBack(): void {
         :max-tag-count="2"
       />
       <span class="batch-count">{{ selectedIds.length }} 台</span>
+      <label class="link-switch">
+        <n-switch v-model:value="linkEnabled" size="small" />
+        <span>联动</span>
+      </label>
+      <span v-if="linkEnabled" class="link-hint" :class="{ paused: linkPaused }">
+        {{ linkPaused ? '已临时解除，松开 Alt 恢复' : '按住 Alt 临时解除' }}
+      </span>
       <n-button
         size="small"
         :disabled="installTargets.length === 0"
@@ -115,6 +205,14 @@ function goBack(): void {
       <section v-for="device in selectedDevices" :key="device.id" class="tile">
         <div class="tile-header">
           <span class="tile-name" :title="device.name">{{ device.name }}</span>
+          <n-tag
+            v-if="linkEnabled"
+            size="tiny"
+            :type="linkPaused ? 'warning' : 'success'"
+            :bordered="false"
+          >
+            {{ linkPaused ? '已解除' : '联动' }}
+          </n-tag>
           <n-tag
             v-if="controllers[device.id] === false"
             size="tiny"
@@ -133,8 +231,10 @@ function goBack(): void {
         <div class="tile-stage">
           <DevicePlayer
             v-if="sessions[device.id]"
+            :ref="(el) => setPlayerRef(device.id, el)"
             :session-id="sessions[device.id]!"
             @controller-change="onControllerChange(device.id, $event)"
+            @input="onInput(device.id, $event)"
           />
           <div v-else class="tile-loading">
             {{ connecting[device.id] ? '连接中…' : '等待连接' }}
@@ -186,10 +286,30 @@ function goBack(): void {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.link-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.link-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.link-hint.paused {
+  color: #d97706;
+}
+
 .batch-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 14px;
+  gap: 6px;
 }
 
 .tile {
@@ -242,7 +362,8 @@ function goBack(): void {
 
 .tile-stage {
   position: relative;
-  height: 380px;
+  /* 竖屏手机比例，随视口高度自适应 */
+  height: clamp(440px, 56vh, 640px);
   background: #000;
 }
 
