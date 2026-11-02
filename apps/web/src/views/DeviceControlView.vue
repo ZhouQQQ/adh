@@ -402,12 +402,12 @@ onBeforeUnmount(() => {
 
           <div class="fs-group">
             <div class="fs-title">抓取</div>
-            <div class="fs-grid">
+            <div class="fs-grid cols-2">
               <button type="button" class="bar-btn" @click="copyScreenshot">
                 复制截图
               </button>
               <button type="button" class="bar-btn" @click="takeScreenshot">截图</button>
-              <button type="button" class="bar-btn" @click="toggleRecording">
+              <button type="button" class="bar-btn span-2" @click="toggleRecording">
                 {{ recording ? '停止' : '录屏' }}
               </button>
             </div>
@@ -455,15 +455,15 @@ onBeforeUnmount(() => {
 
         <section class="section">
           <div class="section-title">抓取</div>
-          <div class="grid-3">
+          <div class="grid-2">
             <n-button size="small" title="截图到剪贴板" @click="copyScreenshot">
               复制截图
             </n-button>
             <n-button size="small" @click="takeScreenshot">截图</n-button>
-            <n-button size="small" @click="toggleRecording">
-              {{ recording ? '停止' : '录屏' }}
-            </n-button>
           </div>
+          <n-button size="small" block @click="toggleRecording">
+            {{ recording ? '停止' : '录屏' }}
+          </n-button>
         </section>
 
         <section class="section">
