@@ -146,6 +146,7 @@ pnpm migrate:data
 ```
 
 读取 `.data/adh.sqlite`、`.data/packages`、`.data/thumbnails`、`.data/app-icons`，可重复执行。
+需要 Node 22.13+（脚本用 `node:sqlite`，Node 24 默认可用）。
 
 ## GitHub Actions
 
