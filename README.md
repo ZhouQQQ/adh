@@ -1,235 +1,109 @@
 # ADH · 分布式设备农场
 
-把散落在多台机器上的 Android / iOS 真机集中到一个 Web 控制台：实时查看屏幕、直接操作、批量安装应用。
+把多台机器上的 Android / iOS 真机集中到一个 Web 控制台：实时投屏、直接操作、批量安装。
 
-- `adh-server`：Web 控制台 + 设备/节点管理，一个进程搞定
-- `adh-server` 内置本机 Agent：**server 所在的机器本身就是一台设备宿主机**，插上设备即可被发现，无需额外启动进程
-- `adh-agent`：部署在其它设备宿主机上，主动外连 server，自动发现并上报本机设备
+- `adh-server`：控制台 + 节点/设备管理，单进程托管前后端
+- `adh-agent`：部署在设备宿主机，主动外连 server，自动上报本机设备
+- server 内置本机 Agent，所在机器插上设备即可被发现
 
-## 当前进度
+## 功能
 
-| 阶段 | 状态 |
+| 模块 | 能力 |
 | --- | --- |
-| M0 脚手架 · 节点接入 · 设备发现 · 实时看板 | ✅ 完成 |
-| M1 Agent 管理 · 设备硬件信息 · 筛选 · 缩略图 | ✅ 完成 |
-| M1+ 内置 Agent（server 直连本机设备） | ✅ 完成 |
-| M1b iOS 设备发现 | ⬜ 待开始 |
-| M2 Android scrcpy 投屏 + 控制 | ⬜ 待开始 |
-| M3 iOS WDA 投屏 + 控制 | ⬜ 待开始 |
-| M4 APK / IPA 安装 | ⬜ 待开始 |
-| M5 任务队列 · 日志 · 部署 | ⬜ 待开始 |
-
-## 环境要求
-
-- Node.js ≥ 22（开发机实测 24.x）
-- pnpm ≥ 9
-- Android 设备宿主机：安装 [Android Platform Tools](https://developer.android.com/studio/releases/platform-tools)，确保 `adb` 在 PATH 中
-- iOS 设备宿主机：Windows 需安装 iTunes / Apple Devices（提供 Apple Mobile Device Service），并安装 [go-ios](https://github.com/danielpaulus/go-ios)
-
-先在宿主机自检环境：
-
-```bash
-pnpm --filter @adh/agent dev doctor
-```
+| Android 控制 | scrcpy 实时画面、触摸/按键/文本、截图录屏、通知栏 |
+| iOS 控制 | WDA 投屏（MJPEG）、点击滑动、多任务、音量、文本输入 |
+| 应用管理 | APK / IPA 上传、图标、大小、安装时间、按平台安装 |
+| 文件管理 | 浏览、上传、下载、多选打包 zip、预览、重命名 |
+| 批量控制 | 多设备网格、跨平台联动、批量安装、系统级画中画 |
+| 设备信息 | 电量、内存、存储、WiFi、硬件参数、实时状态图表 |
 
 ## 快速开始
 
 ```bash
 pnpm install
-pnpm dev            # server: 8080，web: 5173
+pnpm dev          # web:5173  server:8080
 ```
 
-打开 http://localhost:5173
-
-### 0. server 本机设备（自动）
-
-server 启动时会注册一个 id 固定为 `builtin-local` 的内置 Agent，直接在本进程内调用 adb：
-
-- 不需要生成 Key，不需要额外进程
-- 每 5 秒扫描 `adb devices`，每 30 秒截取缩略图
-- 在 Agent 管理里显示为带「内置」标记的一行，不能删除、不能重置 Key
-- 如果不想让 server 接管本机设备，设置环境变量 `ADH_LOCAL_AGENT=0`
-
-### 1. 接入其它宿主机
-
-左侧菜单进入 **Agent 管理 → 新建 Agent**，填写名称（例如「上海机房-01」）。
-
-创建后会生成一个 **接入 Key** 和对应的命令，Key 会在弹窗中直接给出：
+生产模式：
 
 ```bash
-adh-agent connect --server ws://<hub地址>:8080 --key adh_xxxxxxxx
+pnpm build        # 前端产物输出到 apps/server/public
+pnpm start        # 单进程托管 API + 前端
 ```
 
-之后随时可以在列表点「详情」再次查看完整 Key 和接入命令；「⋯」菜单支持：
+## 接入设备宿主机
 
-| 操作 | 说明 |
-| --- | --- |
-| 编辑名称 | 修改控制台显示名，不影响连接；宿主机上报的名称单独保留 |
-| 重置 Key | 生成新 Key，旧连接立即失效 |
-| 删除 | 移除 Agent 及其设备记录、缩略图 |
-
-详情抽屉里还能看到运行环境、能力标签、创建时间、最后心跳，以及该 Agent 下的设备清单。
-
-当前源码运行方式：
+1. 控制台「节点管理 → 新建节点」，复制接入 Key
+2. 在宿主机执行：
 
 ```bash
-pnpm --filter @adh/agent dev connect --server ws://<hub地址>:8080 --key adh_xxxxxxxx
+adh-agent connect --server ws://<server-ip>:8080 --key adh_xxxxxxxx
 ```
 
-Key 会保存在宿主机的 `~/.adh/agent.json`，之后重启 agent 只需带 `--server`。
+如果目标机器没有安装包，在开发机打包后拷贝过去：
 
-#### 不发布到 npm 也能装：离线分发包
+```bash
+pnpm package:agent --platform win32    # 或 darwin
+```
 
+产物 `dist/adh-agent-win32.zip` / `dist/adh-agent-darwin.zip`，已内置当前平台的 adb 与 go-ios：
+
+```bat
+adh-agent.cmd init       :: 解压内置工具，无需联网
+adh-agent.cmd connect --server ws://<server-ip>:8080 --key adh_xxxxxxxx
+```
+
+Linux / macOS 用 `./adh-agent.sh`。目标机只需要 **Node.js ≥ 22** 和能访问 8080 端口。
 完整步骤见 [`docs/agent-install.md`](docs/agent-install.md)。
 
-在开发机执行：
+## 配置
+
+服务端参数（CLI / 环境变量）：
+
+| 参数 | 环境变量 | 默认值 |
+| --- | --- | --- |
+| `--port` | `ADH_PORT` | `8080` |
+| `--host` | `ADH_HOST` | `0.0.0.0` |
+| `--data` | `ADH_DATA_DIR` | `.data` |
+| `--log-level` | `ADH_LOG_LEVEL` | `info` |
+| — | `ADH_LOCAL_AGENT=0` | 关闭内置 Agent |
+
+可选 OSS 存储，配置后安装包、缩略图、应用图标同步到 `adh/` 下，本地保留缓存：
 
 ```bash
-pnpm package:agent
+ADH_OSS_BUCKET=
+ADH_OSS_REGION=oss-cn-hangzhou
+ADH_OSS_ACCESS_KEY_ID=
+ADH_OSS_ACCESS_KEY_SECRET=
+ADH_OSS_PREFIX=adh
 ```
-
-产物：
-
-- `dist/agent/`：自包含目录，已带 `tsx`、`sharp`、`scrcpy-server.jar`
-- `dist/adh-agent-<platform>-<arch>.zip`：约 15MB，直接发给别人
-
-目标机器只需要三样东西：
-
-1. Node.js 22+（https://nodejs.org）
-2. `adb` 在 PATH 中（[Android Platform Tools](https://developer.android.com/studio/releases/platform-tools)；Windows 还要装手机 USB 驱动）。**安装包已内置当前平台的 adb 与 go-ios，运行 `adh-agent init` 即可离线解压；系统里已有则忽略**
-3. 能访问 server 的 8080 端口
-
-解压后运行：
-
-```bash
-adh-agent.cmd connect --server ws://<hub地址>:8080 --key adh_xxxxxxxx
-```
-
-Linux / macOS 用 `./adh-agent.sh`。目标机器不需要 pnpm，也不需要联网装依赖。
-想先检查 adb / go-ios 是否就绪，可以运行 `adh-agent.cmd doctor`（可选）。
-
-> `sharp` 带平台相关的原生二进制，Windows 上打的包只能给 Windows 用；给 Linux/macOS 分发时，在对应系统上执行一次 `pnpm package:agent`。
-
-如果坚持走 npm 生态，可以搭私有 registry（Verdaccio / GitHub Packages），把 `@adh/protocol`、`@adh/device-host`、`@adh/agent` 依次发布（`workspace:*` 需要改成实际版本号），目标机器 `npm i -g @adh/agent` 即可获得全局 `adh-agent` 命令。
-
-### 2. 连接设备
-
-Agent 启动后每 5 秒扫描一次 `adb devices`，检测到新设备会立即采集硬件信息：
-
-- 型号 / 品牌 / 系统版本 / SDK
-- CPU 型号、核心数
-- 内存总量
-- 屏幕分辨率
-
-随后每 30 秒截取一次屏幕缩略图上传到 server。
-
-### 3. 在控制台筛选设备
-
-设备管理页顶部支持组合筛选：
-
-| 筛选项 | 说明 |
-| --- | --- |
-| 关键字 | 名称 / 型号 / 品牌 / UDID / CPU |
-| 类型 | Android / iOS |
-| 状态 | 在线 / 离线 / 未授权 |
-| 系统版本 | 多选，选项从在线设备动态聚合，带数量 |
-| CPU | 多选，按芯片型号聚合 |
-| 内存 | 多选，按标称容量聚合（7.4GB → 8GB） |
-
-所有筛选项都显示当前匹配数量，组合生效。
-
-### 生产模式
-
-```bash
-pnpm build          # 前端产物输出到 apps/server/public
-pnpm start          # 单进程托管 API + 前端
-```
-
-## 常用命令
-
-| 命令 | 说明 |
-| --- | --- |
-| `pnpm dev` | 同时启动 server 与 web |
-| `pnpm dev:server` | 只启动 server |
-| `pnpm dev:web` | 只启动 web |
-| `pnpm --filter @adh/agent dev connect --server ... --key ...` | 启动节点 |
-| `pnpm --filter @adh/agent dev doctor` | 检查 adb / go-ios / Apple 服务 |
-| `pnpm package:agent` | 打离线分发包 `dist/agent` + zip |
-| `pnpm -r typecheck` | 全量类型检查 |
-| `pnpm build` | 构建前端 |
-
-server 可用参数：`--port` `--host` `--data` `--log-level`，对应环境变量 `ADH_PORT` `ADH_HOST` `ADH_DATA_DIR` `ADH_LOG_LEVEL`。
 
 ## 技术栈
 
 | 层 | 选型 |
 | --- | --- |
-| 协议 | TypeScript + zod，两端共享 schema |
-| Server | Fastify 5 + WebSocket + Drizzle ORM + SQLite |
-| 设备采集 | `@adh/device-host`：adb CLI + sharp 缩略图压缩，server 与 agent 共用 |
-| Agent | Node 22+，WebSocket 长连接、断线重连 |
-| Web | Vue 3 + Naive UI + Vue Router + Vite |
+| 协议 | TypeScript + zod 共享 schema |
+| Server | Fastify 5 · SQLite (Drizzle) · WebSocket |
+| Agent | Node 22+ · 长连接断线重连 |
+| Web | Vue 3 · Naive UI · Vite |
+| 采集 | adb / scrcpy-server · go-ios / WDA |
 
-## 目录结构
-
-```
-an-device-hub/
-├─ packages/protocol/          两端共享的消息 schema 与二进制帧格式
-├─ packages/device-host/       设备采集能力：adb 发现、硬件信息、截图压缩
-│  ├─ src/android-discover.ts  设备枚举 + getprop/meminfo/cpuinfo 解析
-│  ├─ src/android-screenshot.ts 截图并用 sharp 压成缩略图
-│  └─ src/ios-discover.ts      iOS 发现（M1b 实现）
-├─ apps/server/
-│  ├─ src/local-agent.ts       内置本机 Agent（进程内直连 adb）
-│  ├─ src/db/                  Drizzle schema + SQL 迁移
-│  ├─ src/http/routes.ts       REST + 缩略图接口
-│  ├─ src/ws/agent.ts          Agent 主通道：握手、心跳、设备同步
-│  ├─ src/ws/web-hub.ts        浏览器实时事件 fan-out
-│  └─ src/storage/thumbnails.ts 设备缩略图落盘
-├─ apps/agent/
-│  ├─ src/client.ts            长连接、心跳、重连、设备 diff 上报
-│  └─ src/thumbnail-uploader.ts 缩略图 HTTP 上传
-└─ apps/web/                   Vue 3 + Naive UI 控制台
-   ├─ src/views/DevicesView.vue  设备网格 + 组合筛选
-   ├─ src/views/AgentsView.vue   Agent 列表 + 新建/重置 Key/删除
-   └─ src/stores/fleet.ts        实时设备/节点状态
-```
-
-`packages/device-host` 同时被 server 与 agent 复用，保证本机采集和远程采集的行为完全一致。
-
-## 架构
+## 目录
 
 ```
-浏览器 ──► adh-server ──◄── adh-agent ──► adb / go-ios ──► 设备
-             │  │
-             │  └─ 内置 Agent ──► adb ──► 本机设备
-             │
-             └─ SQLite + 缩略图 + 安装包存储
+apps/server/       API、WS、SQLite、内置 Agent、OSS
+apps/agent/        宿主机守护进程
+apps/web/          Vue 控制台
+packages/protocol/ 消息 schema、H.264 工具
+packages/device-host/ adb / scrcpy / iOS 采集
+docs/              部署与接入文档
 ```
 
-所有连接均由 agent 主动外连，因此 server 可以部署在公网，设备宿主机处于 NAT 后无需端口映射。
-内置 Agent 不产生任何网络连接，直接进程内采集。
+数据库表统一 `adh_` 前缀：`adh_agents`、`adh_devices`、`adh_packages`、`adh_migrations`。
 
-### 实时通道
+## 说明
 
-| 通道 | 用途 |
-| --- | --- |
-| `/ws/agent` | 握手鉴权、心跳、设备增量同步、指令 RPC |
-| `/ws/web` | 向浏览器推送节点/设备变更 |
-| `/ws/stream/:id` | 投屏流中继（M2 启用） |
-
-### 接入流程
-
-1. server 启动 → 自动注册 `builtin-local`，开始扫描本机 adb 设备
-2. 其它宿主机：Web 控制台创建 Agent → server 生成 `adh_` 前缀的 Key
-3. 宿主机执行命令 → agent 用 Key 握手
-4. Server 校验 Key → 绑定 Agent 记录、下发 welcome
-5. Agent 每 5 秒上报设备 diff，每 30 秒上传缩略图
-6. 浏览器通过 WebSocket 接收增量，无需轮询
-
-## 已知限制
-
-- 设备缩略图目前只支持 Android（iOS 缩略图随 M3 提供）
-- iOS 设备发现留到 M1b（需要真实设备确认 go-ios 输出格式）
-- Web 端无鉴权，仅适合内网部署
-- 前端未做路由级代码分割，首屏包体约 224KB（gzip）
+- 内网工具，Web 端无鉴权
+- iOS 的 WiFi SSID 系统不开放，只能显示 IP
+- iOS 文件管理受限于 App 容器，且需要 `ios tunnel start`
+- 离线包与平台相关，Windows / macOS 需分别在对应系统打包
