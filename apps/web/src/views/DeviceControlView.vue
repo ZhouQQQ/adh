@@ -204,7 +204,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 52px;
+  height: 48px;
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
   flex: none;
@@ -227,16 +227,22 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
 }
 
 .stage {
   flex: 1;
   min-width: 0;
-  min-height: 0;
+  height: 100%;
+  max-height: 680px;
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 14px;
   background: #0b0b0d;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .spin {
@@ -253,13 +259,16 @@ onBeforeUnmount(() => {
 }
 
 .side {
-  width: 208px;
+  width: 200px;
   flex: none;
-  border-left: 1px solid var(--border);
+  height: 100%;
+  max-height: 680px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   overflow-y: auto;
   background: var(--surface);
 }
@@ -304,12 +313,13 @@ onBeforeUnmount(() => {
 @media (max-width: 900px) {
   .body {
     flex-direction: column;
+    padding: 10px;
+    gap: 10px;
   }
 
   .side {
     width: 100%;
-    border-left: none;
-    border-top: 1px solid var(--border);
+    border: 1px solid var(--border);
     flex-direction: row;
     flex-wrap: wrap;
     gap: 12px;
