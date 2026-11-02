@@ -51,7 +51,7 @@ jobs:
 
   release:
     name: 上传到 Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -63,6 +63,22 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - name: 正式 Release（tag）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
+          files: dist/*.zip
+
+      - name: 滚动 Release（main）
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: agent-latest
+          name: Agent 最新构建
+          body: |
+            由 main 分支最新提交自动打包，包含 Windows 与 macOS 两个平台。
+
+            提交：${{ github.sha }}
+          prerelease: true
+          make_latest: false
           files: dist/*.zip
