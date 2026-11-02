@@ -124,7 +124,7 @@ async function copy(value: string, which: string): Promise<void> {
     :width="580"
     @update:show="emit('update:show', $event)"
   >
-    <n-drawer-content title="Agent 详情" closable>
+    <n-drawer-content title="节点详情" closable>
       <n-skeleton v-if="loading" text :repeat="10" />
 
       <template v-else-if="agent">
@@ -201,7 +201,7 @@ async function copy(value: string, which: string): Promise<void> {
         </section>
 
         <n-alert v-else type="info" :bordered="false" class="section">
-          内置 Agent 由 server 进程直接管理本机设备，无需接入命令。
+          内置节点由 server 进程直接管理本机设备，无需接入命令。
         </n-alert>
 
         <section class="section">
@@ -209,7 +209,7 @@ async function copy(value: string, which: string): Promise<void> {
           <n-empty
             v-if="deviceList.length === 0"
             size="small"
-            description="该 Agent 暂无设备"
+            description="该节点暂无设备"
           />
           <div v-else class="device-list">
             <div v-for="device in deviceList" :key="device.id" class="device-row">

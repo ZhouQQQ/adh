@@ -243,7 +243,7 @@ async function rotateKey(row: AgentSummary): Promise<void> {
 
 function confirmDelete(row: AgentSummary): void {
   dialog.error({
-    title: '删除 Agent',
+    title: '删除节点',
     content: `确定删除「${row.name}」吗？其下 ${row.deviceCount} 台设备记录也会一并移除。`,
     positiveText: '删除',
     negativeText: '取消',
@@ -264,7 +264,7 @@ function confirmDelete(row: AgentSummary): void {
   <div class="agents-page">
     <div class="toolbar">
       <p class="hint">
-        Agent 部署在设备宿主机上，负责发现本机连接的 Android / iOS 设备并上报。
+        节点部署在设备宿主机上，负责发现本机连接的 Android / iOS 设备并上报。
         新建后复制命令到宿主机执行即可接入。
       </p>
       <n-space>
@@ -277,7 +277,7 @@ function confirmDelete(row: AgentSummary): void {
           <template #icon>
             <n-icon :component="AddOutline" />
           </template>
-          新建 Agent
+          新建节点
         </n-button>
       </n-space>
     </div>

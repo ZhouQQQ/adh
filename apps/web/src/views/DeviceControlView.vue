@@ -97,7 +97,14 @@ function requireController(): boolean {
 }
 
 function sendKey(
-  key: 'home' | 'back' | 'recent' | 'power' | 'volumeUp' | 'volumeDown',
+  key:
+    | 'home'
+    | 'back'
+    | 'recent'
+    | 'power'
+    | 'volumeUp'
+    | 'volumeDown'
+    | 'mute',
 ): void {
   if (!requireController()) return;
   playerRef.value?.sendKey(key);
@@ -243,6 +250,7 @@ onBeforeUnmount(() => {
           <span class="bar-divider" />
           <button type="button" class="bar-btn" @click="sendKey('volumeDown')">音量−</button>
           <button type="button" class="bar-btn" @click="sendKey('volumeUp')">音量+</button>
+          <button type="button" class="bar-btn" @click="sendKey('mute')">静音</button>
           <button type="button" class="bar-btn" @click="sendKey('power')">电源</button>
           <span class="bar-divider" />
           <button type="button" class="bar-btn" @click="toggleFullscreen">退出全屏</button>
@@ -261,9 +269,10 @@ onBeforeUnmount(() => {
 
         <section class="section">
           <div class="section-title">音量</div>
-          <div class="grid-2">
-            <n-button size="small" @click="sendKey('volumeDown')">音量 −</n-button>
-            <n-button size="small" @click="sendKey('volumeUp')">音量 +</n-button>
+          <div class="grid-3">
+            <n-button size="small" @click="sendKey('volumeDown')">音量−</n-button>
+            <n-button size="small" @click="sendKey('volumeUp')">音量+</n-button>
+            <n-button size="small" @click="sendKey('mute')">静音</n-button>
           </div>
         </section>
 

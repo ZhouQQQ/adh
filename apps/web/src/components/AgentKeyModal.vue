@@ -62,7 +62,7 @@ function close(): void {
   <n-modal
     :show="show"
     preset="card"
-    :title="isNew ? `Agent「${agentName}」已创建` : `Agent「${agentName}」的 Key 已重置`"
+    :title="isNew ? `节点「${agentName}」已创建` : `节点「${agentName}」的 Key 已重置`"
     style="width: 680px"
     @update:show="emit('update:show', $event)"
   >

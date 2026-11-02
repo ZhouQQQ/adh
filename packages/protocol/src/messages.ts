@@ -281,8 +281,16 @@ export const ViewerTouchSchema = z.object({
 
 export const ViewerKeySchema = z.object({
   t: z.literal('key'),
-  /** 平台无关的按键名：home / back / recent / power / volumeUp / volumeDown。 */
-  key: z.enum(['home', 'back', 'recent', 'power', 'volumeUp', 'volumeDown']),
+  /** 平台无关的按键名：home / back / recent / power / volumeUp / volumeDown / mute。 */
+  key: z.enum([
+    'home',
+    'back',
+    'recent',
+    'power',
+    'volumeUp',
+    'volumeDown',
+    'mute',
+  ]),
 });
 
 export const ViewerTextSchema = z.object({

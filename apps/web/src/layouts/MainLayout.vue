@@ -24,7 +24,7 @@ const menuOptions = [
     icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
   },
   {
-    label: () => h(RouterLink, { to: '/agents' }, { default: () => 'Agent 管理' }),
+    label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
     key: '/agents',
     icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
   },

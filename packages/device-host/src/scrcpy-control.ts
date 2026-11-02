@@ -7,6 +7,7 @@ export const SCRCPY_KEYCODE = {
   power: 26,
   volumeUp: 24,
   volumeDown: 25,
+  mute: 164,
   menu: 82,
   enter: 66,
   wakeup: 224,

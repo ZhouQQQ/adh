@@ -189,7 +189,14 @@ function onPointerUp(event: PointerEvent): void {
 }
 
 function sendKey(
-  key: 'home' | 'back' | 'recent' | 'power' | 'volumeUp' | 'volumeDown',
+  key:
+    | 'home'
+    | 'back'
+    | 'recent'
+    | 'power'
+    | 'volumeUp'
+    | 'volumeDown'
+    | 'mute',
 ): void {
   if (!controller.value) return;
   send({ t: 'key', key });

@@ -40,7 +40,11 @@ const { agents } = useFleet();
 
 const fileShow = ref(false);
 
+const contentStyle = { height: '100%' } as const;
+
 const bodyStyle = {
+  flex: 1,
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   padding: '4px 20px 16px',
@@ -132,12 +136,13 @@ function copySummary(): void {
 <template>
   <n-drawer
     :show="show"
-    :width="'min(1120px, 94vw)'"
+    :width="'94vw'"
     @update:show="emit('update:show', $event)"
   >
     <n-drawer-content
       :title="title"
       closable
+      :content-style="contentStyle"
       :body-content-style="bodyStyle"
       :native-scrollbar="false"
     >
@@ -147,9 +152,6 @@ function copySummary(): void {
           <n-descriptions :column="1" label-placement="left" bordered size="small">
             <n-descriptions-item label="设备名称">
               <CopyValue :value="device.name" />
-            </n-descriptions-item>
-            <n-descriptions-item label="市场名称">
-              <CopyValue :value="device.marketName" />
             </n-descriptions-item>
             <n-descriptions-item label="品牌">
               <CopyValue :value="device.brand" />
@@ -272,10 +274,15 @@ function copySummary(): void {
 <style scoped>
 .detail-grid {
   flex: 1;
+  height: 100%;
   min-height: 0;
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) 200px;
   gap: 16px;
+}
+
+:deep(.n-drawer) {
+  max-width: 1120px;
 }
 
 .col {

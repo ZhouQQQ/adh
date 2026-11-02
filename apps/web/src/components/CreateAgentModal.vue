@@ -32,7 +32,7 @@ watch(
 async function submit(): Promise<void> {
   const value = name.value.trim();
   if (!value) {
-    message.warning('请填写 Agent 名称');
+    message.warning('请填写节点名称');
     return;
   }
   submitting.value = true;
@@ -52,7 +52,7 @@ async function submit(): Promise<void> {
   <n-modal
     :show="show"
     preset="card"
-    title="新建 Agent"
+    title="新建节点"
     style="width: 460px"
     @update:show="emit('update:show', $event)"
   >

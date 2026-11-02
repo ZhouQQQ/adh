@@ -23,7 +23,7 @@ export const router = createRouter({
       path: '/agents',
       name: 'agents',
       component: AgentsView,
-      meta: { title: 'Agent 管理' },
+      meta: { title: '节点管理' },
     },
     { path: '/:pathMatch(.*)*', redirect: '/devices' },
   ],
