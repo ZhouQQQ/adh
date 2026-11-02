@@ -28,36 +28,65 @@ const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
 const status = ref<DeviceStatus | 'all'>('all');
 const version = ref<string | 'all'>('all');
-const cpu = ref<string | 'all'>('all');
+const cpuVendor = ref<string | 'all'>('all');
+const cpuModel = ref<string | 'all'>('all');
 const cores = ref<number | 'all'>('all');
 const memory = ref<number | 'all'>('all');
 const usage = ref<'all' | 'idle' | 'busy'>('all');
 const collapsed = ref(false);
 
-/** 只展示当前设备实际存在的选项。 */
-const versionPlatform = computed(() => {
-  const map = new Map<string, Platform>();
-  for (const device of devices.value) {
-    if (!device.osVersion || map.has(device.osVersion)) continue;
-    map.set(device.osVersion, device.platform);
-  }
-  return map;
-});
-
-const versionOptions = computed(() => {
-  const values = new Set([...DEFAULT_VERSIONS, ...versionPlatform.value.keys()]);
-  return [...values]
-    .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
-    .map((value) => ({
-      value,
-      label: `${versionPlatform.value.get(value) === 'ios' ? 'iOS' : 'Android'} ${value}`,
-      enabled: versionPlatform.value.has(value),
-    }));
-});
 /** 默认内置候选，配合设备实际值一起展示，没有设备命中的置灰。 */
-const DEFAULT_VERSIONS = ['10', '11', '12', '13', '14', '15', '16'];
+const DEFAULT_ANDROID_VERSIONS = [
+  '10',
+  '11',
+  '12',
+  '13',
+  '14',
+  '15',
+  '16',
+];
+const DEFAULT_IOS_VERSIONS = ['15', '16', '17', '18', '26'];
 const DEFAULT_CORES = [4, 6, 8, 10, 12];
 const DEFAULT_MEMORY = [4, 6, 8, 12, 16, 24];
+const DEFAULT_CPU_VENDORS = ['联发科', '高通', '华为', '三星', 'Google', '紫光展锐'];
+
+/** 版本用 platform:version 作为值，避免 Android 14 与 iOS 14 冲突。 */
+const versionOptions = computed(() => {
+  const candidates = new Map<
+    string,
+    { platform: Platform; version: string }
+  >();
+  for (const value of DEFAULT_ANDROID_VERSIONS) {
+    candidates.set(`android:${value}`, { platform: 'android', version: value });
+  }
+  for (const value of DEFAULT_IOS_VERSIONS) {
+    candidates.set(`ios:${value}`, { platform: 'ios', version: value });
+  }
+
+  const present = new Set<string>();
+  for (const device of devices.value) {
+    if (!device.osVersion) continue;
+    const key = `${device.platform}:${device.osVersion}`;
+    present.add(key);
+    if (!candidates.has(key)) {
+      candidates.set(key, {
+        platform: device.platform,
+        version: device.osVersion,
+      });
+    }
+  }
+
+  return [...candidates.entries()]
+    .sort((a, b) => {
+      if (a[1].platform !== b[1].platform) return a[1].platform === 'android' ? -1 : 1;
+      return a[1].version.localeCompare(b[1].version, 'zh-CN', { numeric: true });
+    })
+    .map(([key, info]) => ({
+      value: key,
+      label: `${info.platform === 'ios' ? 'iOS' : 'Android'} ${info.version}`,
+      enabled: present.has(key),
+    }));
+});
 
 const platformPresent = computed(
   () => new Set(devices.value.map((device) => device.platform)),
@@ -67,10 +96,18 @@ const statusPresent = computed(
   () => new Set(devices.value.map((device) => device.status)),
 );
 
-const cpuPresent = computed(() => {
+const cpuVendorPresent = computed(() => {
   const set = new Set<string>();
   for (const device of devices.value) {
-    if (device.cpu) set.add(device.cpu);
+    if (device.cpuVendor) set.add(device.cpuVendor);
+  }
+  return set;
+});
+
+const cpuModelPresent = computed(() => {
+  const set = new Set<string>();
+  for (const device of devices.value) {
+    if (device.cpuModel) set.add(device.cpuModel);
   }
   return set;
 });
@@ -97,11 +134,31 @@ const usagePresent = computed(() => ({
   idle: devices.value.some((device) => !device.inUse),
 }));
 
-const cpuOptions = computed(() =>
-  [...cpuPresent.value]
+const cpuVendorOptions = computed(() => {
+  const values = new Set([...DEFAULT_CPU_VENDORS, ...cpuVendorPresent.value]);
+  return [...values]
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    .map((value) => ({
+      value,
+      label: value,
+      enabled: cpuVendorPresent.value.has(value),
+    }));
+});
+
+/** 型号跟着品牌联动；型号数量太多，只列实际出现的。 */
+const cpuModelOptions = computed(() => {
+  const set = new Set<string>();
+  for (const device of devices.value) {
+    if (!device.cpuModel) continue;
+    if (cpuVendor.value !== 'all' && device.cpuVendor !== cpuVendor.value) {
+      continue;
+    }
+    set.add(device.cpuModel);
+  }
+  return [...set]
     .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
-    .map((value) => ({ value, label: value })),
-);
+    .map((value) => ({ value, label: value }));
+});
 
 const coresOptions = computed(() => {
   const values = new Set([...DEFAULT_CORES, ...coresPresent.value]);
@@ -133,10 +190,16 @@ const filtered = computed(() => {
         return false;
       }
       if (status.value !== 'all' && device.status !== status.value) return false;
-      if (version.value !== 'all' && device.osVersion !== version.value) {
+      if (version.value !== 'all') {
+        const key = `${device.platform}:${device.osVersion ?? ''}`;
+        if (key !== version.value) return false;
+      }
+      if (cpuVendor.value !== 'all' && device.cpuVendor !== cpuVendor.value) {
         return false;
       }
-      if (cpu.value !== 'all' && device.cpu !== cpu.value) return false;
+      if (cpuModel.value !== 'all' && device.cpuModel !== cpuModel.value) {
+        return false;
+      }
       if (cores.value !== 'all' && device.cpuCores !== cores.value) return false;
       if (memory.value !== 'all') {
         const gb = memoryGb(device.memoryMb);
@@ -195,14 +258,14 @@ const activeFilters = computed(() => {
     list.push({ key: 'status', label: STATUS_LABEL[status.value] });
   }
   if (version.value !== 'all') {
-    const owner = versionPlatform.value.get(version.value);
-    list.push({
-      key: 'version',
-      label: `${owner === 'ios' ? 'iOS' : 'Android'} ${version.value}`,
-    });
+    const option = versionOptions.value.find((item) => item.value === version.value);
+    list.push({ key: 'version', label: option?.label ?? version.value });
   }
-  if (cpu.value !== 'all') {
-    list.push({ key: 'cpu', label: cpu.value });
+  if (cpuVendor.value !== 'all') {
+    list.push({ key: 'cpuVendor', label: cpuVendor.value });
+  }
+  if (cpuModel.value !== 'all') {
+    list.push({ key: 'cpuModel', label: cpuModel.value });
   }
   if (cores.value !== 'all') {
     list.push({ key: 'cores', label: `${cores.value} 核` });
@@ -231,8 +294,11 @@ function removeFilter(key: string): void {
     case 'version':
       version.value = 'all';
       break;
-    case 'cpu':
-      cpu.value = 'all';
+    case 'cpuVendor':
+      cpuVendor.value = 'all';
+      break;
+    case 'cpuModel':
+      cpuModel.value = 'all';
       break;
     case 'cores':
       cores.value = 'all';
@@ -258,11 +324,17 @@ watch(devices, () => {
   if (status.value !== 'all' && !statusPresent.value.has(status.value)) {
     status.value = 'all';
   }
-  if (version.value !== 'all' && !versionPlatform.value.has(version.value)) {
-    version.value = 'all';
+  if (version.value !== 'all') {
+    const hasDevice = devices.value.some(
+      (device) => `${device.platform}:${device.osVersion ?? ''}` === version.value,
+    );
+    if (!hasDevice) version.value = 'all';
   }
-  if (cpu.value !== 'all' && !cpuPresent.value.has(cpu.value)) {
-    cpu.value = 'all';
+  if (cpuVendor.value !== 'all' && !cpuVendorPresent.value.has(cpuVendor.value)) {
+    cpuVendor.value = 'all';
+  }
+  if (cpuModel.value !== 'all' && !cpuModelPresent.value.has(cpuModel.value)) {
+    cpuModel.value = 'all';
   }
   if (cores.value !== 'all' && !coresPresent.value.has(cores.value)) {
     cores.value = 'all';
@@ -270,6 +342,10 @@ watch(devices, () => {
   if (memory.value !== 'all' && !memoryPresent.value.has(memory.value)) {
     memory.value = 'all';
   }
+});
+
+watch(cpuVendor, () => {
+  cpuModel.value = 'all';
 });
 
 const selectedId = ref<string | null>(null);
@@ -313,7 +389,8 @@ function resetFilters(): void {
   platform.value = 'all';
   status.value = 'all';
   version.value = 'all';
-  cpu.value = 'all';
+  cpuVendor.value = 'all';
+  cpuModel.value = 'all';
   cores.value = 'all';
   memory.value = 'all';
   usage.value = 'all';
@@ -515,27 +592,52 @@ function resetFilters(): void {
       </div>
 
       <div class="filter-row">
-        <span class="filter-label">CPU:</span>
+        <span class="filter-label">CPU 品牌:</span>
         <div class="filter-options">
           <button
             type="button"
             class="opt"
-            :class="{ active: cpu === 'all' }"
-            @click="cpu = 'all'"
+            :class="{ active: cpuVendor === 'all' }"
+            @click="cpuVendor = 'all'"
           >
             全部
           </button>
           <button
-            v-for="option in cpuOptions"
+            v-for="option in cpuVendorOptions"
             :key="option.value"
             type="button"
             class="opt"
-            :class="{ active: cpu === option.value }"
-            @click="cpu = option.value"
+            :class="{ active: cpuVendor === option.value }"
+            :disabled="!option.enabled"
+            @click="cpuVendor = option.value"
           >
             {{ option.label }}
           </button>
-          <span v-if="cpuOptions.length === 0" class="empty-tip">
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">CPU 型号:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: cpuModel === 'all' }"
+            @click="cpuModel = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="option in cpuModelOptions"
+            :key="option.value"
+            type="button"
+            class="opt"
+            :class="{ active: cpuModel === option.value }"
+            @click="cpuModel = option.value"
+          >
+            {{ option.label }}
+          </button>
+          <span v-if="cpuModelOptions.length === 0" class="empty-tip">
             暂无数据
           </span>
         </div>

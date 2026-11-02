@@ -37,6 +37,10 @@ export const DeviceInfoSchema = z.object({
   sdk: z.number().int().optional(),
   /** CPU 展示名，如 "Qualcomm SM8550"。 */
   cpu: z.string().optional(),
+  /** CPU 厂商，如 联发科 / 高通。 */
+  cpuVendor: z.string().optional(),
+  /** CPU 型号，如 天玑 9400+。 */
+  cpuModel: z.string().optional(),
   cpuCores: z.number().int().optional(),
   /** 物理内存总量（MB）。 */
   memoryMb: z.number().int().optional(),

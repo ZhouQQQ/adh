@@ -106,18 +106,35 @@ function guessVendor(model: string): string | undefined {
   return undefined;
 }
 
-/** 把内部型号转成「厂商 + 市场名」。命中不了就保留厂商 + 原始型号。 */
-export function resolveSocName(raw: string | undefined): string | undefined {
+export interface SocInfo {
+  /** 厂商，如 联发科 / 高通 */
+  vendor: string;
+  /** 型号，如 天玑 9400+ / 骁龙 8 Gen 2 */
+  model: string;
+  /** 展示用，vendor + model */
+  display: string;
+}
+
+/** 把内部型号转成结构化的厂商 + 市场名。命中不了就保留厂商 + 原始型号。 */
+export function resolveSoc(raw: string | undefined): SocInfo | undefined {
   if (!raw) return undefined;
-  const model = normalize(raw);
+  const trimmed = raw.trim();
+  const model = normalize(trimmed);
   if (!model) return undefined;
 
   for (const entry of SOC_TABLE) {
     if (entry.match.some((item) => model.startsWith(item))) {
-      return `${entry.vendor} ${entry.name}`;
+      return {
+        vendor: entry.vendor,
+        model: entry.name,
+        display: `${entry.vendor} ${entry.name}`,
+      };
     }
   }
 
   const vendor = guessVendor(model);
-  return vendor ? `${vendor} ${raw.trim()}` : raw.trim();
+  if (vendor) {
+    return { vendor, model: trimmed, display: `${vendor} ${trimmed}` };
+  }
+  return { vendor: '未知', model: trimmed, display: trimmed };
 }

@@ -1,5 +1,5 @@
 import type { DeviceInfo, Resolution } from '@adh/protocol';
-import { resolveSocName } from './soc.js';
+import { resolveSoc } from './soc.js';
 import { runCommand } from './exec.js';
 
 interface AndroidDetail {
@@ -9,6 +9,8 @@ interface AndroidDetail {
   osVersion?: string;
   sdk?: number;
   cpu?: string;
+  cpuVendor?: string;
+  cpuModel?: string;
   cpuCores?: number;
   memoryMb?: number;
   resolution?: Resolution;
@@ -71,7 +73,9 @@ function readMarketName(props: Map<string, string>): string | undefined {
 }
 
 /** 优先用 ro.soc.model，其次是 board platform / hardware，最后退到 ABI。 */
-function buildCpuName(props: Map<string, string>): string | undefined {
+function buildCpuName(
+  props: Map<string, string>,
+): { display: string; vendor?: string; model?: string } | undefined {
   const candidates = [
     props.get('ro.soc.model'),
     props.get('ro.vendor.soc.model'),
@@ -82,11 +86,12 @@ function buildCpuName(props: Map<string, string>): string | undefined {
   for (const candidate of candidates) {
     const value = candidate?.trim();
     if (!value) continue;
-    const resolved = resolveSocName(value);
-    if (resolved) return resolved;
+    const soc = resolveSoc(value);
+    if (soc) return soc;
   }
 
-  return props.get('ro.product.cpu.abi')?.trim() || undefined;
+  const abi = props.get('ro.product.cpu.abi')?.trim();
+  return abi ? { display: abi } : undefined;
 }
 
 function parseCores(cpuInfo: string): number | undefined {
@@ -124,7 +129,11 @@ async function queryDetails(udid: string): Promise<AndroidDetail> {
   if (Number.isFinite(sdk) && sdk > 0) detail.sdk = sdk;
 
   const cpu = buildCpuName(props);
-  if (cpu) detail.cpu = cpu;
+  if (cpu) {
+    detail.cpu = cpu.display;
+    if (cpu.vendor) detail.cpuVendor = cpu.vendor;
+    if (cpu.model) detail.cpuModel = cpu.model;
+  }
   const cores = parseCores(cpuResult.stdout);
   if (cores) detail.cpuCores = cores;
   const memoryMb = parseMemoryMb(memResult.stdout);
@@ -192,6 +201,8 @@ export async function discoverAndroid(): Promise<AndroidScanResult> {
     if (detail.osVersion) info.osVersion = detail.osVersion;
     if (detail.sdk) info.sdk = detail.sdk;
     if (detail.cpu) info.cpu = detail.cpu;
+    if (detail.cpuVendor) info.cpuVendor = detail.cpuVendor;
+    if (detail.cpuModel) info.cpuModel = detail.cpuModel;
     if (detail.cpuCores) info.cpuCores = detail.cpuCores;
     if (detail.memoryMb) info.memoryMb = detail.memoryMb;
     if (detail.resolution) info.resolution = detail.resolution;

@@ -36,6 +36,8 @@ export const devices = sqliteTable(
     osVersion: text('os_version'),
     sdk: integer('sdk'),
     cpu: text('cpu'),
+    cpuVendor: text('cpu_vendor'),
+    cpuModel: text('cpu_model'),
     cpuCores: integer('cpu_cores'),
     memoryMb: integer('memory_mb'),
     /** JSON: { width, height } */

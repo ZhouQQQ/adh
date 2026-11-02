@@ -87,6 +87,8 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
   if (row.osVersion) summary.osVersion = row.osVersion;
   if (row.sdk != null) summary.sdk = row.sdk;
   if (row.cpu) summary.cpu = row.cpu;
+  if (row.cpuVendor) summary.cpuVendor = row.cpuVendor;
+  if (row.cpuModel) summary.cpuModel = row.cpuModel;
   if (row.cpuCores != null) summary.cpuCores = row.cpuCores;
   if (row.memoryMb != null) summary.memoryMb = row.memoryMb;
   const resolution = parseResolution(row.resolution);
@@ -271,6 +273,8 @@ export function createQueries(db: Db) {
         osVersion: info.osVersion ?? null,
         sdk: info.sdk ?? null,
         cpu: info.cpu ?? null,
+        cpuVendor: info.cpuVendor ?? null,
+        cpuModel: info.cpuModel ?? null,
         cpuCores: info.cpuCores ?? null,
         memoryMb: info.memoryMb ?? null,
         resolution: info.resolution ? JSON.stringify(info.resolution) : null,
@@ -311,6 +315,8 @@ export function createQueries(db: Db) {
       if (patch.osVersion !== undefined) set.osVersion = patch.osVersion ?? null;
       if (patch.sdk !== undefined) set.sdk = patch.sdk ?? null;
       if (patch.cpu !== undefined) set.cpu = patch.cpu ?? null;
+      if (patch.cpuVendor !== undefined) set.cpuVendor = patch.cpuVendor ?? null;
+      if (patch.cpuModel !== undefined) set.cpuModel = patch.cpuModel ?? null;
       if (patch.cpuCores !== undefined) set.cpuCores = patch.cpuCores ?? null;
       if (patch.memoryMb !== undefined) set.memoryMb = patch.memoryMb ?? null;
       if (patch.status !== undefined) set.status = patch.status;
