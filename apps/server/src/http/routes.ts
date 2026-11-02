@@ -39,6 +39,34 @@ const InstallBody = z.object({
   packageId: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
+const FilePathsBody = z.object({
+  paths: z.array(z.string().min(1)).min(1).max(200),
+});
+
+const FilePasteBody = z.object({
+  paths: z.array(z.string().min(1)).min(1).max(200),
+  targetDir: z.string().min(1),
+  mode: z.enum(['copy', 'move']),
+});
+
+const FileRenameBody = z.object({
+  path: z.string().min(1),
+  newName: z.string().min(1).max(200),
+});
+
+/** 这些目录不允许被删除或移动。 */
+const PROTECTED_PATHS = new Set([
+  '/',
+  '/sdcard',
+  '/storage',
+  '/storage/emulated',
+  '/storage/emulated/0',
+]);
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 function bearerToken(request: FastifyRequest): string | null {
   const header = request.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) return null;
@@ -448,6 +476,124 @@ export async function registerHttpRoutes(
         /* ignore */
       }
     }
+  });
+
+  /** 批量删除。 */
+  app.post('/api/devices/:id/files/delete', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const parsed = FilePathsBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '请选择要删除的文件' });
+    }
+
+    const targets = parsed.data.paths.map((item) => normalizeDevicePath(item));
+    for (const target of targets) {
+      if (PROTECTED_PATHS.has(target)) {
+        return reply.code(400).send({ error: `不允许删除 ${target}` });
+      }
+    }
+
+    for (const target of targets) {
+      const result = await runCommand(
+        'adb',
+        ['-s', device.udid, 'shell', 'rm', '-rf', shellQuote(target)],
+        60_000,
+      );
+      if (result.code !== 0) {
+        return reply
+          .code(400)
+          .send({ error: result.stderr.trim() || `删除 ${target} 失败` });
+      }
+    }
+    return { ok: true, count: targets.length };
+  });
+
+  /** 重命名（同一目录内改名）。 */
+  app.post('/api/devices/:id/files/rename', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const parsed = FileRenameBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '请填写新名称' });
+    }
+
+    const source = normalizeDevicePath(parsed.data.path);
+    if (PROTECTED_PATHS.has(source)) {
+      return reply.code(400).send({ error: '不允许重命名该目录' });
+    }
+
+    const dir = source.slice(0, source.lastIndexOf('/')) || '/';
+    const safeName = parsed.data.newName.replace(/[\\/\0]/g, '_').trim();
+    if (!safeName) {
+      return reply.code(400).send({ error: '名称不能为空' });
+    }
+    const destination = `${dir === '/' ? '' : dir}/${safeName}`;
+
+    const result = await runCommand(
+      'adb',
+      ['-s', device.udid, 'shell', 'mv', shellQuote(source), shellQuote(destination)],
+      60_000,
+    );
+    if (result.code !== 0) {
+      return reply
+        .code(400)
+        .send({ error: result.stderr.trim() || '重命名失败' });
+    }
+    return { ok: true, path: destination };
+  });
+
+  /** 复制 / 移动到目标目录。 */
+  app.post('/api/devices/:id/files/paste', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = requireLocalDevice(id, reply);
+    if (!device) return reply;
+
+    const parsed = FilePasteBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '参数不完整' });
+    }
+
+    const targetDir = normalizeDevicePath(parsed.data.targetDir);
+    const sources = parsed.data.paths.map((item) => normalizeDevicePath(item));
+
+    if (parsed.data.mode === 'move') {
+      for (const source of sources) {
+        if (PROTECTED_PATHS.has(source)) {
+          return reply.code(400).send({ error: `不允许移动 ${source}` });
+        }
+      }
+    }
+
+    for (const source of sources) {
+      const destination = `${targetDir === '/' ? '' : targetDir}/${baseName(source)}`;
+      const args =
+        parsed.data.mode === 'copy'
+          ? ['-r', shellQuote(source), shellQuote(destination)]
+          : [shellQuote(source), shellQuote(destination)];
+
+      const result = await runCommand(
+        'adb',
+        [
+          '-s',
+          device.udid,
+          'shell',
+          parsed.data.mode === 'copy' ? 'cp' : 'mv',
+          ...args,
+        ],
+        120_000,
+      );
+      if (result.code !== 0) {
+        return reply.code(400).send({
+          error: result.stderr.trim() || `${parsed.data.mode === 'copy' ? '复制' : '移动'}失败`,
+        });
+      }
+    }
+    return { ok: true, count: sources.length };
   });
 
   app.get('/api/devices/:id/thumbnail', async (request, reply: FastifyReply) => {

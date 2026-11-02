@@ -188,6 +188,39 @@ export const api = {
     }
     return (await response.json()) as { path: string };
   },
+
+  deleteDeviceFiles(
+    deviceId: string,
+    paths: string[],
+  ): Promise<{ ok: boolean; count: number }> {
+    return request(`/api/devices/${deviceId}/files/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ paths }),
+    });
+  },
+
+  renameDeviceFile(
+    deviceId: string,
+    filePath: string,
+    newName: string,
+  ): Promise<{ ok: boolean; path: string }> {
+    return request(`/api/devices/${deviceId}/files/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ path: filePath, newName }),
+    });
+  },
+
+  pasteDeviceFiles(
+    deviceId: string,
+    paths: string[],
+    targetDir: string,
+    mode: 'copy' | 'move',
+  ): Promise<{ ok: boolean; count: number }> {
+    return request(`/api/devices/${deviceId}/files/paste`, {
+      method: 'POST',
+      body: JSON.stringify({ paths, targetDir, mode }),
+    });
+  },
 };
 
 export function thumbnailUrl(device: DeviceSummary): string {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NButton,
@@ -54,6 +54,14 @@ function onFullscreenChange(): void {
 const deviceId = computed(() => String(route.params.id ?? ''));
 const device = computed(
   () => devices.value.find((item) => item.id === deviceId.value) ?? null,
+);
+
+watch(
+  () => device.value?.name,
+  (name) => {
+    document.title = name ? `${name} · 设备控制` : '设备控制 · ADH';
+  },
+  { immediate: true },
 );
 
 const agentName = computed(() => {
@@ -179,6 +187,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange);
+  document.title = 'ADH · 设备农场';
   if (document.fullscreenElement === stageRef.value) {
     void document.exitFullscreen();
   }
@@ -192,12 +201,12 @@ onBeforeUnmount(() => {
       <n-button quaternary size="small" @click="goBack">← 返回设备列表</n-button>
       <div class="title">{{ device?.name ?? '设备控制' }}</div>
       <n-tag
-        v-if="sessionId"
+        v-if="sessionId && !controller"
         size="small"
-        :type="controller ? 'success' : 'warning'"
+        type="warning"
         :bordered="false"
       >
-        {{ controller ? '可操作' : '只读' }}
+        只读
       </n-tag>
       <div class="meta">
         <span>{{ resolutionText }}</span>
@@ -410,13 +419,14 @@ onBeforeUnmount(() => {
 
 .fullscreen-bar {
   position: absolute;
-  bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 10px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(10, 10, 11, 0.82);
@@ -425,12 +435,14 @@ onBeforeUnmount(() => {
 }
 
 .bar-btn {
-  padding: 5px 11px;
+  width: 84px;
+  padding: 6px 0;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.08);
   color: #fafafa;
   font-size: 12px;
+  text-align: center;
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 0.15s ease;
@@ -441,8 +453,8 @@ onBeforeUnmount(() => {
 }
 
 .bar-divider {
-  width: 1px;
-  height: 18px;
+  width: 100%;
+  height: 1px;
   background: rgba(255, 255, 255, 0.14);
 }
 
