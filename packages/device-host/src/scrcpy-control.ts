@@ -29,7 +29,8 @@ export function injectKeycode(
   repeat = 0,
   metaState = 0,
 ): Buffer {
-  const buf = Buffer.alloc(13);
+  // type(1) + action(1) + keycode(4) + repeat(4) + metaState(4) = 14
+  const buf = Buffer.alloc(14);
   buf.writeUInt8(MSG_INJECT_KEYCODE, 0);
   buf.writeUInt8(action, 1);
   buf.writeUInt32BE(keycode, 2);

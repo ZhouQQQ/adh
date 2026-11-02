@@ -291,15 +291,22 @@ export class StreamManager {
     const message = parseViewerMessage(raw);
     if (!message) return;
 
-    if (session.local) {
-      for (const payload of session.local.translator.translate(message)) {
-        session.local.scrcpy.sendControl(payload);
+    try {
+      if (session.local) {
+        for (const payload of session.local.translator.translate(message)) {
+          session.local.scrcpy.sendControl(payload);
+        }
+        return;
       }
-      return;
-    }
 
-    if (session.agentSocket && session.agentSocket.readyState === 1) {
-      session.agentSocket.send(JSON.stringify(message));
+      if (session.agentSocket && session.agentSocket.readyState === 1) {
+        session.agentSocket.send(JSON.stringify(message));
+      }
+    } catch (error) {
+      this.deps.logger.warn(
+        { sessionId: session.id, err: String(error) },
+        'control message failed',
+      );
     }
   }
 
