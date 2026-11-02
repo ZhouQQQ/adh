@@ -20,10 +20,12 @@ const platform = ref<Platform | 'all'>('all');
 const status = ref<DeviceStatus | 'all'>('all');
 const version = ref<string | 'all'>('all');
 const cpu = ref<string | 'all'>('all');
+const cores = ref<number | 'all'>('all');
 const memory = ref<number | 'all'>('all');
 
 /** 固定候选，保证没有设备时也能看到完整筛选项。 */
 const DEFAULT_VERSIONS = ['11', '12', '13', '14', '15', '16'];
+const DEFAULT_CORES = [4, 6, 8, 10];
 const DEFAULT_MEMORY = [4, 6, 8, 12, 16, 24];
 
 const platformPresent = computed(
@@ -62,6 +64,14 @@ const cpuPresent = computed(() => {
   return set;
 });
 
+const coresPresent = computed(() => {
+  const set = new Set<number>();
+  for (const device of devices.value) {
+    if (device.cpuCores) set.add(device.cpuCores);
+  }
+  return set;
+});
+
 const memoryPresent = computed(() => {
   const set = new Set<number>();
   for (const device of devices.value) {
@@ -76,6 +86,17 @@ const cpuOptions = computed(() =>
     .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
     .map((value) => ({ value, label: value, enabled: true })),
 );
+
+const coresOptions = computed(() => {
+  const values = new Set([...DEFAULT_CORES, ...coresPresent.value]);
+  return [...values]
+    .sort((a, b) => a - b)
+    .map((value) => ({
+      value,
+      label: `${value} 核`,
+      enabled: coresPresent.value.has(value),
+    }));
+});
 
 const memoryOptions = computed(() => {
   const values = new Set([...DEFAULT_MEMORY, ...memoryPresent.value]);
@@ -100,6 +121,7 @@ const filtered = computed(() => {
         return false;
       }
       if (cpu.value !== 'all' && device.cpu !== cpu.value) return false;
+      if (cores.value !== 'all' && device.cpuCores !== cores.value) return false;
       if (memory.value !== 'all') {
         const gb = memoryGb(device.memoryMb);
         if (gb !== memory.value) return false;
@@ -150,6 +172,9 @@ watch(devices, () => {
   if (cpu.value !== 'all' && !cpuPresent.value.has(cpu.value)) {
     cpu.value = 'all';
   }
+  if (cores.value !== 'all' && !coresPresent.value.has(cores.value)) {
+    cores.value = 'all';
+  }
   if (memory.value !== 'all' && !memoryPresent.value.has(memory.value)) {
     memory.value = 'all';
   }
@@ -197,6 +222,7 @@ function resetFilters(): void {
   status.value = 'all';
   version.value = 'all';
   cpu.value = 'all';
+  cores.value = 'all';
   memory.value = 'all';
 }
 </script>
@@ -343,6 +369,31 @@ function resetFilters(): void {
           <span v-if="cpuOptions.length === 0" class="empty-tip">
             暂无数据
           </span>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">核心数:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: cores === 'all' }"
+            @click="cores = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="option in coresOptions"
+            :key="option.value"
+            type="button"
+            class="opt"
+            :class="{ active: cores === option.value }"
+            :disabled="!option.enabled"
+            @click="cores = option.value"
+          >
+            {{ option.label }}
+          </button>
         </div>
       </div>
 
@@ -518,7 +569,7 @@ function resetFilters(): void {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(246px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 14px;
 }
 

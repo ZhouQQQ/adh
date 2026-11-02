@@ -193,9 +193,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .control-page {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  height: 100%;
   background: var(--bg);
 }
 
@@ -231,6 +232,7 @@ onBeforeUnmount(() => {
 .stage {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: grid;
   place-items: center;
   padding: 16px;

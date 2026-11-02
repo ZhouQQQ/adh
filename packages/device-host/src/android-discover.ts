@@ -1,4 +1,5 @@
 import type { DeviceInfo, Resolution } from '@adh/protocol';
+import { resolveSocName } from './soc.js';
 import { runCommand } from './exec.js';
 
 interface AndroidDetail {
@@ -69,20 +70,23 @@ function readMarketName(props: Map<string, string>): string | undefined {
   return undefined;
 }
 
-/** Android 12+ 有 ro.soc.model，更早的机型只能退到 board platform / ABI。 */
+/** 优先用 ro.soc.model，其次是 board platform / hardware，最后退到 ABI。 */
 function buildCpuName(props: Map<string, string>): string | undefined {
-  const socModel = props.get('ro.soc.model')?.trim();
-  const socVendor = props.get('ro.soc.manufacturer')?.trim();
-  if (socModel) {
-    if (socVendor && !socModel.toLowerCase().includes(socVendor.toLowerCase())) {
-      return `${socVendor} ${socModel}`;
-    }
-    return socModel;
+  const candidates = [
+    props.get('ro.soc.model'),
+    props.get('ro.vendor.soc.model'),
+    props.get('ro.board.platform'),
+    props.get('ro.hardware'),
+  ];
+
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value) continue;
+    const resolved = resolveSocName(value);
+    if (resolved) return resolved;
   }
-  const board = props.get('ro.board.platform')?.trim();
-  if (board) return board;
-  const abi = props.get('ro.product.cpu.abi')?.trim();
-  return abi || undefined;
+
+  return props.get('ro.product.cpu.abi')?.trim() || undefined;
 }
 
 function parseCores(cpuInfo: string): number | undefined {

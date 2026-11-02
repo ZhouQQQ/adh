@@ -201,5 +201,7 @@ const connectionMeta = computed(() => {
 .app-content.fullscreen {
   padding: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 </style>

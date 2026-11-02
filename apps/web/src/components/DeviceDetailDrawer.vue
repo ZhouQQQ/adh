@@ -181,7 +181,7 @@ function openControl(): void {
       <template #footer>
         <n-space justify="end">
           <n-button type="primary" :disabled="!canControl" @click="openControl">
-            实时控制
+            控制
           </n-button>
         </n-space>
       </template>

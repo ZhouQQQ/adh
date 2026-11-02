@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { NButton, NIcon, NTag } from 'naive-ui';
 import { PhonePortraitOutline } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
-import { thumbnailUrl } from '../api';
 import { formatMemory, formatResolution, formatAgo } from '../utils/format';
 
 const props = defineProps<{
@@ -15,21 +14,6 @@ const emit = defineEmits<{
   detail: [device: DeviceSummary];
   control: [device: DeviceSummary];
 }>();
-
-const shortUdid = computed(() => {
-  const udid = props.device.udid;
-  return udid.length > 12 ? `…${udid.slice(-12)}` : udid;
-});
-
-const broken = ref(false);
-const imageUrl = computed(() => thumbnailUrl(props.device));
-const hasImage = computed(
-  () => props.device.thumbnailAt > 0 && !broken.value,
-);
-
-watch(imageUrl, () => {
-  broken.value = false;
-});
 
 const statusMeta = computed(() => {
   switch (props.device.status) {
@@ -74,10 +58,9 @@ const cpuText = computed(() => {
 <template>
   <article class="device-card" :class="{ offline: device.status !== 'online' }">
     <div class="thumb">
-      <img v-if="hasImage" :src="imageUrl" alt="" @error="broken = true" />
-      <div v-else class="placeholder">
+      <div class="placeholder">
         <n-icon :size="30"><PhonePortraitOutline /></n-icon>
-        <span>暂无画面</span>
+        <span>{{ device.platform === 'android' ? 'Android' : 'iOS' }}</span>
       </div>
 
       <n-tag class="platform-tag" size="small" :bordered="false" round>
@@ -115,7 +98,7 @@ const cpuText = computed(() => {
           <span class="k">分辨率</span>
           <span class="v">{{ resolutionText }}</span>
         </div>
-        <div class="kv">
+        <div class="kv span-2">
           <span class="k">CPU</span>
           <span class="v" :title="cpuText">{{ cpuText }}</span>
         </div>
@@ -127,9 +110,9 @@ const cpuText = computed(() => {
           <span class="k">节点</span>
           <span class="v" :title="agentName">{{ agentName }}</span>
         </div>
-        <div class="kv">
+        <div class="kv span-2">
           <span class="k">UDID</span>
-          <span class="v mono" :title="device.udid">{{ shortUdid }}</span>
+          <span class="v mono" :title="device.udid">{{ device.udid }}</span>
         </div>
       </div>
 
@@ -149,7 +132,7 @@ const cpuText = computed(() => {
         :disabled="device.platform !== 'android' || device.status !== 'online'"
         @click="emit('control', device)"
       >
-        实时控制
+        控制
       </n-button>
     </div>
   </article>
@@ -179,7 +162,7 @@ const cpuText = computed(() => {
 
 .thumb {
   position: relative;
-  height: 186px;
+  height: 128px;
   background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
   display: grid;
   place-items: center;
@@ -257,6 +240,10 @@ const cpuText = computed(() => {
   gap: 4px;
   min-width: 0;
   font-size: 10px;
+}
+
+.kv.span-2 {
+  grid-column: span 2;
 }
 
 .k {
