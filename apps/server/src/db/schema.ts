@@ -6,7 +6,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 
-export const agents = sqliteTable('agents', {
+export const agents = sqliteTable('adh_agents', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   /** agent 上报的宿主机名，name 是用户可编辑的显示名。 */
@@ -21,7 +21,7 @@ export const agents = sqliteTable('agents', {
 });
 
 export const devices = sqliteTable(
-  'devices',
+  'adh_devices',
   {
     id: text('id').primaryKey(),
     agentId: text('agent_id')
@@ -56,10 +56,21 @@ export const devices = sqliteTable(
     publishedAt: integer('published_at').notNull().default(0),
   },
   (t) => [
-    uniqueIndex('devices_agent_udid_idx').on(t.agentId, t.udid),
-    index('devices_agent_id_idx').on(t.agentId),
+    uniqueIndex('adh_devices_agent_udid_idx').on(t.agentId, t.udid),
+    index('adh_devices_agent_id_idx').on(t.agentId),
   ],
 );
 
+/** 应用管理里的安装包元数据，文件本体存在 data/packages 下。 */
+export const packages = sqliteTable('adh_packages', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  /** apk / ipa */
+  kind: text('kind').notNull().default('apk'),
+  size: integer('size').notNull(),
+  uploadedAt: integer('uploaded_at').notNull(),
+});
+
 export type AgentRow = typeof agents.$inferSelect;
 export type DeviceRow = typeof devices.$inferSelect;
+export type PackageRow = typeof packages.$inferSelect;

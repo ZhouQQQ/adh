@@ -8,11 +8,14 @@ import { formatMemory, formatResolution, formatAgo } from '../utils/format';
 const props = defineProps<{
   device: DeviceSummary;
   agentName: string;
+  selectable?: boolean;
+  selected?: boolean;
 }>();
 
 const emit = defineEmits<{
   detail: [device: DeviceSummary];
   control: [device: DeviceSummary];
+  select: [id: string];
 }>();
 
 const statusMeta = computed(() => {
@@ -56,8 +59,19 @@ const cpuText = computed(() => {
 </script>
 
 <template>
-  <article class="device-card" :class="{ offline: device.status !== 'online' }">
+  <article class="device-card" :class="{ offline: device.status !== 'online', selected }">
     <div class="thumb">
+      <button
+        v-if="selectable"
+        type="button"
+        class="select-toggle"
+        :class="{ checked: selected }"
+        :title="selected ? '取消选择' : '选择'"
+        @click.stop="emit('select', device.id)"
+      >
+        <span v-if="selected" class="check">✓</span>
+      </button>
+
       <div class="placeholder">
         <n-icon :size="30"><PhonePortraitOutline /></n-icon>
         <span>{{ device.platform === 'android' ? 'Android' : 'iOS' }}</span>
@@ -188,7 +202,7 @@ const cpuText = computed(() => {
 .platform-tag {
   position: absolute;
   top: 8px;
-  left: 8px;
+  left: 34px;
   font-size: 10px;
   letter-spacing: 0.4px;
   background: rgba(255, 255, 255, 0.85);
@@ -209,6 +223,40 @@ const cpuText = computed(() => {
   top: 34px;
   left: 8px;
   backdrop-filter: blur(6px);
+}
+
+.select-toggle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.92);
+  color: #ffffff;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.select-toggle.checked {
+  background: #18181b;
+  border-color: #18181b;
+}
+
+.check {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.device-card.selected {
+  border-color: #18181b;
+  box-shadow: 0 0 0 1px #18181b;
 }
 
 .body {

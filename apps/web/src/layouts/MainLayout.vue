@@ -9,7 +9,7 @@ import {
   NMenu,
   NTag,
 } from 'naive-ui';
-import { PhonePortraitOutline, ServerOutline } from '@vicons/ionicons5';
+import { AppsOutline, PhonePortraitOutline, ServerOutline } from '@vicons/ionicons5';
 import { startFleet, useFleet } from '../stores/fleet';
 
 const route = useRoute();
@@ -22,6 +22,11 @@ const menuOptions = [
     label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
     key: '/devices',
     icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
+  },
+  {
+    label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
+    key: '/apps',
+    icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
   },
   {
     label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),

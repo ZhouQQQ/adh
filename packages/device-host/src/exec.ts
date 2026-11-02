@@ -17,7 +17,7 @@ export function runCommand(
     execFile(
       command,
       args,
-      { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
       (error, stdout, stderr) => {
         const errno = error as NodeJS.ErrnoException | null;
         const rawCode: unknown = errno?.code;

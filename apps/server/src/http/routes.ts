@@ -15,7 +15,8 @@ import type { CommandBus } from '../command-bus.js';
 import type { Queries } from '../db/queries.js';
 import { baseName, normalizeDevicePath, parseLsOutput } from '../files/ls.js';
 import type { AgentRegistry } from '../registry.js';
-import { PackageStore } from '../storage/packages.js';
+import { PackageStore, packageKind, type PackageKind } from '../storage/packages.js';
+import type { OssStore } from '../storage/oss.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { StreamManager } from '../stream/manager.js';
 import type { WebHub } from '../ws/web-hub.js';
@@ -26,6 +27,7 @@ export interface HttpDeps {
   hub: WebHub;
   thumbnails: ThumbnailStore;
   packages: PackageStore;
+  oss: OssStore | null;
   commands: CommandBus;
   streams: StreamManager;
   port: number;
@@ -37,6 +39,10 @@ const CreateAgentBody = z.object({
 
 const InstallBody = z.object({
   packageId: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+const RenamePackageBody = z.object({
+  name: z.string().trim().min(1).max(160),
 });
 
 const FilePathsBody = z.object({
@@ -69,6 +75,27 @@ const PROTECTED_PATHS = new Set([
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** 从 dumpsys package 输出里提取 versionName。 */
+function parsePackageVersions(raw: string): Map<string, string> {
+  const versions = new Map<string, string>();
+  let current: string | null = null;
+
+  for (const line of raw.split(/\r?\n/)) {
+    const header = /^\s*Package \[([^\]]+)\]/.exec(line);
+    if (header) {
+      current = header[1] ?? null;
+      continue;
+    }
+    if (!current) continue;
+    const version = /^\s+versionName=(\S+)/.exec(line);
+    if (version) {
+      versions.set(current, version[1] ?? '');
+      current = null;
+    }
+  }
+  return versions;
 }
 
 function bearerToken(request: FastifyRequest): string | null {
@@ -124,6 +151,9 @@ export async function registerHttpRoutes(
   app.get('/api/server-info', async () => ({
     version: SERVER_VERSION,
     port: deps.port,
+    storage: deps.oss
+      ? { driver: 'oss' as const, bucket: deps.oss.bucket, prefix: deps.oss.prefix }
+      : { driver: 'local' as const },
   }));
 
   /* ---------------------------------------------------------------- */
@@ -308,7 +338,7 @@ export async function registerHttpRoutes(
   /* APK 安装                                                          */
   /* ---------------------------------------------------------------- */
 
-  /** 上传 APK，按 sha256 去重存储。 */
+  /** 上传安装包（apk / ipa），按 sha256 去重存储。 */
   app.post('/api/packages', async (request, reply) => {
     const body = request.body;
     if (!Buffer.isBuffer(body) || body.length === 0) {
@@ -318,15 +348,24 @@ export async function registerHttpRoutes(
       return reply.code(413).send({ error: '安装包超过 512MB' });
     }
 
-    const id = PackageStore.hash(body);
     const rawName = request.headers['x-file-name'];
     const name =
       typeof rawName === 'string' && rawName
         ? decodeURIComponent(rawName)
-        : `${id.slice(0, 8)}.apk`;
+        : `${PackageStore.hash(body).slice(0, 8)}.apk`;
 
-    const record = deps.packages.save(id, body, name);
-    return { id: record.id, name: record.name, size: record.size };
+    if (!/\.(apk|ipa)$/i.test(name)) {
+      return reply.code(400).send({ error: '只支持 .apk 或 .ipa 文件' });
+    }
+
+    const id = PackageStore.hash(body);
+    const record = await deps.packages.save(id, body, name);
+    return {
+      id: record.id,
+      name: record.name,
+      size: record.size,
+      kind: record.kind,
+    };
   });
 
   /** 已上传的安装包列表。 */
@@ -334,26 +373,59 @@ export async function registerHttpRoutes(
     return { packages: deps.packages.list() };
   });
 
+  /** 重命名安装包（仅改显示名，后缀不可变）。 */
+  app.patch('/api/packages/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = RenamePackageBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '名称不能为空' });
+    }
+
+    const record = deps.packages.record(id);
+    if (!record || !deps.packages.has(id)) {
+      return reply.code(404).send({ error: '安装包不存在' });
+    }
+
+    const name = parsed.data.name.trim();
+    if (packageKind(name) !== record.kind) {
+      return reply.code(400).send({
+        error: `文件后缀必须是 .${record.kind}`,
+      });
+    }
+
+    const next = deps.packages.rename(id, name);
+    if (!next) return reply.code(404).send({ error: '安装包不存在' });
+    return { package: next };
+  });
+
   /** 删除已上传的安装包。 */
   app.delete('/api/packages/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (!deps.packages.has(id)) {
+    if (!deps.packages.record(id)) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
     deps.packages.remove(id);
     return reply.code(204).send();
   });
 
+  const packageContentType = (kind: PackageKind): string =>
+    kind === 'ipa'
+      ? 'application/octet-stream'
+      : 'application/vnd.android.package-archive';
+
   /** 前端导出安装包（无需 agent 鉴权）。 */
   app.get('/api/packages/:id/file', async (request, reply) => {
     const { id } = request.params as { id: string };
     const record = deps.packages.record(id);
+    if (!record || !(await deps.packages.ensureLocal(id))) {
+      return reply.code(404).send({ error: '安装包不存在' });
+    }
     const data = deps.packages.read(id);
-    if (!record || !data) {
+    if (!data) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
     return reply
-      .header('content-type', 'application/vnd.android.package-archive')
+      .header('content-type', packageContentType(record.kind))
       .header(
         'content-disposition',
         `attachment; filename*=UTF-8''${encodeURIComponent(record.name)}`,
@@ -368,11 +440,15 @@ export async function registerHttpRoutes(
     if (!agent) return reply.code(401).send({ error: 'invalid agent key' });
 
     const { id } = request.params as { id: string };
+    const record = deps.packages.record(id);
+    if (!record || !(await deps.packages.ensureLocal(id))) {
+      return reply.code(404).send({ error: '安装包不存在' });
+    }
     const data = deps.packages.read(id);
     if (!data) return reply.code(404).send({ error: '安装包不存在' });
 
     return reply
-      .header('content-type', 'application/vnd.android.package-archive')
+      .header('content-type', packageContentType(record.kind))
       .header('content-length', String(data.length))
       .send(data);
   });
@@ -390,8 +466,16 @@ export async function registerHttpRoutes(
     if (device.platform !== 'android') {
       return reply.code(400).send({ error: '目前只支持安装 APK' });
     }
-    if (!deps.packages.has(parsed.data.packageId)) {
+
+    const record = deps.packages.record(parsed.data.packageId);
+    if (!record) {
       return reply.code(404).send({ error: '安装包不存在，请重新上传' });
+    }
+    if (record.kind === 'ipa') {
+      return reply.code(400).send({ error: 'IPA 只能上传留存，暂不支持安装' });
+    }
+    if (!(await deps.packages.ensureLocal(parsed.data.packageId))) {
+      return reply.code(404).send({ error: '安装包文件缺失，请重新上传' });
     }
 
     if (device.agentId === BUILTIN_AGENT_ID) {
@@ -685,10 +769,15 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '仅支持 Android 设备' });
     }
 
+    const { system } = request.query as { system?: string };
+    const includeSystem = system === '1';
+
     const result = await runCommand(
       'adb',
-      ['-s', device.udid, 'shell', 'pm', 'list', 'packages', '-3'],
-      20_000,
+      includeSystem
+        ? ['-s', device.udid, 'shell', 'pm', 'list', 'packages']
+        : ['-s', device.udid, 'shell', 'pm', 'list', 'packages', '-3'],
+      30_000,
     );
     if (result.code !== 0) {
       return reply.code(400).send({ error: '读取应用列表失败' });
@@ -702,7 +791,25 @@ export async function registerHttpRoutes(
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
 
-    return { packages };
+    // 版本号需要额外一次 dumpsys，失败就只返回包名
+    let versions = new Map<string, string>();
+    try {
+      const dump = await runCommand(
+        'adb',
+        ['-s', device.udid, 'shell', 'dumpsys', 'package', 'packages'],
+        60_000,
+      );
+      if (dump.code === 0) versions = parsePackageVersions(dump.stdout);
+    } catch {
+      /* 部分 ROM 限制 dumpsys，忽略 */
+    }
+
+    return {
+      packages: packages.map((name) => ({
+        name,
+        version: versions.get(name) ?? null,
+      })),
+    };
   });
 
   /** 把设备上已安装的 APK 导出到浏览器。 */
@@ -770,6 +877,7 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/thumbnail', async (request, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
+    await deps.thumbnails.ensureLocal(id);
     const data = deps.thumbnails.read(id);
     if (!data) return reply.code(404).send({ error: 'thumbnail not found' });
     return reply

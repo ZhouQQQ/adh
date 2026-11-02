@@ -16,17 +16,34 @@ export interface DatabaseHandle {
 }
 
 function runMigrations(sqlite: Database.Database): void {
+  // 迁移记录表同样以 adh_ 开头，老库的 _migrations 需要搬过来
+  const legacy = sqlite
+    .prepare(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = '_migrations'",
+    )
+    .get();
+
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS _migrations (
+    CREATE TABLE IF NOT EXISTS adh_migrations (
       name TEXT PRIMARY KEY,
       applied_at INTEGER NOT NULL
     );
   `);
 
+  if (legacy) {
+    sqlite.exec(`
+      INSERT OR IGNORE INTO adh_migrations (name, applied_at)
+        SELECT name, applied_at FROM _migrations;
+      DROP TABLE _migrations;
+    `);
+  }
+
   const applied = new Set(
-    (sqlite.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map(
-      (row) => row.name,
-    ),
+    (
+      sqlite.prepare('SELECT name FROM adh_migrations').all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name),
   );
 
   const files = fs
@@ -40,7 +57,7 @@ function runMigrations(sqlite: Database.Database): void {
     sqlite.transaction(() => {
       sqlite.exec(sql);
       sqlite
-        .prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)')
+        .prepare('INSERT INTO adh_migrations (name, applied_at) VALUES (?, ?)')
         .run(file, Date.now());
     })();
   }

@@ -34,6 +34,7 @@ const cores = ref<number | 'all'>('all');
 const memory = ref<number | 'all'>('all');
 const usage = ref<'all' | 'idle' | 'busy'>('all');
 const collapsed = ref(false);
+const selectedIds = ref<string[]>([]);
 
 /** 默认内置候选，配合设备实际值一起展示，没有设备命中的置灰。 */
 const DEFAULT_ANDROID_VERSIONS = [
@@ -365,6 +366,21 @@ function openControl(device: DeviceSummary): void {
   void router.push(`/devices/${device.id}/control`);
 }
 
+function toggleSelect(id: string): void {
+  selectedIds.value = selectedIds.value.includes(id)
+    ? selectedIds.value.filter((item) => item !== id)
+    : [...selectedIds.value, id];
+}
+
+function clearSelection(): void {
+  selectedIds.value = [];
+}
+
+function batchControl(): void {
+  if (selectedIds.value.length === 0) return;
+  void router.push(`/devices/batch?ids=${selectedIds.value.join(',')}`);
+}
+
 function cleanupOffline(): void {
   if (offlineCount.value === 0) return;
   dialog.warning({
@@ -629,8 +645,11 @@ function resetFilters(): void {
         :key="device.id"
         :device="device"
         :agent-name="agentNames.get(device.agentId) ?? '未知节点'"
+        :selectable="true"
+        :selected="selectedIds.includes(device.id)"
         @detail="openDetail"
         @control="openControl"
+        @select="toggleSelect"
       />
     </div>
 
@@ -647,6 +666,16 @@ function resetFilters(): void {
         <n-button v-else size="small" @click="resetFilters">清空筛选条件</n-button>
       </template>
     </n-empty>
+
+    <div v-if="selectedIds.length > 0" class="selection-bar">
+      <span class="selection-text">已选 {{ selectedIds.length }} 台设备</span>
+      <button type="button" class="selection-btn" @click="clearSelection">
+        取消选择
+      </button>
+      <button type="button" class="selection-btn primary" @click="batchControl">
+        批量控制
+      </button>
+    </div>
 
     <DeviceDetailDrawer
       v-model:show="detailShow"
@@ -808,6 +837,52 @@ function resetFilters(): void {
   font-size: 12px;
   line-height: 1.7;
   color: var(--text-dim);
+}
+
+.selection-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px 9px 16px;
+  border-radius: 10px;
+  background: #18181b;
+  box-shadow: 0 10px 30px rgba(9, 9, 11, 0.24);
+  z-index: 20;
+}
+
+.selection-text {
+  font-size: 12px;
+  color: #e4e4e7;
+}
+
+.selection-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: #d4d4d8;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.selection-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.selection-btn.primary {
+  background: #fafafa;
+  border-color: #fafafa;
+  color: #09090b;
+  font-weight: 500;
+}
+
+.selection-btn.primary:hover {
+  background: #e4e4e7;
 }
 
 @media (max-width: 720px) {

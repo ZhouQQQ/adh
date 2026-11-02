@@ -34,7 +34,9 @@ pnpm --filter @adh/agent dev doctor
 ## 必须知道
 
 - **改 `packages/*` 后要重启 server / agent**。`tsx watch` 只监听 app 自己的 `src`，共享包改动不会触发重载，容易出现"改了没生效"。
-- **数据库迁移手写 SQL**，放在 `apps/server/src/db/migrations/NNNN_*.sql`，启动时按文件名排序各执行一次并记入 `_migrations`。不要修改已提交的迁移。
+- **数据库迁移手写 SQL**，放在 `apps/server/src/db/migrations/NNNN_*.sql`，启动时按文件名排序各执行一次并记入 `adh_migrations`。不要修改已提交的迁移。
+- **所有表名以 `adh_` 开头**（`adh_agents` / `adh_devices` / `adh_packages` / `adh_migrations`），新增表同样遵守。
+- **文件存储**：安装包与设备缩略图默认落 `.data/`，配置 `ADH_OSS_*`（见 `.env.example`）后同步到 `oss://<bucket>/<prefix>/packages` 和 `.../thumbnails`，本地保留缓存供 adb 安装与兜底读取。
 - **Agent 有两个名字**：`name` 是用户可编辑的显示名，`hostName` 是 agent 上报的宿主机名。`updateAgentRuntime()` 故意不覆盖 `name`。
 - **设备从 adb 消失时标记 offline，不删记录**；清理走 `POST /api/devices/cleanup` 或 `DELETE /api/devices/:id`。
 - **设备名优先取厂商市场名称**：`ro.vivo.market.name` → `ro.product.marketname` → OPPO / `ro.config.marketing_name` 等，取不到才回退到 `ro.product.model`。型号代码单独存在 `model` 字段。

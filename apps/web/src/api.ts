@@ -12,16 +12,22 @@ export interface DeviceFileEntry {
   mtime: string;
 }
 
+export type PackageKind = 'apk' | 'ipa';
+
 export interface PackageRecord {
   id: string;
   name: string;
   size: number;
   uploadedAt: number;
+  kind: PackageKind;
 }
 
 export interface ServerInfo {
   version: string;
   port: number;
+  storage?:
+    | { driver: 'local' }
+    | { driver: 'oss'; bucket: string; prefix: string };
 }
 
 async function request<T>(
@@ -136,14 +142,17 @@ export const api = {
     return request(`/api/devices/${deviceId}/stream`, { method: 'POST' });
   },
 
-  /** 上传 APK（原始二进制，按 sha256 去重）。 */
+  /** 上传安装包（apk / ipa，原始二进制，按 sha256 去重）。 */
   async uploadPackage(
     file: File,
-  ): Promise<{ id: string; name: string; size: number }> {
+  ): Promise<{ id: string; name: string; size: number; kind: PackageKind }> {
+    const isIpa = file.name.toLowerCase().endsWith('.ipa');
     const response = await fetch('/api/packages', {
       method: 'POST',
       headers: {
-        'content-type': 'application/vnd.android.package-archive',
+        'content-type': isIpa
+          ? 'application/octet-stream'
+          : 'application/vnd.android.package-archive',
         'x-file-name': encodeURIComponent(file.name),
       },
       body: file,
@@ -158,7 +167,12 @@ export const api = {
       }
       throw new Error(msg);
     }
-    return (await response.json()) as { id: string; name: string; size: number };
+    return (await response.json()) as {
+      id: string;
+      name: string;
+      size: number;
+      kind: PackageKind;
+    };
   },
 
   /** 在指定设备上安装已上传的 APK。 */
@@ -173,6 +187,16 @@ export const api = {
     return request('/api/packages');
   },
 
+  renamePackage(
+    id: string,
+    name: string,
+  ): Promise<{ package: PackageRecord }> {
+    return request(`/api/packages/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  },
+
   deletePackage(id: string): Promise<void> {
     return request(`/api/packages/${id}`, { method: 'DELETE' });
   },
@@ -181,8 +205,12 @@ export const api = {
     return `/api/packages/${id}/file`;
   },
 
-  listDeviceApps(deviceId: string): Promise<{ packages: string[] }> {
-    return request(`/api/devices/${deviceId}/apps`);
+  listDeviceApps(
+    deviceId: string,
+    includeSystem = false,
+  ): Promise<{ packages: { name: string; version: string | null }[] }> {
+    const query = includeSystem ? '?system=1' : '';
+    return request(`/api/devices/${deviceId}/apps${query}`);
   },
 
   deviceAppExportUrl(deviceId: string, packageName: string): string {

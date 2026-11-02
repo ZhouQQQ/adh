@@ -11,7 +11,8 @@ import {
 import { CloudOfflineOutline } from '@vicons/ionicons5';
 import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
-import ApkManagerDrawer from '../components/ApkManagerDrawer.vue';
+import DeviceAppsDrawer from '../components/DeviceAppsDrawer.vue';
+import InstallAppModal from '../components/InstallAppModal.vue';
 import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
@@ -30,8 +31,8 @@ const errorText = ref<string | null>(null);
 const controller = ref(false);
 const text = ref('');
 const fileShow = ref(false);
-const apkShow = ref(false);
-const apkTab = ref<'packages' | 'apps'>('packages');
+const appsShow = ref(false);
+const installShow = ref(false);
 const stageRef = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
 const recording = ref(false);
@@ -165,21 +166,11 @@ function setScreen(on: boolean): void {
   playerRef.value?.setScreen(on);
 }
 
-function openApk(target: 'packages' | 'apps'): void {
-  apkTab.value = target;
-  apkShow.value = true;
+function openApps(): void {
+  appsShow.value = true;
 }
 
-async function togglePip(): Promise<void> {
-  const result = await playerRef.value?.togglePip();
-  if (result === 'failed') {
-    message.warning('当前浏览器不支持画中画');
-    return;
-  }
-  if (result === 'opened') {
-    message.success('已开启画中画，窗口可拖动');
-  }
-}
+
 
 async function takeScreenshot(): Promise<void> {
   const blob = await playerRef.value?.screenshot();
@@ -333,7 +324,6 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="stage-actions">
-          <button type="button" class="overlay-btn" @click="togglePip">画中画</button>
           <button type="button" class="overlay-btn" @click="toggleFullscreen">
             {{ isFullscreen ? '退出全屏' : '全屏' }}
           </button>
@@ -369,13 +359,10 @@ onBeforeUnmount(() => {
 
           <div class="fs-group">
             <div class="fs-title">抓取</div>
-            <div class="fs-grid cols-2">
+            <div class="fs-grid">
               <button type="button" class="bar-btn" @click="takeScreenshot">截图</button>
               <button type="button" class="bar-btn" @click="toggleRecording">
                 {{ recording ? '停止' : '录屏' }}
-              </button>
-              <button type="button" class="bar-btn span-2" @click="togglePip">
-                画中画
               </button>
             </div>
           </div>
@@ -421,23 +408,22 @@ onBeforeUnmount(() => {
 
         <section class="section">
           <div class="section-title">抓取</div>
-          <div class="grid-3">
+          <div class="grid-2">
             <n-button size="small" @click="takeScreenshot">截图</n-button>
             <n-button size="small" @click="toggleRecording">
               {{ recording ? '停止' : '录屏' }}
             </n-button>
-            <n-button size="small" @click="togglePip">画中画</n-button>
           </div>
         </section>
 
         <section class="section">
           <div class="section-title">应用</div>
           <div class="grid-2">
-            <n-button size="small" @click="openApk('packages')">
-              APK 安装
+            <n-button size="small" @click="installShow = true">
+              安装应用
             </n-button>
-            <n-button size="small" @click="openApk('apps')">
-              应用管理
+            <n-button size="small" @click="openApps">
+              已装应用
             </n-button>
           </div>
         </section>
@@ -471,11 +457,16 @@ onBeforeUnmount(() => {
       :device-id="device?.id ?? ''"
       :device-name="device?.name ?? ''"
     />
-    <ApkManagerDrawer
-      v-model:show="apkShow"
+    <DeviceAppsDrawer
+      v-model:show="appsShow"
       :device-id="device?.id ?? ''"
       :device-name="device?.name ?? ''"
-      :initial-tab="apkTab"
+    />
+    <InstallAppModal
+      v-model:show="installShow"
+      :device-id="device?.id ?? ''"
+      :device-name="device?.name ?? ''"
+      :platform="device?.platform ?? 'android'"
     />
   </div>
 </template>
