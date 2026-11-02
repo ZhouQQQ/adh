@@ -34,18 +34,7 @@ const memory = ref<number | 'all'>('all');
 const usage = ref<'all' | 'idle' | 'busy'>('all');
 const collapsed = ref(false);
 
-/** 固定候选，保证没有设备时也能看到完整筛选项。 */
-const DEFAULT_VERSIONS = ['11', '12', '13', '14', '15', '16'];
-const DEFAULT_CORES = [4, 6, 8, 10];
-const DEFAULT_MEMORY = [4, 6, 8, 12, 16, 24];
-
-const platformPresent = computed(
-  () => new Set(devices.value.map((device) => device.platform)),
-);
-const statusPresent = computed(
-  () => new Set(devices.value.map((device) => device.status)),
-);
-
+/** 只展示当前设备实际存在的选项。 */
 const versionPlatform = computed(() => {
   const map = new Map<string, Platform>();
   for (const device of devices.value) {
@@ -55,17 +44,21 @@ const versionPlatform = computed(() => {
   return map;
 });
 
-/** 默认候选 + 设备里实际出现的版本，只有出现过的才可点。 */
-const versionOptions = computed(() => {
-  const values = new Set([...DEFAULT_VERSIONS, ...versionPlatform.value.keys()]);
-  return [...values]
-    .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
-    .map((value) => ({
+const versionOptions = computed(() =>
+  [...versionPlatform.value.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true }))
+    .map(([value, platform]) => ({
       value,
-      label: `${versionPlatform.value.get(value) === 'ios' ? 'iOS' : 'Android'} ${value}`,
-      enabled: versionPlatform.value.has(value),
-    }));
-});
+      label: `${platform === 'ios' ? 'iOS' : 'Android'} ${value}`,
+    })),
+);
+const platformPresent = computed(
+  () => new Set(devices.value.map((device) => device.platform)),
+);
+
+const statusPresent = computed(
+  () => new Set(devices.value.map((device) => device.status)),
+);
 
 const cpuPresent = computed(() => {
   const set = new Set<string>();
@@ -100,30 +93,20 @@ const usagePresent = computed(() => ({
 const cpuOptions = computed(() =>
   [...cpuPresent.value]
     .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
-    .map((value) => ({ value, label: value, enabled: true })),
+    .map((value) => ({ value, label: value })),
 );
 
-const coresOptions = computed(() => {
-  const values = new Set([...DEFAULT_CORES, ...coresPresent.value]);
-  return [...values]
+const coresOptions = computed(() =>
+  [...coresPresent.value]
     .sort((a, b) => a - b)
-    .map((value) => ({
-      value,
-      label: `${value} 核`,
-      enabled: coresPresent.value.has(value),
-    }));
-});
+    .map((value) => ({ value, label: `${value} 核` })),
+);
 
-const memoryOptions = computed(() => {
-  const values = new Set([...DEFAULT_MEMORY, ...memoryPresent.value]);
-  return [...values]
+const memoryOptions = computed(() =>
+  [...memoryPresent.value]
     .sort((a, b) => a - b)
-    .map((value) => ({
-      value,
-      label: `${value} GB`,
-      enabled: memoryPresent.value.has(value),
-    }));
-});
+    .map((value) => ({ value, label: `${value} GB` })),
+);
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
@@ -380,19 +363,19 @@ function resetFilters(): void {
             全部
           </button>
           <button
+            v-if="platformPresent.has('android')"
             type="button"
             class="opt"
             :class="{ active: platform === 'android' }"
-            :disabled="!platformPresent.has('android')"
             @click="platform = 'android'"
           >
             Android
           </button>
           <button
+            v-if="platformPresent.has('ios')"
             type="button"
             class="opt"
             :class="{ active: platform === 'ios' }"
-            :disabled="!platformPresent.has('ios')"
             @click="platform = 'ios'"
           >
             iOS
@@ -412,28 +395,28 @@ function resetFilters(): void {
             全部
           </button>
           <button
+            v-if="statusPresent.has('online')"
             type="button"
             class="opt"
             :class="{ active: status === 'online' }"
-            :disabled="!statusPresent.has('online')"
             @click="status = 'online'"
           >
             在线
           </button>
           <button
+            v-if="statusPresent.has('offline')"
             type="button"
             class="opt"
             :class="{ active: status === 'offline' }"
-            :disabled="!statusPresent.has('offline')"
             @click="status = 'offline'"
           >
             离线
           </button>
           <button
+            v-if="statusPresent.has('unauthorized')"
             type="button"
             class="opt"
             :class="{ active: status === 'unauthorized' }"
-            :disabled="!statusPresent.has('unauthorized')"
             @click="status = 'unauthorized'"
           >
             未授权
@@ -453,19 +436,19 @@ function resetFilters(): void {
             全部
           </button>
           <button
+            v-if="usagePresent.idle"
             type="button"
             class="opt"
             :class="{ active: usage === 'idle' }"
-            :disabled="!usagePresent.idle"
             @click="usage = 'idle'"
           >
             空闲
           </button>
           <button
+            v-if="usagePresent.busy"
             type="button"
             class="opt"
             :class="{ active: usage === 'busy' }"
-            :disabled="!usagePresent.busy"
             @click="usage = 'busy'"
           >
             使用中
@@ -490,7 +473,7 @@ function resetFilters(): void {
             type="button"
             class="opt"
             :class="{ active: version === option.value }"
-            :disabled="!option.enabled"
+            
             @click="version = option.value"
           >
             {{ option.label }}
@@ -542,7 +525,7 @@ function resetFilters(): void {
             type="button"
             class="opt"
             :class="{ active: cores === option.value }"
-            :disabled="!option.enabled"
+            
             @click="cores = option.value"
           >
             {{ option.label }}
@@ -567,7 +550,7 @@ function resetFilters(): void {
             type="button"
             class="opt"
             :class="{ active: memory === option.value }"
-            :disabled="!option.enabled"
+            
             @click="memory = option.value"
           >
             {{ option.label }}

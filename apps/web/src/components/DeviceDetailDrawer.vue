@@ -80,10 +80,6 @@ const coresLabel = computed(() => {
   return cores ? `${cores} 核` : undefined;
 });
 
-const capabilitiesText = computed(() =>
-  props.device?.capabilities.join(', ') ?? '',
-);
-
 const title = computed(() =>
   props.device ? `设备详情 · ${props.device.name}` : '设备详情',
 );
@@ -250,26 +246,6 @@ async function onImageSelected(event: Event): Promise<void> {
               placeholder="未设置"
               @update:value="savePublishedAt"
             />
-          </n-descriptions-item>
-          <n-descriptions-item label="能力">
-            <div class="caps">
-              <n-space v-if="device.capabilities.length" :size="4">
-                <n-tag
-                  v-for="capability in device.capabilities"
-                  :key="capability"
-                  size="tiny"
-                  :bordered="false"
-                >
-                  {{ capability }}
-                </n-tag>
-              </n-space>
-              <span v-else>—</span>
-              <CopyValue
-                v-if="device.capabilities.length"
-                icon-only
-                :value="capabilitiesText"
-              />
-            </div>
           </n-descriptions-item>
         </n-descriptions>
       </template>
