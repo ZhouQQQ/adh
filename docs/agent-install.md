@@ -31,6 +31,8 @@ pnpm package:agent
    - 手机要打开「开发者选项 → USB 调试」，首次连接时在手机上点「允许」
 3. **能访问 server 的 8080 端口** — 浏览器打开 `http://<server-ip>:8080` 能看到控制台即可
 
+> 不想手动装 adb / go-ios 也可以：解压后在安装包目录运行 `adh-agent init`，会自动按当前系统下载到 `~/.adh/tools`，agent 启动时优先使用这些二进制，不用改系统 PATH。已经装过 adb / go-ios 的话可以忽略这一步。
+
 iOS 设备额外需要：
 
 - **go-ios**（推荐）：https://github.com/danielpaulus/go-ios
@@ -43,6 +45,32 @@ iOS 设备额外需要：
 把 zip 解压到任意目录，例如 `C:\adh-agent\`。目标机不需要安装 pnpm，也不需要拉源码。
 
 Windows 用 `adh-agent.cmd`，Linux / macOS 用 `adh-agent.sh`。
+
+如果还没有 adb / go-ios，可以让 agent 自己装：
+
+```bat
+adh-agent.cmd init
+```
+
+```bash
+./adh-agent.sh init
+```
+
+`init` 会：
+
+- 下载当前系统对应的 Android Platform Tools（~15MB）
+- 下载 go-ios 最新 release（~9MB，iOS 用）
+- 解压到 `~/.adh/tools/`，之后 agent 启动时自动把它前置到 PATH
+
+可选参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--skip-ios` | 只装 adb |
+| `--skip-android` | 只装 go-ios |
+| `--force` | 重新下载覆盖 |
+
+已经有 adb / go-ios 的话，这一步可以完全忽略。
 
 ## 4. 接入 server
 

@@ -17,6 +17,7 @@ import { runDoctor } from './doctor.js';
 import { configFilePath, loadLocalConfig, saveLocalConfig } from './local-config.js';
 import { createLogger, type Logger } from './log.js';
 import { ThumbnailUploader } from './thumbnail-uploader.js';
+import { ensureToolPath, runInit } from './tools.js';
 
 const AGENT_VERSION = '0.1.0';
 const THUMBNAIL_INTERVAL_MS = 30_000;
@@ -25,11 +26,13 @@ const HELP = `
 adh-agent v${AGENT_VERSION}
 
 用法:
+  adh-agent init [--skip-ios] [--skip-android] [--force]
   adh-agent connect --server <ws://host:8080> [--key <接入Key>] [--name <宿主机名>]
   adh-agent doctor
   adh-agent version
 
 说明:
+  init     自动下载当前系统对应的 Android Platform Tools 与 go-ios 到 ~/.adh/tools
   connect  连接 adh-server 并持续上报本机设备
   doctor   检查 adb / go-ios / Apple 设备服务是否就绪
 
@@ -51,6 +54,9 @@ function parseCli() {
       'log-level': { type: 'string' },
       version: { type: 'boolean', short: 'v' },
       help: { type: 'boolean', short: 'h' },
+      'skip-ios': { type: 'boolean' },
+      'skip-android': { type: 'boolean' },
+      force: { type: 'boolean' },
     },
   });
 }
@@ -175,11 +181,23 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // 自动下载的工具目录优先于系统 PATH，子进程（adb / go-ios）直接生效
+  ensureToolPath();
+
   const { values, positionals } = parseCli();
   const command = positionals[0] ?? 'help';
 
   if (values.version || command === 'version') {
     console.log(`adh-agent ${AGENT_VERSION} (protocol ${PROTOCOL_VERSION})`);
+    return;
+  }
+
+  if (command === 'init') {
+    await runInit({
+      skipIos: Boolean(values['skip-ios']),
+      skipAndroid: Boolean(values['skip-android']),
+      force: Boolean(values.force),
+    });
     return;
   }
 
