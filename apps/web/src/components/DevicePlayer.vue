@@ -14,6 +14,7 @@ const emit = defineEmits<{
   'controller-change': [value: boolean];
   error: [message: string];
   ready: [];
+  closed: [];
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -27,6 +28,7 @@ let timestamp = 0;
 let pressing = false;
 let recorder: MediaRecorder | null = null;
 let recordedChunks: Blob[] = [];
+let unmounted = false;
 
 function base64ToBytes(value: string): Uint8Array {
   const binary = atob(value);
@@ -139,6 +141,7 @@ function connect(): void {
   });
   ws.addEventListener('close', () => {
     connected.value = false;
+    if (!unmounted) emit('closed');
   });
   ws.addEventListener('error', () => ws.close());
 }
@@ -265,6 +268,7 @@ function stopRecording(): Promise<Blob | null> {
 onMounted(connect);
 
 onBeforeUnmount(() => {
+  unmounted = true;
   socket?.close();
   socket = null;
   if (recorder) {

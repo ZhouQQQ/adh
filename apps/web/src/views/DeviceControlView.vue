@@ -218,6 +218,11 @@ async function onApkSelected(event: Event): Promise<void> {
   }
 }
 
+function onPlayerClosed(): void {
+  sessionId.value = null;
+  errorText.value = '画面连接已断开，点击重试';
+}
+
 function goBack(): void {
   void router.push('/devices');
 }
@@ -321,6 +326,7 @@ onBeforeUnmount(() => {
           :session-id="sessionId"
           @controller-change="controller = $event"
           @error="errorText = $event"
+          @closed="onPlayerClosed"
         />
         <div v-else class="placeholder">
           <span>{{ errorText ?? '正在建立投屏连接…' }}</span>
