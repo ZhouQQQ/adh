@@ -10,10 +10,11 @@ import {
 } from 'naive-ui';
 import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
+import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { fileTimestamp, safeFileName, saveBlob } from '../utils/download';
-import { formatResolution } from '../utils/format';
+import { formatMemory, formatResolution } from '../utils/format';
 
 const route = useRoute();
 const router = useRouter();
@@ -73,6 +74,24 @@ const agentName = computed(() => {
 const resolutionText = computed(() =>
   formatResolution(device.value?.resolution),
 );
+
+const osText = computed(() => {
+  const current = device.value;
+  if (!current?.osVersion) return '—';
+  return current.platform === 'ios'
+    ? `iOS ${current.osVersion}`
+    : `Android ${current.osVersion}`;
+});
+
+const memoryText = computed(() => formatMemory(device.value?.memoryMb));
+
+const cpuText = computed(() => {
+  const current = device.value;
+  if (!current?.cpu) return '—';
+  return current.cpuCores
+    ? `${current.cpu} · ${current.cpuCores} 核`
+    : current.cpu;
+});
 
 async function createSession(): Promise<void> {
   if (!device.value) return;
@@ -223,6 +242,44 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="body">
+      <aside class="info-col">
+        <div class="section-title">设备信息</div>
+        <div class="info-row">
+          <span>名称</span>
+          <CopyValue :value="device?.name" />
+        </div>
+        <div class="info-row">
+          <span>系统</span>
+          <CopyValue :value="osText" />
+        </div>
+        <div class="info-row">
+          <span>CPU</span>
+          <CopyValue :value="cpuText" />
+        </div>
+        <div class="info-row">
+          <span>内存</span>
+          <CopyValue :value="memoryText" />
+        </div>
+        <div class="info-row">
+          <span>分辨率</span>
+          <CopyValue :value="resolutionText" />
+        </div>
+        <div class="info-row">
+          <span>节点</span>
+          <CopyValue :value="agentName" />
+        </div>
+        <div class="info-row">
+          <span>UDID</span>
+          <CopyValue :value="device?.udid" mono />
+        </div>
+        <div class="info-row">
+          <span>状态</span>
+          <span class="info-status" :class="device?.status">
+            {{ device?.status === 'online' ? '在线' : device?.status === 'offline' ? '离线' : '未授权' }}
+          </span>
+        </div>
+      </aside>
+
       <div ref="stageRef" class="stage">
         <n-spin v-if="loading" :show="true" class="spin" />
         <DevicePlayer
@@ -383,16 +440,60 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   display: flex;
-  align-items: center;
   gap: 14px;
   padding: 14px;
+}
+
+.info-col {
+  width: 216px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.info-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.info-row > span:first-child {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.info-row :deep(.copy-value) {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.info-status {
+  font-size: 12px;
+}
+
+.info-status.online {
+  color: #16a34a;
+}
+
+.info-status.offline {
+  color: var(--text-faint);
+}
+
+.info-status.unauthorized {
+  color: #d97706;
 }
 
 .stage {
   flex: 1;
   min-width: 0;
-  height: 680px;
-  max-height: 100%;
+  min-height: 0;
   position: relative;
   background: #0b0b0d;
   border-radius: 10px;
@@ -490,8 +591,7 @@ onBeforeUnmount(() => {
 .side {
   width: 200px;
   flex: none;
-  height: 680px;
-  max-height: 100%;
+  min-height: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px;
@@ -549,6 +649,12 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+@media (max-width: 1200px) {
+  .info-col {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   .body {
     flex-direction: column;
@@ -558,7 +664,6 @@ onBeforeUnmount(() => {
 
   .side {
     width: 100%;
-    height: auto;
     border: 1px solid var(--border);
     flex-direction: row;
     flex-wrap: wrap;
