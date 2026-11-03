@@ -328,7 +328,7 @@ function userText(item: DashboardData['recent'][number]): string {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 14px;
 }
 
@@ -357,58 +357,13 @@ function userText(item: DashboardData['recent'][number]): string {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #eff6ff;
-  color: #3b82f6;
+  background: #f4f4f5;
+  color: #71717a;
 }
 
 .card-body {
   flex: 1;
   min-width: 0;
-}
-
-.card.blue .card-icon {
-  background: #eff6ff;
-  color: #3b82f6;
-}
-
-.card.emerald .card-icon {
-  background: #ecfdf5;
-  color: #10b981;
-}
-
-.card.amber .card-icon {
-  background: #fffbeb;
-  color: #f59e0b;
-}
-
-.card.violet .card-icon {
-  background: #f5f3ff;
-  color: #8b5cf6;
-}
-
-.card.cyan .card-icon {
-  background: #ecfeff;
-  color: #06b6d4;
-}
-
-.card.slate .card-icon {
-  background: #f4f4f5;
-  color: #52525b;
-}
-
-.card.rose .card-icon {
-  background: #fff1f2;
-  color: #f43f5e;
-}
-
-.card.orange .card-icon {
-  background: #fff7ed;
-  color: #f97316;
-}
-
-.card.indigo .card-icon {
-  background: #eef2ff;
-  color: #6366f1;
 }
 
 .card-label {
@@ -418,20 +373,18 @@ function userText(item: DashboardData['recent'][number]): string {
 
 .card-value {
   margin: 6px 0 4px;
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 600;
+  line-height: 1.3;
   letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .card-hint {
   font-size: 11px;
+  line-height: 1.5;
   color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .panels {
