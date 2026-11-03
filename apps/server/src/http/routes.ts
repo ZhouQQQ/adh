@@ -784,13 +784,19 @@ export async function registerHttpRoutes(
       const limit = await deps.settings.getDeviceLimit(request.user.role);
       const current = deps.streams.getControl(id);
       const alreadyMine = current?.userId === request.user.id;
+      // 只读观看不占名额，只有会拿到控制权时才校验
+      const willControl = deps.streams.willBecomeController(
+        id,
+        request.user.id,
+      );
       if (
         limit > 0 &&
+        willControl &&
         !alreadyMine &&
         deps.streams.countControlledDevices(request.user.id) >= limit
       ) {
         return reply.code(403).send({
-          error: `最多同时控制 ${limit} 台设备，请先断开其他设备`,
+          error: `最多同时控制 ${limit} 台设备，只读查看不受限制`,
         });
       }
     }

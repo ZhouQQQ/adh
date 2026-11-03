@@ -143,6 +143,15 @@ export class StreamManager {
     }
   }
 
+  /** 该用户此时进入设备是否会成为控制者（只读观看不算）。 */
+  willBecomeController(deviceId: string, userId: string): boolean {
+    const session = this.findSessionByDevice(deviceId);
+    if (!session) return true;
+    if (session.controller) return false;
+    // 控制权空悬时只有原控制者本人能恢复
+    return !session.controllerUserId || session.controllerUserId === userId;
+  }
+
   /** 同一用户当前正在控制的设备数。 */
   countControlledDevices(userId: string): number {
     let count = 0;

@@ -19,8 +19,8 @@ export interface SiteSettings {
 
 const DEFAULT_TITLE = '设备农场';
 const DEFAULT_SUBTITLE = 'Device Hub';
-/** 普通用户默认只能同时控制 1 台设备。 */
-const DEFAULT_OPERATOR_LIMIT = 1;
+/** 普通用户默认只能同时控制 2 台设备。 */
+const DEFAULT_OPERATOR_LIMIT = 2;
 /** 管理员默认不限。 */
 const DEFAULT_ADMIN_LIMIT = 0;
 /** 超级管理员默认不限。 */

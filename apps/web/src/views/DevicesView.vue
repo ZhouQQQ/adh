@@ -17,10 +17,18 @@ import DeviceCard from '../components/DeviceCard.vue';
 import DeviceDetailDrawer from '../components/DeviceDetailDrawer.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
+import { useAuth } from '../stores/auth';
+import { useSite } from '../stores/site';
 import { memoryGb } from '../utils/format';
 
 const router = useRouter();
 const { devices, agents, refresh } = useFleet();
+const { user } = useAuth();
+const {
+  operatorDeviceLimit,
+  adminDeviceLimit,
+  superadminDeviceLimit,
+} = useSite();
 const message = useMessage();
 const dialog = useDialog();
 
@@ -456,6 +464,30 @@ function openDetail(device: DeviceSummary): void {
 
 function openControl(device: DeviceSummary): void {
   detailShow.value = false;
+
+  // 点击控制前先按角色校验同时控制数量，超限直接提示
+  const current = user.value;
+  if (current) {
+    const limit =
+      current.role === 'superadmin'
+        ? superadminDeviceLimit.value
+        : current.role === 'admin'
+          ? adminDeviceLimit.value
+          : operatorDeviceLimit.value;
+    const alreadyMine = device.control?.userId === current.id;
+    // 只读查看不占名额：只有空闲设备（会变成控制者）才校验
+    const willControl = !device.control;
+    const controlling = devices.value.filter(
+      (item) => item.control?.userId === current.id,
+    ).length;
+    if (limit > 0 && willControl && !alreadyMine && controlling >= limit) {
+      message.warning(
+        `最多同时控制 ${limit} 台设备，只读查看不受限制，请先断开其他设备`,
+      );
+      return;
+    }
+  }
+
   // 控制页放在新标签页，设备列表可以继续实时刷新
   const { href } = router.resolve(`/devices/${device.id}/control`);
   window.open(href, '_blank', 'noopener');
