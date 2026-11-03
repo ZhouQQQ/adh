@@ -597,7 +597,7 @@ function sendPinchGesture(scale: number): void {
 
   const centerX = 0.5;
   const centerY = 0.5;
-  const maxRadius = 0.4;
+  const maxRadius = 0.32;
   const leftId = 1001;
   const rightId = 1002;
 
@@ -611,7 +611,7 @@ function sendPinchGesture(scale: number): void {
 
   pinchRadius = Math.min(
     maxRadius,
-    Math.max(0.03, pinchRadius * scale),
+    Math.max(0.06, pinchRadius * scale),
   );
   sendLocal({ t: 'touch', phase: 'moved', x: centerX - pinchRadius, y: centerY, pointerId: leftId, pressure: 1 });
   sendLocal({ t: 'touch', phase: 'moved', x: centerX + pinchRadius, y: centerY, pointerId: rightId, pressure: 1 });
@@ -647,9 +647,8 @@ function onWheel(event: WheelEvent): void {
     // 两指张开（step > 0）放大，收拢（step < 0）缩小
     // 个别触控板 / 系统滚动设置方向相反，可用 localStorage 的 adh.pinchInvert=1 翻转
     const invert = localStorage.getItem('adh.pinchInvert') === '1';
-    // 触控板一次捏合会产生很多条事件，Android 每次都是完整手势，
-    // 除数调大避免一下放大/缩小过头；iOS 调用频率低，保持灵敏
-    const divisor = isIos.value ? 300 : 900;
+    // 触控板一次捏合会产生很多事件，Android 连续手势会累乘
+    const divisor = isIos.value ? 180 : 400;
     const scale = Math.min(
       2,
       Math.max(0.5, Math.exp((invert ? -step : step) / divisor)),
