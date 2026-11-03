@@ -53,6 +53,8 @@ let recordedChunks: Blob[] = [];
 let captureTrack: CanvasCaptureMediaStreamTrack | null = null;
 let recorderMime = 'video/webm';
 let unmounted = false;
+/** 最近的触摸点，画在画面上并写进录屏 */
+const touchMarks: Array<{ x: number; y: number; at: number }> = [];
 let iosTimer: ReturnType<typeof setTimeout> | null = null;
 let iosAbort: AbortController | null = null;
 let iosStart: { x: number; y: number; at: number } | null = null;
@@ -72,6 +74,11 @@ function send(message: ViewerToStreamMessage): void {
 
 /** 本地输入：发给自己并通知外部，供批量联动转发。 */
 function sendLocal(message: ViewerToStreamMessage): void {
+  // 本地触摸打点，实时画面和录屏都能看到操作位置
+  if (message.t === 'touch' && message.phase !== 'moved') {
+    touchMarks.push({ x: message.x, y: message.y, at: Date.now() });
+    if (touchMarks.length > 24) touchMarks.shift();
+  }
   send(message);
   emit('input', message);
 }
@@ -144,6 +151,7 @@ function configureDecoder(ready: StreamReady): void {
       const context = canvas.getContext('2d');
       if (context) {
         context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        drawTouchMarks(context, canvas.width, canvas.height);
         captureTrack?.requestFrame();
       }
       frame.close();
@@ -308,6 +316,35 @@ function indexOfMarker(
   return -1;
 }
 
+/** 在画面上叠加触摸指示（600ms 淡出），实时画面与录屏共用。 */
+function drawTouchMarks(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  if (touchMarks.length === 0) return;
+  const now = Date.now();
+  for (let i = touchMarks.length - 1; i >= 0; i -= 1) {
+    const mark = touchMarks[i]!;
+    const age = (now - mark.at) / 600;
+    if (age >= 1) {
+      touchMarks.splice(i, 1);
+      continue;
+    }
+    const x = mark.x * width;
+    const y = mark.y * height;
+    ctx.beginPath();
+    ctx.arc(x, y, 10 + age * 20, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(59, 130, 246, ${1 - age})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(59, 130, 246, ${1 - age})`;
+    ctx.fill();
+  }
+}
+
 async function drawIosFrame(data: Uint8Array): Promise<void> {
   const bitmap = await createImageBitmap(
     new Blob([data as unknown as BlobPart], { type: 'image/jpeg' }),
@@ -319,6 +356,7 @@ async function drawIosFrame(data: Uint8Array): Promise<void> {
     const context = canvas.getContext('2d');
     if (context) {
       context.drawImage(bitmap, 0, 0);
+      drawTouchMarks(context, canvas.width, canvas.height);
       captureTrack?.requestFrame();
     }
   }
@@ -439,6 +477,8 @@ function onPointerDown(event: PointerEvent): void {
     (event.target as HTMLElement).setPointerCapture(event.pointerId);
     const position = pointerPosition(event);
     iosStart = { ...position, at: Date.now() };
+    touchMarks.push({ x: position.x, y: position.y, at: Date.now() });
+    if (touchMarks.length > 24) touchMarks.shift();
     pressing = true;
     emit('input', {
       t: 'touch',
@@ -736,7 +776,11 @@ function startIosRecording(): boolean {
         const bitmap = await createImageBitmap(blob);
         if (target.width !== bitmap.width) target.width = bitmap.width;
         if (target.height !== bitmap.height) target.height = bitmap.height;
-        target.getContext('2d')?.drawImage(bitmap, 0, 0);
+        const ctx = target.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(bitmap, 0, 0);
+          drawTouchMarks(ctx, target.width, target.height);
+        }
         bitmap.close();
       } catch {
         /* 单帧失败跳过 */
