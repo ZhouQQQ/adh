@@ -613,7 +613,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown);
   clockTimer = window.setInterval(() => {
     now.value = Date.now();
-  }, 30_000);
+  }, 1_000);
   if (devices.value.length === 0) await refresh();
   await createSession();
 });

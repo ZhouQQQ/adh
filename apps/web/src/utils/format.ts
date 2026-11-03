@@ -10,9 +10,10 @@ export function formatAgo(timestamp: number, now = Date.now()): string {
   return `${Math.floor(hours / 24)} 天前`;
 }
 
-/** 已经持续了多久：固定返回「X 分钟」，不用「刚刚」这类模糊说法。 */
+/** 已经持续了多久：不到 1 分钟按秒显示，之后按分钟 / 小时 / 天。 */
 export function formatDuration(timestamp: number, now = Date.now()): string {
   const seconds = Math.max(0, Math.floor((now - timestamp) / 1_000));
+  if (seconds < 60) return `${seconds} 秒`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes} 分钟`;
   const hours = Math.floor(minutes / 60);

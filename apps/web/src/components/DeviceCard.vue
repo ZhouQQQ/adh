@@ -103,7 +103,7 @@ let clockTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
   clockTimer = setInterval(() => {
     now.value = Date.now();
-  }, 10_000);
+  }, 1_000);
 });
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer);
@@ -217,7 +217,7 @@ const cpuText = computed(() => {
       <div
         v-if="device.control"
         class="control-tag"
-        :class="usageTone"
+        :class="[usageTone, { shifted: selectable }]"
         :title="`${controlName} 正在控制`"
       >
         <n-icon :size="12"><PersonOutline /></n-icon>
@@ -443,8 +443,7 @@ const cpuText = computed(() => {
 .control-tag {
   position: absolute;
   top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 8px;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -457,6 +456,11 @@ const cpuText = computed(() => {
   font-size: 10px;
   white-space: nowrap;
   backdrop-filter: blur(6px);
+}
+
+/* 有勾选框时让开一点，贴着勾选框显示 */
+.control-tag.shifted {
+  left: 34px;
 }
 
 .control-tag.mine {
