@@ -375,15 +375,49 @@ async function takeoverControl(): Promise<void> {
 
 /** 自己主动断开时置 true，watch 里不再提示「被接管」。 */
 let selfReleased = false;
+/** iOS 控制权心跳：90 秒没有心跳服务端会自动释放。 */
+let iosHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopIosHeartbeat(): void {
+  if (iosHeartbeatTimer) {
+    clearInterval(iosHeartbeatTimer);
+    iosHeartbeatTimer = null;
+  }
+}
+
+function startIosHeartbeat(): void {
+  stopIosHeartbeat();
+  iosHeartbeatTimer = setInterval(() => {
+    const id = device.value?.id;
+    if (!id || !isIos.value || !controller.value) return;
+    void api
+      .heartbeatIosControl(id)
+      .then((result) => {
+        if (result.ok) return;
+        // 控制权被管理员接管或超时释放
+        stopIosHeartbeat();
+        selfReleased = true;
+        controller.value = false;
+        releasedBy.value = '控制权已释放';
+        readonlyBannerClosed.value = false;
+      })
+      .catch(() => undefined);
+  }, 30_000);
+}
 
 async function stopControl(): Promise<void> {
   const current = device.value;
   if (!current) return;
 
-  // iOS 没有服务端会话，断开就是停止拉流并回到只读
+  // iOS 没有服务端投屏会话，断开就是释放控制权，画面保留为只读
   if (isIos.value) {
+    stopIosHeartbeat();
     selfReleased = true;
-    playerRef.value?.stopStream();
+    try {
+      await api.stopDeviceStream(current.id);
+    } catch {
+      /* 控制权可能已经超时释放 */
+    }
     controller.value = false;
     readonlyBannerClosed.value = false;
     message.success('已断开控制，当前页面保持只读');
@@ -409,11 +443,24 @@ watch(controller, (value, previous) => {
   selfReleased = false;
 });
 
-/** iOS 断开后重新接管：重挂播放器并恢复控制状态。 */
-function resumeIosControl(): void {
-  if (!isIos.value) return;
-  controller.value = true;
-  reloadNonce.value += 1;
+/** iOS 断开后重新申请控制权。 */
+async function resumeIosControl(): Promise<void> {
+  if (!isIos.value || !device.value) return;
+  try {
+    const result = await api.claimIosControl(device.value.id);
+    if (!result.granted) {
+      releasedBy.value = result.control?.username ?? '其他用户';
+      readonlyBannerClosed.value = false;
+      message.warning(`${releasedBy.value} 正在控制，当前只能查看`);
+      return;
+    }
+    controller.value = true;
+    startIosHeartbeat();
+  } catch (error) {
+    message.warning(
+      error instanceof Error ? error.message : '无法获取控制权',
+    );
+  }
 }
 
 async function kickControl(): Promise<void> {
@@ -499,12 +546,25 @@ async function createSession(): Promise<void> {
     return;
   }
 
-  // iOS 走 WDA，没有 scrcpy 会话
+  // iOS 走 WDA，没有 scrcpy 会话，但要向服务端申请控制权
   if (device.value.platform === 'ios') {
     sessionId.value = null;
     errorText.value = null;
     loading.value = false;
-    controller.value = true;
+    try {
+      const result = await api.claimIosControl(device.value.id);
+      controller.value = result.granted;
+      if (result.granted) {
+        startIosHeartbeat();
+      } else {
+        releasedBy.value = result.control?.username ?? '其他用户';
+        readonlyBannerClosed.value = false;
+      }
+    } catch (error) {
+      controller.value = false;
+      errorText.value =
+        error instanceof Error ? error.message : '无法获取控制权';
+    }
     return;
   }
 
@@ -786,6 +846,12 @@ onBeforeUnmount(() => {
   }
   // 主画面销毁后镜像流就失效了，同步关掉画中画
   if (pipActive.value) closePip();
+  // iOS 离开页面时释放控制权，其他人可以立即接管
+  stopIosHeartbeat();
+  if (isIos.value && controller.value) {
+    const id = device.value?.id;
+    if (id) void api.stopDeviceStream(id).catch(() => undefined);
+  }
   sessionId.value = null;
 });
 </script>
@@ -1040,6 +1106,7 @@ onBeforeUnmount(() => {
             :platform="device?.platform"
             :device-id="device?.id"
             :quality="quality"
+            :control-allowed="controller"
             @controller-change="controller = $event"
             @error="errorText = $event"
             @control-released="onControlReleased"

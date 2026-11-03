@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   FRAME_KIND,
   decodeFrame,
@@ -14,6 +14,8 @@ const props = defineProps<{
   platform?: 'android' | 'ios';
   deviceId?: string;
   quality?: 'low' | 'medium' | 'high' | 'ultra';
+  /** iOS 没有 WebSocket 会话，控制权由父组件从服务端申请后传入。 */
+  controlAllowed?: boolean;
   /** 批量控制等场景：去掉画面四周留白，贴满容器。 */
   flush?: boolean;
 }>();
@@ -34,6 +36,14 @@ const connected = ref(false);
 const controller = ref(false);
 const starting = ref(true);
 const isIos = computed(() => props.platform === 'ios');
+
+// 父组件拿到 iOS 控制权后同步给播放器，只读时不能操作
+watch(
+  () => props.controlAllowed,
+  (value) => {
+    if (isIos.value) controller.value = Boolean(value);
+  },
+);
 
 let socket: WebSocket | null = null;
 let decoder: VideoDecoder | null = null;
@@ -280,8 +290,9 @@ function connect(): void {
   resetPointers();
 
   if (isIos.value) {
-    controller.value = true;
-    emit('controller-change', true);
+    // 控制权由服务端分配，只读用户也能看流但不能操作
+    controller.value = props.controlAllowed ?? true;
+    emit('controller-change', controller.value);
     void startIosStream();
     return;
   }

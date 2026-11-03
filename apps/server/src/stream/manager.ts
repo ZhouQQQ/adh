@@ -27,6 +27,16 @@ import type { WebHub } from '../ws/web-hub.js';
 const IDLE_TIMEOUT_MS = 5 * 60_000;
 const AGENT_ATTACH_TIMEOUT_MS = 15_000;
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
+/** iOS 没有 WebSocket 会话，用带心跳的控制权记录，超时自动释放。 */
+const IOS_CONTROL_TTL_MS = 90_000;
+
+interface IosControl {
+  userId: string;
+  username: string;
+  displayName?: string;
+  since: number;
+  touchedAt: number;
+}
 
 interface LocalStream {
   scrcpy: ScrcpySession;
@@ -85,8 +95,58 @@ function sendJson(socket: WebSocket, value: unknown): void {
 /** 管理一路设备投屏会话：本地直连 scrcpy 或经远程 agent 中转。 */
 export class StreamManager {
   private readonly sessions = new Map<string, StreamSession>();
+  /** iOS 设备的控制权（无 WebSocket 会话，按心跳 + TTL 维护）。 */
+  private readonly iosControls = new Map<string, IosControl>();
 
   constructor(private readonly deps: StreamManagerDeps) {}
+
+  private liveIosControl(deviceId: string): IosControl | undefined {
+    const entry = this.iosControls.get(deviceId);
+    if (!entry) return undefined;
+    if (Date.now() - entry.touchedAt > IOS_CONTROL_TTL_MS) {
+      this.iosControls.delete(deviceId);
+      return undefined;
+    }
+    return entry;
+  }
+
+  private toControlInfo(entry: IosControl): DeviceControlInfo {
+    return {
+      userId: entry.userId,
+      username: entry.username,
+      displayName: entry.displayName,
+      since: entry.since,
+    };
+  }
+
+  /** iOS 申请控制权：同一时间只允许一个人控制。 */
+  claimIosControl(
+    deviceId: string,
+    user: AuthUser,
+  ): { granted: boolean; control?: DeviceControlInfo } {
+    const existing = this.liveIosControl(deviceId);
+    if (existing && existing.userId !== user.id) {
+      return { granted: false, control: this.toControlInfo(existing) };
+    }
+    const entry: IosControl = existing ?? {
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      since: Date.now(),
+      touchedAt: Date.now(),
+    };
+    entry.touchedAt = Date.now();
+    this.iosControls.set(deviceId, entry);
+    return { granted: true, control: this.toControlInfo(entry) };
+  }
+
+  /** iOS 控制权心跳；返回 false 表示控制权已经不属于该用户。 */
+  touchIosControl(deviceId: string, userId: string): boolean {
+    const existing = this.liveIosControl(deviceId);
+    if (!existing || existing.userId !== userId) return false;
+    existing.touchedAt = Date.now();
+    return true;
+  }
 
   /** 进程退出时清理所有会话。 */
   shutdown(): void {
@@ -111,7 +171,11 @@ export class StreamManager {
   /** 当前正在控制设备的用户。 */
   getControl(deviceId: string): DeviceControlInfo | undefined {
     const session = this.findSessionByDevice(deviceId);
-    if (!session?.controller) return undefined;
+    if (!session) {
+      const ios = this.liveIosControl(deviceId);
+      return ios ? this.toControlInfo(ios) : undefined;
+    }
+    if (!session.controller) return undefined;
     const meta = viewerMeta.get(session.controller);
     if (!meta?.user) return undefined;
     return {
@@ -146,7 +210,10 @@ export class StreamManager {
   /** 该用户此时进入设备是否会成为控制者（只读观看不算）。 */
   willBecomeController(deviceId: string, userId: string): boolean {
     const session = this.findSessionByDevice(deviceId);
-    if (!session) return true;
+    if (!session) {
+      const ios = this.liveIosControl(deviceId);
+      return !ios || ios.userId === userId;
+    }
     if (session.controller) return false;
     // 控制权空悬时只有原控制者本人能恢复
     return !session.controllerUserId || session.controllerUserId === userId;
@@ -160,13 +227,21 @@ export class StreamManager {
       const meta = viewerMeta.get(session.controller);
       if (meta?.user?.id === userId) count += 1;
     }
+    const now = Date.now();
+    for (const entry of this.iosControls.values()) {
+      if (now - entry.touchedAt <= IOS_CONTROL_TTL_MS && entry.userId === userId) {
+        count += 1;
+      }
+    }
     return count;
   }
 
   /** 管理员强制断开某台设备的投屏会话。 */
   kickDevice(deviceId: string, reason = '管理员强制断开连接'): boolean {
     const session = this.findSessionByDevice(deviceId);
-    if (!session) return false;
+    if (!session) {
+      return this.iosControls.delete(deviceId);
+    }
     this.destroy(session.id, reason);
     return true;
   }
@@ -253,7 +328,13 @@ export class StreamManager {
   /** 控制者主动释放控制权；管理员也可以强制释放。 */
   releaseControl(deviceId: string, user: AuthUser): boolean {
     const session = this.findSessionByDevice(deviceId);
-    if (!session) return false;
+    if (!session) {
+      const ios = this.liveIosControl(deviceId);
+      if (!ios) return false;
+      if (!isAdminRole(user.role) && ios.userId !== user.id) return false;
+      this.iosControls.delete(deviceId);
+      return true;
+    }
 
     const controller = session.controller;
     const meta = controller ? viewerMeta.get(controller) : undefined;
@@ -286,7 +367,18 @@ export class StreamManager {
   /** 管理员把控制权从当前控制者手里接管过来。 */
   takeover(deviceId: string, user: AuthUser): boolean {
     const session = this.findSessionByDevice(deviceId);
-    if (!session) return false;
+    if (!session) {
+      // iOS：管理员直接把控制权抢过来
+      if (!isAdminRole(user.role)) return false;
+      this.iosControls.set(deviceId, {
+        userId: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        since: Date.now(),
+        touchedAt: Date.now(),
+      });
+      return true;
+    }
 
     // 有人正在控制，或原控制者刚离开还没释放，只有管理员能抢
     if (session.controller && !isAdminRole(user.role)) return false;

@@ -938,6 +938,53 @@ export async function registerHttpRoutes(
     return { ok: true };
   });
 
+  /** iOS 申请控制权：同一时间只有一个人能控制，其他人只读。 */
+  app.post('/api/devices/:id/ios/control', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
+    if (!request.user) return reply.code(401).send({ error: '请先登录' });
+
+    const current = deps.streams.getControl(id);
+    const alreadyMine = current?.userId === request.user.id;
+    if (!alreadyMine) {
+      const limit = await deps.settings.getDeviceLimit(request.user.role);
+      if (
+        limit > 0 &&
+        deps.streams.countControlledDevices(request.user.id) >= limit
+      ) {
+        return reply.code(403).send({
+          error: `最多同时控制 ${limit} 台设备，只读查看不受限制`,
+        });
+      }
+    }
+
+    const result = deps.streams.claimIosControl(id, request.user);
+    if (!result.granted) {
+      return { granted: false, control: result.control };
+    }
+    if (!alreadyMine) {
+      logDevice(request, device, 'control.start', '开始控制（iOS）');
+    }
+    return { granted: true, control: result.control };
+  });
+
+  /** iOS 控制权心跳：前端每 30 秒调用一次，超时自动释放。 */
+  app.post(
+    '/api/devices/:id/ios/control/heartbeat',
+    async (request, reply) => {
+      if (!request.user) return reply.code(401).send({ error: '请先登录' });
+      const { id } = request.params as { id: string };
+      return { ok: deps.streams.touchIosControl(id, request.user.id) };
+    },
+  );
+
   /* ---------------------------------------------------------------- */
   /* APK 安装                                                          */
   /* ---------------------------------------------------------------- */
@@ -1237,6 +1284,26 @@ export async function registerHttpRoutes(
       return null;
     }
     return device;
+  };
+
+  /** iOS 输入只允许当前控制者调用，只读用户不能操作。 */
+  const requireIosController = (
+    deviceId: string,
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): boolean => {
+    if (!request.user) {
+      void reply.code(401).send({ error: '请先登录' });
+      return false;
+    }
+    const control = deps.streams.getControl(deviceId);
+    if (!control || control.userId !== request.user.id) {
+      void reply
+        .code(403)
+        .send({ error: '当前设备由其他人控制，你只能查看' });
+      return false;
+    }
+    return true;
   };
 
   app.get('/api/devices/:id/files', async (request, reply) => {
@@ -1671,6 +1738,7 @@ export async function registerHttpRoutes(
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
     }
+    if (!requireIosController(id, request, reply)) return reply;
 
     const body = z
       .object({ quality: z.enum(['low', 'medium', 'high', 'ultra']) })
@@ -1702,6 +1770,7 @@ export async function registerHttpRoutes(
     if (device.locked) {
       return reply.code(403).send({ error: '设备已被管理员锁定' });
     }
+    if (!requireIosController(id, request, reply)) return reply;
 
     const parsed = IosInputBody.safeParse(request.body);
     if (!parsed.success) {

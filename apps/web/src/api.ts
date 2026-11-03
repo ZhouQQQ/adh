@@ -509,6 +509,26 @@ export const api = {
     return request(`/api/devices/${deviceId}/stream/stop`, { method: 'POST' });
   },
 
+  /** iOS 申请控制权：同一时间只有一个人能控制。 */
+  claimIosControl(deviceId: string): Promise<{
+    granted: boolean;
+    control?: {
+      userId: string;
+      username: string;
+      displayName?: string;
+      since: number;
+    };
+  }> {
+    return request(`/api/devices/${deviceId}/ios/control`, { method: 'POST' });
+  },
+
+  /** iOS 控制权心跳，超时服务端会自动释放。 */
+  heartbeatIosControl(deviceId: string): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/ios/control/heartbeat`, {
+      method: 'POST',
+    });
+  },
+
   /** 控制者开关是否允许其他人查看。 */
   setStreamViewers(
     deviceId: string,
