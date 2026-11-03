@@ -27,6 +27,7 @@ import { registerAgentChannel } from './ws/agent.js';
 import { registerStreamChannel } from './ws/stream.js';
 import { WebHub } from './ws/web-hub.js';
 
+/** ADH_SERVE_WEB=0 时只提供 API，前端页面走 Vite 开发服务器。 */
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
@@ -184,35 +185,48 @@ async function main(): Promise<void> {
   });
 
   // 静态资源与 SPA 回退：Vite 构建产物输出到 apps/server/public
+  // ADH_SERVE_WEB=0 时只提供 API，页面统一走 Vite 开发服务器
   const indexHtml = path.join(config.publicDir, 'index.html');
-  fs.mkdirSync(config.publicDir, { recursive: true });
-  await app.register(fastifyStatic, {
-    root: config.publicDir,
-    prefix: '/',
-    setHeaders: (res, filePath) => {
-      // 入口 HTML 必须实时校验，否则改版后浏览器会一直用旧 bundle
-      if (filePath.endsWith('index.html')) {
-        res.setHeader('cache-control', 'no-cache, must-revalidate');
-        return;
-      }
-      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-        res.setHeader('cache-control', 'public, max-age=31536000, immutable');
-      }
-    },
-  });
+  if (config.serveWeb) {
+    fs.mkdirSync(config.publicDir, { recursive: true });
+    await app.register(fastifyStatic, {
+      root: config.publicDir,
+      prefix: '/',
+      setHeaders: (res, filePath) => {
+        // 入口 HTML 必须实时校验，否则改版后浏览器会一直用旧 bundle
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('cache-control', 'no-cache, must-revalidate');
+          return;
+        }
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+        }
+      },
+    });
 
-  app.setNotFoundHandler(async (request, reply) => {
-    if (request.url.startsWith('/api') || request.url.startsWith('/ws')) {
-      return reply.code(404).send({ error: 'not found' });
-    }
-    if (!fs.existsSync(indexHtml)) {
+    app.setNotFoundHandler(async (request, reply) => {
+      if (request.url.startsWith('/api') || request.url.startsWith('/ws')) {
+        return reply.code(404).send({ error: 'not found' });
+      }
+      if (!fs.existsSync(indexHtml)) {
+        return reply.code(404).send({
+          error: 'web console not built',
+          hint: 'run `pnpm --filter @adh/web build` or use the vite dev server',
+        });
+      }
+      return reply.sendFile('index.html');
+    });
+  } else {
+    app.setNotFoundHandler(async (request, reply) => {
+      if (request.url.startsWith('/api') || request.url.startsWith('/ws')) {
+        return reply.code(404).send({ error: 'not found' });
+      }
       return reply.code(404).send({
-        error: 'web console not built',
-        hint: 'run `pnpm --filter @adh/web build` or use the vite dev server',
+        error: 'web console disabled',
+        hint: 'ADH_SERVE_WEB=0，开发请访问 http://localhost:5173',
       });
-    }
-    return reply.sendFile('index.html');
-  });
+    });
+  }
 
   await app.listen({ host: config.host, port: config.port });
 
@@ -228,7 +242,11 @@ async function main(): Promise<void> {
       ? `object store : oss://${oss.bucket}/${oss.prefix}`
       : 'object store : local files',
   );
-  logger.info(`web console  : http://127.0.0.1:${config.port}`);
+  logger.info(
+    config.serveWeb
+      ? `web console  : http://127.0.0.1:${config.port}`
+      : 'web console  : 已关闭静态托管（ADH_SERVE_WEB=0），开发请用 http://localhost:5173',
+  );
   logger.info(
     config.localAgent
       ? '本机设备已由内置 Agent 接管，其他宿主机请在控制台新建 Agent 接入'

@@ -826,7 +826,7 @@ function resetFilters(): void {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 0;
+  padding: 6px 0;
 }
 
 .filter-title {
@@ -870,7 +870,7 @@ function resetFilters(): void {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 9px 0;
+  padding: 4px 0;
 }
 
 .filter-row + .filter-row {
@@ -880,7 +880,7 @@ function resetFilters(): void {
 .filter-label {
   flex: none;
   width: 78px;
-  padding-top: 3px;
+  padding-top: 1px;
   font-size: 12px;
   color: var(--text-dim);
   white-space: nowrap;
@@ -896,13 +896,13 @@ function resetFilters(): void {
 }
 
 .opt {
-  padding: 2px 9px;
+  padding: 1px 8px;
   border: none;
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.5;
   white-space: nowrap;
   cursor: pointer;
   transition:

@@ -54,6 +54,8 @@ export interface ServerConfig {
   logLevel: string;
   /** 是否启用 server 内置的本机 Agent。默认开启，ADH_LOCAL_AGENT=0 关闭。 */
   localAgent: boolean;
+  /** 是否托管前端构建产物。默认开启，ADH_SERVE_WEB=0 时只提供 API（开发用 Vite）。 */
+  serveWeb: boolean;
   /** OSS 配置；null 表示文件只落本地磁盘。 */
   oss: OssConfig | null;
 }
@@ -194,6 +196,7 @@ export function loadConfig(): ServerConfig {
     publicDir: path.join(APP_DIR, 'public'),
     logLevel: cli['log-level'] ?? process.env.ADH_LOG_LEVEL ?? 'info',
     localAgent: process.env.ADH_LOCAL_AGENT !== '0',
+    serveWeb: process.env.ADH_SERVE_WEB !== '0',
     oss: readOssConfig(),
   };
 }
