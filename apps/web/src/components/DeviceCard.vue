@@ -150,7 +150,11 @@ const canControl = computed(
       props.device.capabilities.includes('wda')),
 );
 
-const network = ref<{ ip: string | null } | null>(null);
+const network = ref<{
+  connected: boolean;
+  ssid: string | null;
+  ip: string | null;
+} | null>(null);
 let networkTimer: ReturnType<typeof setInterval> | null = null;
 
 async function loadNetwork(): Promise<void> {
@@ -186,6 +190,21 @@ const cpuText = computed(() => {
   if (device.cpu) parts.push(device.cpu);
   if (device.cpuCores) parts.push(`${device.cpuCores} 核`);
   return parts.join(' · ') || '—';
+});
+
+/** 卡片上优先显示 WiFi 名称，IP 放在悬浮提示里。 */
+const wifiText = computed(() => {
+  const net = network.value;
+  if (!net) return '—';
+  if (!net.connected) return '未连接';
+  return net.ssid ?? (net.ip ? '已连接' : '—');
+});
+
+const wifiTitle = computed(() => {
+  const net = network.value;
+  if (!net) return 'WiFi';
+  if (!net.connected) return 'WiFi 未连接';
+  return [net.ssid ?? 'WiFi', net.ip].filter(Boolean).join(' · ');
 });
 </script>
 
@@ -287,10 +306,10 @@ const cpuText = computed(() => {
           <span class="v">{{ resolutionText }}</span>
         </div>
         <div class="kv">
-          <n-icon class="k" :size="12" title="IP 地址">
+          <n-icon class="k" :size="12" title="WiFi">
             <WifiOutline />
           </n-icon>
-          <span class="v mono">{{ network?.ip ?? '—' }}</span>
+          <span class="v" :title="wifiTitle">{{ wifiText }}</span>
         </div>
         <div class="kv span-2">
           <n-icon class="k" :size="12" title="UDID">

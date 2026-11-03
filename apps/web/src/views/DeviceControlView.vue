@@ -1260,6 +1260,26 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: var(--surface);
   overflow-y: auto;
+  /* 滚动条默认隐藏，鼠标移入才显示 */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.info-col:hover {
+  scrollbar-color: #d4d4d8 transparent;
+}
+
+.info-col::-webkit-scrollbar {
+  width: 6px;
+}
+
+.info-col::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: transparent;
+}
+
+.info-col:hover::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
 }
 
 .info-row {
