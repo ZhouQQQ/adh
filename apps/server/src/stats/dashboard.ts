@@ -28,6 +28,10 @@ export interface DashboardData {
     todaySessions: number;
     todaySeconds: number;
     todayUsers: number;
+    /** 近 7 天有控制记录的用户数。 */
+    weekUsers: number;
+    /** 统计窗口内有控制记录的用户数。 */
+    monthUsers: number;
   };
   deviceRanking: Array<{
     deviceId: string;
@@ -191,6 +195,9 @@ export async function loadDashboard(deps: DashboardDeps): Promise<DashboardData>
   let todayMs = 0;
   let todaySessions = 0;
   const todayUsers = new Set<string>();
+  const weekUsers = new Set<string>();
+  const monthUsers = new Set<string>();
+  const weekStart = now - TREND_DAYS * 86_400_000;
 
   for (const session of sessions) {
     totalMs += session.ms;
@@ -209,6 +216,9 @@ export async function loadDashboard(deps: DashboardDeps): Promise<DashboardData>
       user.sessions += 1;
       user.ms += session.ms;
       userRanking.set(session.username, user);
+
+      monthUsers.add(session.username);
+      if (session.start >= weekStart) weekUsers.add(session.username);
     }
 
     const key = dayKey(session.start);
@@ -308,6 +318,8 @@ export async function loadDashboard(deps: DashboardDeps): Promise<DashboardData>
       todaySessions,
       todaySeconds: Math.round(todayMs / 1000),
       todayUsers: todayUsers.size,
+      weekUsers: weekUsers.size,
+      monthUsers: monthUsers.size,
     },
     deviceRanking: [...deviceRanking.entries()]
       .map(([deviceId, value]) => ({

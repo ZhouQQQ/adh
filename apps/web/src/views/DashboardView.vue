@@ -61,6 +61,14 @@ function compactDuration(seconds: number): string {
   return `${(seconds / 86_400).toFixed(1)} 天`;
 }
 
+/** 柱状图里用的超短时长写法。 */
+function barLabel(seconds: number): string {
+  if (seconds >= 3600) return `${(seconds / 3600).toFixed(1)}h`;
+  if (seconds >= 60) return `${Math.round(seconds / 60)}m`;
+  if (seconds > 0) return `${seconds}s`;
+  return '';
+}
+
 function formatSize(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
@@ -103,7 +111,7 @@ const cards = computed(() => {
       key: 'users',
       label: '总用户',
       value: String(d.users.total),
-      hint: '',
+      hint: `近一周活跃 ${d.usage.weekUsers} · 近 30 天活跃 ${d.usage.monthUsers}`,
       icon: PeopleOutline,
       tone: 'blue',
     },
@@ -228,7 +236,11 @@ function userText(item: DashboardData['recent'][number]): string {
                   <div
                     class="bar-fill"
                     :style="{ height: `${Math.max(2, (item.seconds / dailyMax) * 100)}%` }"
-                  />
+                  >
+                    <span v-if="item.seconds > 0" class="bar-value">
+                      {{ barLabel(item.seconds) }}
+                    </span>
+                  </div>
                 </div>
                 <div class="bar-label">{{ item.date.slice(5) }}</div>
               </div>
@@ -317,6 +329,7 @@ function userText(item: DashboardData['recent'][number]): string {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  padding-right: 10px;
 }
 
 /* n-spin 会包一层容器，间距要放在内层，否则卡片和面板会贴在一起 */
@@ -409,13 +422,14 @@ function userText(item: DashboardData['recent'][number]): string {
 
 .chart {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 8px;
   height: 150px;
 }
 
 .bar-col {
   flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -426,6 +440,7 @@ function userText(item: DashboardData['recent'][number]): string {
 .bar-track {
   flex: 1;
   width: 100%;
+  min-height: 0;
   display: flex;
   align-items: flex-end;
   background: var(--surface-2);
@@ -435,9 +450,21 @@ function userText(item: DashboardData['recent'][number]): string {
 
 .bar-fill {
   width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 4px;
   border-radius: 5px 5px 0 0;
   background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
   transition: height 0.3s ease;
+}
+
+.bar-value {
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .bar-label {

@@ -75,6 +75,10 @@ export interface DashboardData {
     todaySessions: number;
     todaySeconds: number;
     todayUsers: number;
+    /** 近 7 天有控制记录的用户数。 */
+    weekUsers: number;
+    /** 统计窗口内有控制记录的用户数。 */
+    monthUsers: number;
   };
   deviceRanking: Array<{
     deviceId: string;
