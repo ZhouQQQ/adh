@@ -32,6 +32,11 @@ const UpdateUserBody = z.object({
   password: z.string().min(6).max(128).optional(),
 });
 
+const ChangePasswordBody = z.object({
+  oldPassword: z.string().min(1).max(128),
+  newPassword: z.string().min(6).max(128),
+});
+
 const AuditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
   offset: z.coerce.number().int().min(0).optional(),
@@ -67,6 +72,48 @@ export async function registerAuthRoutes(
   app.post('/api/auth/logout', async (request) => {
     const token = bearerToken(request);
     if (token) await deps.auth.logout(token);
+    return { ok: true };
+  });
+
+  /** 修改自己的密码（需要校验原密码）。 */
+  app.post('/api/auth/password', async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: '请先登录' });
+
+    const parsed = ChangePasswordBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '新密码至少 6 位' });
+    }
+
+    const ok = await deps.auth.changePassword(
+      user.id,
+      parsed.data.oldPassword,
+      parsed.data.newPassword,
+    );
+    if (!ok) {
+      await deps.auth.writeAudit({
+        userId: user.id,
+        username: user.username,
+        role: user.role,
+        action: 'user.password',
+        target: user.username,
+        status: 400,
+        ip: request.ip,
+        detail: '修改密码失败：原密码不正确',
+      });
+      return reply.code(400).send({ error: '原密码不正确' });
+    }
+
+    await deps.auth.writeAudit({
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      action: 'user.password',
+      target: user.username,
+      status: 200,
+      ip: request.ip,
+      detail: '修改自己的登录密码',
+    });
     return { ok: true };
   });
 
@@ -157,7 +204,7 @@ export async function registerAuthRoutes(
       changes.push(parsed.data.enabled ? '启用账号' : '禁用账号');
     }
     if (parsed.data.displayName !== undefined) changes.push('修改显示名');
-    if (parsed.data.password !== undefined) changes.push('重置密码');
+    if (parsed.data.password !== undefined) changes.push('重置登录密码');
 
     await deps.auth.writeAudit({
       userId: request.user?.id,
@@ -204,7 +251,7 @@ export async function registerAuthRoutes(
       target: target.username,
       status: 204,
       ip: request.ip,
-      detail: `删除用户「${target.username}」`,
+      detail: `删除用户「${target.username}」（角色=${roleLabel(target.role)}）`,
     });
     return reply.code(204).send();
   });

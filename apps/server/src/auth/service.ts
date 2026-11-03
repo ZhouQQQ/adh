@@ -248,6 +248,25 @@ export class AuthService {
     };
   }
 
+  /** 校验原密码后修改自己的密码。 */
+  async changePassword(
+    id: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<boolean> {
+    const [row] = await this.db.query<{ passwordHash: string }>(
+      'SELECT password_hash AS passwordHash FROM adh_users WHERE id = ?',
+      [id],
+    );
+    if (!row || !verifyPassword(oldPassword, row.passwordHash)) return false;
+
+    await this.db.execute(
+      'UPDATE adh_users SET password_hash = ? WHERE id = ?',
+      [hashPassword(newPassword), id],
+    );
+    return true;
+  }
+
   async getUser(id: string): Promise<UserRow | undefined> {
     const [row] = await this.db.query<UserQueryRow>(
       `SELECT id, username, '' AS passwordHash, role,

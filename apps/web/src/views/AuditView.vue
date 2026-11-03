@@ -30,6 +30,7 @@ const actionOptions = [
   { label: '创建用户', value: 'user.create' },
   { label: '更新用户', value: 'user.update' },
   { label: '删除用户', value: 'user.delete' },
+  { label: '修改密码', value: 'user.password' },
   { label: '创建节点', value: 'agent.create' },
   { label: '重命名节点', value: 'agent.update' },
   { label: '删除节点', value: 'agent.delete' },
@@ -49,6 +50,7 @@ const actionLabel: Record<string, string> = {
   'user.create': '创建用户',
   'user.update': '更新用户',
   'user.delete': '删除用户',
+  'user.password': '修改密码',
   'agent.create': '创建节点',
   'agent.update': '重命名节点',
   'agent.delete': '删除节点',
@@ -179,9 +181,16 @@ const columns: DataTableColumns<AuditRecord> = [
       ),
   },
   {
+    title: '对象',
+    key: 'target',
+    width: 120,
+    render: (row) => row.target || '—',
+  },
+  {
     title: '详情',
     key: 'detail',
-    render: (row) => row.detail || row.target || row.path || '—',
+    minWidth: 220,
+    render: (row) => row.detail || row.path || '—',
   },
   {
     title: 'IP',

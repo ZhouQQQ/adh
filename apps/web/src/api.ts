@@ -221,6 +221,17 @@ export const api = {
     return request('/api/auth/logout', { method: 'POST' });
   },
 
+  /** 修改自己的登录密码。 */
+  changePassword(
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<{ ok: boolean }> {
+    return request('/api/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+  },
+
   me(): Promise<{ user: AuthUser | null }> {
     return request('/api/auth/me');
   },

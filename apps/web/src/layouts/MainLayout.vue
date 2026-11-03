@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, h, onMounted, watch } from 'vue';
+import { computed, h, onMounted, ref, watch } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import {
   NButton,
   NDropdown,
   NIcon,
+  NInput,
   NLayout,
   NLayoutContent,
   NLayoutSider,
   NMenu,
+  NModal,
   NTag,
+  useMessage,
   type DropdownOption,
   type MenuOption,
 } from 'naive-ui';
@@ -33,10 +36,60 @@ import FloatingPreviews from '../components/FloatingPreviews.vue';
 
 const route = useRoute();
 const router = useRouter();
+const message = useMessage();
 const { agents, devices } = useFleet();
 const { previews, closeAllPreviews, focusPreview } = usePreviews();
 const { user, isAdmin, isSuper, loadMe, logout } = useAuth();
 const { title: siteTitle, subtitle: siteSubtitle, logoUpdatedAt } = useSite();
+
+const pwdShow = ref(false);
+const oldPassword = ref('');
+const newPassword = ref('');
+const confirmPassword = ref('');
+const pwdSaving = ref(false);
+
+const userMenu = computed<DropdownOption[]>(() => [
+  { label: '修改密码', key: 'password' },
+  { type: 'divider', key: 'divider' },
+  { label: '退出登录', key: 'logout' },
+]);
+
+function onUserMenu(key: string): void {
+  if (key === 'password') {
+    oldPassword.value = '';
+    newPassword.value = '';
+    confirmPassword.value = '';
+    pwdShow.value = true;
+    return;
+  }
+  if (key === 'logout') void handleLogout();
+}
+
+async function submitPassword(): Promise<void> {
+  if (!oldPassword.value) {
+    message.warning('请输入原密码');
+    return;
+  }
+  if (newPassword.value.length < 6) {
+    message.warning('新密码至少 6 位');
+    return;
+  }
+  if (newPassword.value !== confirmPassword.value) {
+    message.warning('两次输入的新密码不一致');
+    return;
+  }
+
+  pwdSaving.value = true;
+  try {
+    await api.changePassword(oldPassword.value, newPassword.value);
+    message.success('密码已修改');
+    pwdShow.value = false;
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '修改失败');
+  } finally {
+    pwdSaving.value = false;
+  }
+}
 
 const previewMenu = computed<DropdownOption[]>(() => {
   if (previews.value.length === 0) return [];
@@ -252,15 +305,65 @@ const onlineDevices = computed(
           >
             <n-button size="tiny" quaternary>画中画 {{ previews.length }}</n-button>
           </n-dropdown>
-          <div class="user-chip">
-            <span class="user-name">
-              {{ user?.displayName || user?.username || '未登录' }}
-            </span>
-            <n-tag size="tiny" :bordered="false">{{ roleLabel }}</n-tag>
-            <n-button text size="tiny" @click="handleLogout">退出</n-button>
-          </div>
+          <n-dropdown
+            trigger="click"
+            placement="bottom-end"
+            :options="userMenu"
+            @select="onUserMenu"
+          >
+            <div class="user-chip" role="button" tabindex="0">
+              <span class="user-name">
+                {{ user?.displayName || user?.username || '未登录' }}
+              </span>
+              <n-tag size="tiny" :bordered="false">{{ roleLabel }}</n-tag>
+              <span class="user-caret">▾</span>
+            </div>
+          </n-dropdown>
         </div>
       </header>
+
+      <n-modal
+        v-model:show="pwdShow"
+        preset="card"
+        title="修改密码"
+        style="width: 380px"
+        :bordered="false"
+      >
+        <div class="pwd-form">
+          <n-input
+            v-model:value="oldPassword"
+            type="password"
+            show-password-on="click"
+            placeholder="原密码"
+          />
+          <n-input
+            v-model:value="newPassword"
+            type="password"
+            show-password-on="click"
+            placeholder="新密码（至少 6 位）"
+          />
+          <n-input
+            v-model:value="confirmPassword"
+            type="password"
+            show-password-on="click"
+            placeholder="确认新密码"
+            @keyup.enter="submitPassword"
+          />
+        </div>
+        <template #footer>
+          <div class="pwd-footer">
+            <n-button size="small" @click="pwdShow = false">取消</n-button>
+            <n-button
+              size="small"
+              type="primary"
+              :loading="pwdSaving"
+              @click="submitPassword"
+            >
+              保存
+            </n-button>
+          </div>
+        </template>
+      </n-modal>
 
       <n-layout-content
         :class="['app-content', { fullscreen: route.meta.fullscreen }]"
@@ -342,6 +445,30 @@ const onlineDevices = computed(
   gap: 6px;
   padding-left: 10px;
   border-left: 1px solid var(--border);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.12s ease;
+}
+
+.user-chip:hover {
+  background: var(--surface-2);
+}
+
+.user-caret {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.pwd-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pwd-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .user-name {
