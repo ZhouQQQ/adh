@@ -258,7 +258,7 @@ function onControlReleased(username: string): void {
   if (username && username === user.value?.username) {
     releasedBy.value = '';
     readonlyBannerClosed.value = false;
-    message.success('已断开控制，当前页面保持只读');
+    message.success('已断开控制，当前仅可查看');
     return;
   }
   releasedBy.value = username || '控制者';
@@ -266,6 +266,20 @@ function onControlReleased(username: string): void {
 }
 
 const allowViewers = ref(true);
+
+// iOS 没有 WebSocket 会话，通过 device.updated 同步查看权限
+watch(
+  () => device.value?.allowViewers,
+  (value, previous) => {
+    if (value === undefined) return;
+    allowViewers.value = value;
+    if (!isIos.value || controller.value || isAdmin.value) return;
+    // 关闭查看时停止拉流，重新开启时重挂播放器恢复画面
+    if (!value) playerRef.value?.stopStream();
+    else if (previous === false) reloadNonce.value += 1;
+  },
+  { immediate: true },
+);
 
 const playerReady = ref(false);
 
@@ -463,7 +477,7 @@ async function stopControl(): Promise<void> {
     } catch {
       /* 控制权可能已经超时释放 */
     }
-    message.success('已断开控制，当前页面保持只读');
+    message.success('已断开控制，当前仅可查看');
     await refresh();
     return;
   }
@@ -507,7 +521,7 @@ watch(controller, (value, previous) => {
   if (value) readonlyBannerClosed.value = false;
   if (!value) safeKeyboard.value = false;
   if (previous === true && value === false && !selfReleased) {
-    message.warning('控制权已被接管，你现在是只读');
+    message.warning('控制权已被接管，你现在仅可查看');
   }
   selfReleased = false;
 });
@@ -533,8 +547,8 @@ watch(
       readonlyBannerClosed.value = false;
       message.warning(
         name || lastControlName
-          ? `控制权已被 ${name || lastControlName} 接管，你现在是只读`
-          : '控制权已被释放，你现在是只读',
+          ? `控制权已被 ${name || lastControlName} 接管，你现在仅可查看`
+          : '控制权已被释放，你现在仅可查看',
       );
       return;
     }
@@ -678,7 +692,7 @@ async function createSession(): Promise<void> {
 
 function requireController(): boolean {
   if (controller.value) return true;
-  message.warning('当前为只读模式，无法操作设备');
+  message.warning('当前为仅查看模式，无法操作设备');
   return false;
 }
 
@@ -1006,12 +1020,12 @@ onBeforeUnmount(() => {
         {{ controlDuration }}
       </n-tag>
       <n-tag
-        v-if="sessionId && !controller"
+        v-if="(sessionId || isIos) && !controller"
         size="small"
         type="warning"
         :bordered="false"
       >
-        只读
+        仅查看
       </n-tag>
 
       <div class="toolbar-center">
@@ -1193,6 +1207,13 @@ onBeforeUnmount(() => {
       </aside>
 
       <div ref="stageRef" class="stage">
+        <div
+          v-if="!controller && (sessionId || isIos)"
+          class="readonly-side"
+          title="仅查看模式，无法操作设备"
+        >
+          仅查看
+        </div>
         <n-spin v-if="loading && sessionId" :show="true" class="spin" />
         <div
           v-if="sessionId || isIos"
@@ -1258,7 +1279,7 @@ onBeforeUnmount(() => {
           v-if="selfLeft && !controller"
           class="readonly-banner released"
         >
-          <span>已断开控制，当前为只读</span>
+          <span>已断开控制，当前仅可查看</span>
           <n-button size="tiny" type="primary" @click="resumeIosControl">
             重新连接
           </n-button>
@@ -1314,7 +1335,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="sessionId && !allowViewers && !controller && !isAdmin"
+          v-if="(sessionId || isIos) && !allowViewers && !controller && !isAdmin"
           class="viewers-closed-overlay"
         >
           <div class="offline-title">控制者已关闭其他人查看</div>
@@ -1343,7 +1364,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div v-if="isFullscreen && !controller" class="readonly-float">只读</div>
+        <div v-if="isFullscreen && !controller" class="readonly-float">仅查看</div>
 
         <div v-if="recording" class="rec-badge">
           <span class="rec-dot" />
@@ -2109,6 +2130,22 @@ onBeforeUnmount(() => {
   background: #f59e0b;
   color: #ffffff;
   font-size: 12px;
+}
+
+/* 只读模式：左上角提示 */
+.readonly-side {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 12;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.92);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* 左上角录制指示 */

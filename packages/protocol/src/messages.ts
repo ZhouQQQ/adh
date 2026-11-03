@@ -108,6 +108,8 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   inUse: z.boolean().default(false),
   /** 正在控制的人；只读观看不算占用。 */
   control: DeviceControlInfoSchema.optional(),
+  /** iOS 等无会话设备是否允许其他人查看；未设置时默认允许。 */
+  allowViewers: z.boolean().optional(),
 });
 export type DeviceSummary = z.infer<typeof DeviceSummarySchema>;
 

@@ -482,7 +482,7 @@ function openControl(device: DeviceSummary): void {
     ).length;
     if (limit > 0 && willControl && !alreadyMine && controlling >= limit) {
       message.warning(
-        `最多同时控制 ${limit} 台设备，只读查看不受限制，请先断开其他设备`,
+        `最多同时控制 ${limit} 台设备，仅查看不受限制，请先断开其他设备`,
       );
       return;
     }

@@ -712,6 +712,7 @@ export async function registerHttpRoutes(
       ...(isOnline(device.agentId) ? device : { ...device, status: 'offline' as const }),
       inUse: inUse.has(device.id),
       control: deps.streams.getControl(device.id),
+      allowViewers: deps.streams.getAllowViewers(device.id),
     }));
   });
 
@@ -719,7 +720,7 @@ export async function registerHttpRoutes(
     const { id } = request.params as { id: string };
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: 'device not found' });
-    return { ...device, inUse: deps.streams.isInUse(id), control: deps.streams.getControl(id) };
+    return { ...device, inUse: deps.streams.isInUse(id), control: deps.streams.getControl(id), allowViewers: deps.streams.getAllowViewers(id) };
   });
 
   /** 编辑设备元信息（发布时间、安全键盘、管理员锁定）。 */
@@ -820,7 +821,7 @@ export async function registerHttpRoutes(
         deps.streams.countControlledDevices(request.user.id) >= limit
       ) {
         return reply.code(403).send({
-          error: `最多同时控制 ${limit} 台设备，只读查看不受限制`,
+          error: `最多同时控制 ${limit} 台设备，仅查看不受限制`,
         });
       }
     }
@@ -973,7 +974,7 @@ export async function registerHttpRoutes(
         deps.streams.countControlledDevices(request.user.id) >= limit
       ) {
         return reply.code(403).send({
-          error: `最多同时控制 ${limit} 台设备，只读查看不受限制`,
+          error: `最多同时控制 ${limit} 台设备，仅查看不受限制`,
         });
       }
     }

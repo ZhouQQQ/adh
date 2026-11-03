@@ -385,7 +385,7 @@ async function onQualityChange(
             type="warning"
             :bordered="false"
           >
-            只读
+            仅查看
           </n-tag>
           <span class="tile-meta">
             {{ device.platform === 'ios' ? 'iOS' : 'Android' }}

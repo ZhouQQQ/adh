@@ -313,6 +313,11 @@ export class StreamManager {
     { allow: boolean; owner: string | null }
   >();
 
+  /** iOS 等无会话设备是否允许其他人查看（原始值，未按角色过滤）。 */
+  getAllowViewers(deviceId: string): boolean {
+    return this.deviceViewers.get(deviceId)?.allow ?? true;
+  }
+
   /** iOS 等无会话设备是否允许其他人查看。 */
   isViewersAllowed(
     deviceId: string,
@@ -335,6 +340,8 @@ export class StreamManager {
     if (!session) {
       // iOS 没有投屏会话，按设备级开关处理
       this.deviceViewers.set(deviceId, { allow, owner: user.id });
+      // 广播给所有 Web 客户端，只读用户的页面可以立即显示/隐藏
+      this.notifyDevice(deviceId);
       return true;
     }
 
@@ -711,6 +718,7 @@ export class StreamManager {
           ...device,
           inUse: this.isInUse(deviceId),
           control: this.getControl(deviceId),
+          allowViewers: this.getAllowViewers(deviceId),
         },
       });
     });
