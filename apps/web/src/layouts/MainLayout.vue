@@ -155,8 +155,8 @@ watch([user, () => route.meta], () => {
 const menuOptions = computed<MenuOption[]>(() => {
   const deviceChildren: MenuOption[] = [];
 
-  // 仪表盘只有超级管理员能看
-  if (isSuper.value) {
+  // 仪表盘管理员与超级管理员都能看
+  if (isAdmin.value) {
     deviceChildren.push({
       label: () => h(RouterLink, { to: '/dashboard' }, { default: () => '仪表盘' }),
       key: '/dashboard',

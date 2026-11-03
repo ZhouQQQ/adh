@@ -106,7 +106,6 @@ async function main(): Promise<void> {
     // 以下功能仅超级管理员
     if (
       path.startsWith('/api/audit') ||
-      path === '/api/dashboard' ||
       (path.startsWith('/api/settings') && request.method !== 'GET') ||
       (path.startsWith('/api/agents') && request.method !== 'GET')
     ) {
@@ -216,10 +215,10 @@ async function main(): Promise<void> {
     port: config.port,
   });
 
-  /** 仪表盘统计：用户、设备、使用时长与排行（仅超级管理员）。 */
+  /** 仪表盘统计：用户、设备、使用时长与排行（管理员及以上）。 */
   app.get('/api/dashboard', async (request, reply) => {
-    if (request.user?.role !== 'superadmin') {
-      return reply.code(403).send({ error: '需要超级管理员权限' });
+    if (!isAdminRole(request.user?.role ?? '')) {
+      return reply.code(403).send({ error: '需要管理员权限' });
     }
     return loadDashboard({ db: driver, queries, packages, streams, registry });
   });

@@ -3,6 +3,7 @@ import { computed, h, onMounted, ref } from 'vue';
 import {
   NButton,
   NDataTable,
+  NDatePicker,
   NInput,
   NSelect,
   NTag,
@@ -10,7 +11,7 @@ import {
   type DataTableColumns,
   type PaginationProps,
 } from 'naive-ui';
-import { api, type AuditRecord } from '../api';
+import { api, type AuditRecord, type Role } from '../api';
 
 const message = useMessage();
 
@@ -91,6 +92,7 @@ const RANGE_OPTIONS = [
   { label: '最近 1 小时', value: '1h' },
   { label: '最近 1 天', value: '1d' },
   { label: '最近 7 天', value: '7d' },
+  { label: '自定义时间', value: 'custom' },
 ];
 const RANGE_MS: Record<string, number> = {
   '10m': 10 * 60_000,
@@ -98,11 +100,26 @@ const RANGE_MS: Record<string, number> = {
   '1d': 24 * 60 * 60_000,
   '7d': 7 * 24 * 60 * 60_000,
 };
-const range = ref<'all' | '10m' | '1h' | '1d' | '7d'>('all');
+const range = ref<'all' | '10m' | '1h' | '1d' | '7d' | 'custom'>('all');
+const customRange = ref<[number, number] | null>(null);
+const role = ref<'all' | Role>('all');
+
+const ROLE_OPTIONS = [
+  { label: '全部角色', value: 'all' },
+  { label: '超级管理员', value: 'superadmin' },
+  { label: '管理员', value: 'admin' },
+  { label: '普通用户', value: 'operator' },
+];
 
 function sinceValue(): number | undefined {
   if (range.value === 'all') return undefined;
+  if (range.value === 'custom') return customRange.value?.[0];
   return Date.now() - (RANGE_MS[range.value] ?? 0);
+}
+
+function untilValue(): number | undefined {
+  if (range.value !== 'custom') return undefined;
+  return customRange.value?.[1];
 }
 
 async function load(): Promise<void> {
@@ -113,7 +130,9 @@ async function load(): Promise<void> {
       offset: (page.value - 1) * pageSize.value,
       username: keyword.value.trim() || undefined,
       action: action.value || undefined,
+      role: role.value === 'all' ? undefined : role.value,
       since: sinceValue(),
+      until: untilValue(),
     });
     logs.value = result.logs;
     total.value = result.total;
@@ -222,10 +241,26 @@ onMounted(load);
         @update:value="search"
       />
       <n-select
+        v-model:value="role"
+        size="small"
+        :options="ROLE_OPTIONS"
+        style="width: 130px"
+        @update:value="search"
+      />
+      <n-select
         v-model:value="range"
         size="small"
         :options="RANGE_OPTIONS"
-        style="width: 140px"
+        style="width: 130px"
+        @update:value="search"
+      />
+      <n-date-picker
+        v-if="range === 'custom'"
+        v-model:value="customRange"
+        type="datetimerange"
+        size="small"
+        clearable
+        style="width: 340px"
         @update:value="search"
       />
       <n-button size="small" @click="search">查询</n-button>

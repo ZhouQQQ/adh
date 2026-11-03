@@ -29,6 +29,15 @@ const { user: current, isSuper } = useAuth();
 const users = ref<UserRecord[]>([]);
 const loading = ref(false);
 const keyword = ref('');
+const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all');
+const checkedIds = ref<string[]>([]);
+const batchBusy = ref(false);
+
+const STATUS_OPTIONS = [
+  { label: '全部状态', value: 'all' },
+  { label: '启用', value: 'enabled' },
+  { label: '禁用', value: 'disabled' },
+];
 
 const show = ref(false);
 const saving = ref(false);
@@ -78,7 +87,7 @@ const PERMISSIONS: Array<{
   { name: '应用管理', superadmin: true, admin: true, operator: true },
   { name: '用户管理', superadmin: true, admin: true, operator: false },
   { name: '审计日志', superadmin: true, admin: false, operator: false },
-  { name: '仪表盘', superadmin: true, admin: false, operator: false },
+  { name: '仪表盘', superadmin: true, admin: true, operator: false },
   { name: '节点管理', superadmin: true, admin: false, operator: false },
   { name: '系统设置', superadmin: true, admin: false, operator: false },
 ];
@@ -137,6 +146,8 @@ const filteredUsers = computed(() => {
     if (roleFilter.value !== 'all' && user.role !== roleFilter.value) {
       return false;
     }
+    if (statusFilter.value === 'enabled' && !user.enabled) return false;
+    if (statusFilter.value === 'disabled' && user.enabled) return false;
     if (!text) return true;
     const haystack = `${user.username} ${user.displayName ?? ''} ${
       roleLabel[user.role] ?? ''
@@ -145,15 +156,84 @@ const filteredUsers = computed(() => {
   });
 });
 
+/** 是否能管理该用户：超管可管所有人，管理员只能管管理员与普通用户。 */
+function canManageUser(row: UserRecord): boolean {
+  if (row.id === current.value?.id) return false;
+  return isSuper.value || row.role !== 'superadmin';
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   try {
     users.value = (await api.listUsers()).users;
+    checkedIds.value = [];
   } catch (error) {
     message.error(error instanceof Error ? error.message : '读取用户失败');
   } finally {
     loading.value = false;
   }
+}
+
+/** 批量启用 / 禁用。 */
+async function batchSetEnabled(enabled: boolean): Promise<void> {
+  const targets = users.value.filter(
+    (user) => checkedIds.value.includes(user.id) && canManageUser(user),
+  );
+  if (targets.length === 0) {
+    message.warning('没有可操作的账号');
+    return;
+  }
+
+  batchBusy.value = true;
+  let done = 0;
+  for (const target of targets) {
+    try {
+      await api.updateUser(target.id, { enabled });
+      done += 1;
+    } catch (error) {
+      message.error(
+        `${target.username}: ${error instanceof Error ? error.message : '操作失败'}`,
+      );
+    }
+  }
+  batchBusy.value = false;
+  message.success(`已${enabled ? '启用' : '禁用'} ${done} 个账号`);
+  await load();
+}
+
+/** 批量删除。 */
+function batchDelete(): void {
+  const targets = users.value.filter(
+    (user) => checkedIds.value.includes(user.id) && canManageUser(user),
+  );
+  if (targets.length === 0) {
+    message.warning('没有可删除的账号');
+    return;
+  }
+
+  dialog.warning({
+    title: '批量删除用户',
+    content: `确定删除 ${targets.length} 个账号吗？该操作不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      batchBusy.value = true;
+      let done = 0;
+      for (const target of targets) {
+        try {
+          await api.deleteUser(target.id);
+          done += 1;
+        } catch (error) {
+          message.error(
+            `${target.username}: ${error instanceof Error ? error.message : '删除失败'}`,
+          );
+        }
+      }
+      batchBusy.value = false;
+      message.success(`已删除 ${done} 个账号`);
+      await load();
+    },
+  });
 }
 
 function openCreate(): void {
@@ -240,6 +320,9 @@ function remove(row: UserRecord): void {
 
 const columns: DataTableColumns<UserRecord> = [
   {
+    type: 'selection',
+    disabled: (row) => !canManageUser(row),
+  },
     title: '用户名',
     key: 'username',
     render: (row) =>
@@ -339,11 +422,39 @@ onMounted(load);
         :options="roleFilterOptions"
         style="width: 150px"
       />
+      <n-select
+        v-model:value="statusFilter"
+        size="small"
+        :options="STATUS_OPTIONS"
+        style="width: 120px"
+      />
       <n-button size="small" type="primary" @click="openCreate">新建用户</n-button>
       <n-button size="small" :loading="loading" @click="load">刷新</n-button>
     </div>
 
+    <div v-if="checkedIds.length > 0" class="batch-bar">
+      <span class="batch-text">已选 {{ checkedIds.length }} 个账号</span>
+      <n-button size="small" :loading="batchBusy" @click="batchSetEnabled(true)">
+        启用
+      </n-button>
+      <n-button size="small" :loading="batchBusy" @click="batchSetEnabled(false)">
+        禁用
+      </n-button>
+      <n-button
+        size="small"
+        type="error"
+        ghost
+        :loading="batchBusy"
+        @click="batchDelete"
+      >
+        删除
+      </n-button>
+      <n-button size="small" quaternary @click="checkedIds = []">取消选择</n-button>
+    </div>
+
     <n-data-table
+      v-model:checked-row-keys="checkedIds"
+      :row-key="(row: UserRecord) => row.id"
       :columns="columns"
       :data="filteredUsers"
       :loading="loading"

@@ -61,6 +61,8 @@ export interface SiteSettings {
   operatorDeviceLimit: number;
   /** 管理员可同时控制的设备数，0 表示不限。 */
   adminDeviceLimit: number;
+  /** 超级管理员可同时控制的设备数，0 表示不限。 */
+  superadminDeviceLimit: number;
 }
 
 export interface DashboardData {
@@ -276,15 +278,20 @@ export const api = {
     offset?: number;
     username?: string;
     action?: string;
+    role?: string;
     /** 起始时间（毫秒时间戳）。 */
     since?: number;
+    /** 结束时间（毫秒时间戳）。 */
+    until?: number;
   }): Promise<{ logs: AuditRecord[]; total: number }> {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.username) query.set('username', params.username);
     if (params?.action) query.set('action', params.action);
+    if (params?.role) query.set('role', params.role);
     if (params?.since) query.set('since', String(params.since));
+    if (params?.until) query.set('until', String(params.until));
     const suffix = query.toString();
     return request(`/api/audit${suffix ? `?${suffix}` : ''}`);
   },
@@ -297,6 +304,8 @@ export const api = {
     action?: string;
     /** 起始时间（毫秒时间戳）。 */
     since?: number;
+    /** 结束时间（毫秒时间戳）。 */
+    until?: number;
   }): Promise<{ logs: DeviceLogRecord[]; total: number }> {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
@@ -305,6 +314,7 @@ export const api = {
     if (params?.username) query.set('username', params.username);
     if (params?.action) query.set('action', params.action);
     if (params?.since) query.set('since', String(params.since));
+    if (params?.until) query.set('until', String(params.until));
     const suffix = query.toString();
     return request(`/api/device-logs${suffix ? `?${suffix}` : ''}`);
   },
@@ -542,6 +552,7 @@ export const api = {
     subtitle: string;
     operatorDeviceLimit?: number;
     adminDeviceLimit?: number;
+    superadminDeviceLimit?: number;
   }): Promise<SiteSettings> {
     return request('/api/settings', {
       method: 'PUT',

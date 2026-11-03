@@ -26,12 +26,14 @@ const {
   logoUpdatedAt,
   operatorDeviceLimit: limit,
   adminDeviceLimit,
+  superadminDeviceLimit,
 } = useSite();
 
 const titleInput = ref('');
 const subtitleInput = ref('');
 const operatorLimit = ref(1);
 const adminLimit = ref(0);
+const superLimit = ref(0);
 const saving = ref(false);
 const savingLimit = ref(false);
 const uploading = ref(false);
@@ -63,6 +65,7 @@ onMounted(async () => {
   subtitleInput.value = subtitle.value;
   operatorLimit.value = limit?.value ?? 1;
   adminLimit.value = adminDeviceLimit?.value ?? 0;
+  superLimit.value = superadminDeviceLimit?.value ?? 0;
 
   try {
     const [h, info] = await Promise.all([api.health(), api.serverInfo()]);
@@ -107,6 +110,7 @@ async function saveLimit(): Promise<void> {
       subtitle: subtitle.value,
       operatorDeviceLimit: operatorLimit.value,
       adminDeviceLimit: adminLimit.value,
+      superadminDeviceLimit: superLimit.value,
     });
     applySiteSettings(settings);
     message.success('已保存，立即生效');
@@ -229,6 +233,20 @@ async function removeLogo(): Promise<void> {
 
         <n-tab-pane name="control" tab="控制规则">
           <div class="panel">
+            <div class="field">
+              <div class="label">超级管理员同时控制设备数</div>
+              <div class="control">
+                <n-input-number
+                  v-model:value="superLimit"
+                  size="small"
+                  :min="0"
+                  :max="50"
+                  style="width: 140px"
+                />
+                <span class="hint">0 表示不限制（默认）</span>
+              </div>
+            </div>
+
             <div class="field">
               <div class="label">管理员同时控制设备数</div>
               <div class="control">

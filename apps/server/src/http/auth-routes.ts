@@ -42,8 +42,11 @@ const AuditQuery = z.object({
   offset: z.coerce.number().int().min(0).optional(),
   username: z.string().max(64).optional(),
   action: z.string().max(64).optional(),
+  role: z.enum(ROLES).optional(),
   /** 起始时间（毫秒时间戳），用于快捷时间范围过滤。 */
   since: z.coerce.number().int().min(0).optional(),
+  /** 结束时间（毫秒时间戳），用于自定义范围过滤。 */
+  until: z.coerce.number().int().min(0).optional(),
 });
 
 export async function registerAuthRoutes(
@@ -267,7 +270,9 @@ export async function registerAuthRoutes(
       offset: parsed.data.offset ?? 0,
       username: parsed.data.username,
       action: parsed.data.action,
+      role: parsed.data.role,
       since: parsed.data.since,
+      until: parsed.data.until,
     });
     return { logs: result.rows, total: result.total };
   });

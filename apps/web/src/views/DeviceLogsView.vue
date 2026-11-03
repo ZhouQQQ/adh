@@ -3,6 +3,7 @@ import { computed, h, onMounted, ref } from 'vue';
 import {
   NButton,
   NDataTable,
+  NDatePicker,
   NInput,
   NSelect,
   NTag,
@@ -81,6 +82,7 @@ const RANGE_OPTIONS = [
   { label: '最近 1 小时', value: '1h' },
   { label: '最近 1 天', value: '1d' },
   { label: '最近 7 天', value: '7d' },
+  { label: '自定义时间', value: 'custom' },
 ];
 const RANGE_MS: Record<string, number> = {
   '10m': 10 * 60_000,
@@ -88,11 +90,18 @@ const RANGE_MS: Record<string, number> = {
   '1d': 24 * 60 * 60_000,
   '7d': 7 * 24 * 60 * 60_000,
 };
-const range = ref<'all' | '10m' | '1h' | '1d' | '7d'>('all');
+const range = ref<'all' | '10m' | '1h' | '1d' | '7d' | 'custom'>('all');
+const customRange = ref<[number, number] | null>(null);
 
 function sinceValue(): number | undefined {
   if (range.value === 'all') return undefined;
+  if (range.value === 'custom') return customRange.value?.[0];
   return Date.now() - (RANGE_MS[range.value] ?? 0);
+}
+
+function untilValue(): number | undefined {
+  if (range.value !== 'custom') return undefined;
+  return customRange.value?.[1];
 }
 
 async function load(): Promise<void> {
@@ -105,6 +114,7 @@ async function load(): Promise<void> {
       action: action.value || undefined,
       deviceId: deviceId.value || undefined,
       since: sinceValue(),
+      until: untilValue(),
     });
     logs.value = result.logs;
     total.value = result.total;
@@ -215,7 +225,16 @@ onMounted(load);
         v-model:value="range"
         size="small"
         :options="RANGE_OPTIONS"
-        style="width: 140px"
+        style="width: 130px"
+        @update:value="search"
+      />
+      <n-date-picker
+        v-if="range === 'custom'"
+        v-model:value="customRange"
+        type="datetimerange"
+        size="small"
+        clearable
+        style="width: 340px"
         @update:value="search"
       />
       <n-button size="small" @click="search">查询</n-button>

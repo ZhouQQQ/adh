@@ -13,6 +13,8 @@ export interface SiteSettings {
   operatorDeviceLimit: number;
   /** 管理员可同时控制的设备数，0 表示不限（默认）。 */
   adminDeviceLimit: number;
+  /** 超级管理员可同时控制的设备数，0 表示不限（默认）。 */
+  superadminDeviceLimit: number;
 }
 
 const DEFAULT_TITLE = '设备农场';
@@ -21,6 +23,8 @@ const DEFAULT_SUBTITLE = 'Device Hub';
 const DEFAULT_OPERATOR_LIMIT = 1;
 /** 管理员默认不限。 */
 const DEFAULT_ADMIN_LIMIT = 0;
+/** 超级管理员默认不限。 */
+const DEFAULT_SUPER_LIMIT = 0;
 
 /** 站点级设置：标题和 Logo，存 adh_settings 表，Logo 文件落本地目录。 */
 export class SettingsService {
@@ -52,13 +56,15 @@ export class SettingsService {
   }
 
   async getSite(): Promise<SiteSettings> {
-    const [title, subtitle, logoAt, limit, adminLimit] = await Promise.all([
-      this.getValue('site.title'),
-      this.getValue('site.subtitle'),
-      this.getValue('site.logoUpdatedAt'),
-      this.getValue('control.maxDevices.operator'),
-      this.getValue('control.maxDevices.admin'),
-    ]);
+    const [title, subtitle, logoAt, limit, adminLimit, superLimit] =
+      await Promise.all([
+        this.getValue('site.title'),
+        this.getValue('site.subtitle'),
+        this.getValue('site.logoUpdatedAt'),
+        this.getValue('control.maxDevices.operator'),
+        this.getValue('control.maxDevices.admin'),
+        this.getValue('control.maxDevices.superadmin'),
+      ]);
     return {
       title: title?.trim() || DEFAULT_TITLE,
       subtitle: subtitle?.trim() || DEFAULT_SUBTITLE,
@@ -69,12 +75,22 @@ export class SettingsService {
         adminLimit === null
           ? DEFAULT_ADMIN_LIMIT
           : Math.max(0, Number(adminLimit) || 0),
+      superadminDeviceLimit:
+        superLimit === null
+          ? DEFAULT_SUPER_LIMIT
+          : Math.max(0, Number(superLimit) || 0),
     };
   }
 
   /** 按角色取同时控制上限，0 表示不限。 */
   async getDeviceLimit(role: string): Promise<number> {
-    if (role === 'admin' || role === 'superadmin') {
+    if (role === 'superadmin') {
+      const value = await this.getValue('control.maxDevices.superadmin');
+      return value === null
+        ? DEFAULT_SUPER_LIMIT
+        : Math.max(0, Number(value) || 0);
+    }
+    if (role === 'admin') {
       const value = await this.getValue('control.maxDevices.admin');
       return value === null ? DEFAULT_ADMIN_LIMIT : Math.max(0, Number(value) || 0);
     }
@@ -89,6 +105,7 @@ export class SettingsService {
     subtitle: string;
     operatorDeviceLimit?: number;
     adminDeviceLimit?: number;
+    superadminDeviceLimit?: number;
   }): Promise<SiteSettings> {
     await this.setValue('site.title', input.title.trim() || null);
     await this.setValue('site.subtitle', input.subtitle.trim() || null);
@@ -102,6 +119,12 @@ export class SettingsService {
       await this.setValue(
         'control.maxDevices.admin',
         String(Math.max(0, Math.floor(input.adminDeviceLimit))),
+      );
+    }
+    if (input.superadminDeviceLimit !== undefined) {
+      await this.setValue(
+        'control.maxDevices.superadmin',
+        String(Math.max(0, Math.floor(input.superadminDeviceLimit))),
       );
     }
     return this.getSite();

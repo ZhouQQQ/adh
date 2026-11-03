@@ -14,6 +14,8 @@ const LogQuery = z.object({
   action: z.string().max(64).optional(),
   /** 起始时间（毫秒时间戳），用于快捷时间范围过滤。 */
   since: z.coerce.number().int().min(0).optional(),
+  /** 结束时间（毫秒时间戳），用于自定义范围过滤。 */
+  until: z.coerce.number().int().min(0).optional(),
 });
 
 export async function registerDeviceLogRoutes(
@@ -33,6 +35,7 @@ export async function registerDeviceLogRoutes(
       username: parsed.data.username,
       action: parsed.data.action,
       since: parsed.data.since,
+      until: parsed.data.until,
     });
     return { logs: result.logs, total: result.total };
   });

@@ -61,12 +61,18 @@ export class DeviceLogService {
     action?: string;
     /** 只返回该时间之后的日志（毫秒时间戳）。 */
     since?: number;
+    /** 只返回该时间之前的日志（毫秒时间戳）。 */
+    until?: number;
   }): Promise<{ logs: DeviceLogRow[]; total: number }> {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.since && options.since > 0) {
       where.push('l.created_at >= ?');
       params.push(options.since);
+    }
+    if (options.until && options.until > 0) {
+      where.push('l.created_at <= ?');
+      params.push(options.until);
     }
     if (options.deviceId) {
       where.push('l.device_id = ?');

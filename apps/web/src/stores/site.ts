@@ -9,6 +9,8 @@ const logoUpdatedAt = ref(0);
 const operatorDeviceLimit = ref(1);
 /** 管理员可同时控制的设备数，0 表示不限。 */
 const adminDeviceLimit = ref(0);
+/** 超级管理员可同时控制的设备数，0 表示不限。 */
+const superadminDeviceLimit = ref(0);
 
 export async function loadSiteSettings(): Promise<void> {
   try {
@@ -18,6 +20,7 @@ export async function loadSiteSettings(): Promise<void> {
     logoUpdatedAt.value = settings.logoUpdatedAt;
     operatorDeviceLimit.value = settings.operatorDeviceLimit ?? 1;
     adminDeviceLimit.value = settings.adminDeviceLimit ?? 0;
+    superadminDeviceLimit.value = settings.superadminDeviceLimit ?? 0;
   } catch {
     /* 读不到就用默认值 */
   }
@@ -29,6 +32,7 @@ export function applySiteSettings(settings: {
   logoUpdatedAt: number;
   operatorDeviceLimit?: number;
   adminDeviceLimit?: number;
+  superadminDeviceLimit?: number;
 }): void {
   title.value = settings.title || '设备农场';
   subtitle.value = settings.subtitle || 'Device Hub';
@@ -38,6 +42,9 @@ export function applySiteSettings(settings: {
   }
   if (settings.adminDeviceLimit !== undefined) {
     adminDeviceLimit.value = settings.adminDeviceLimit;
+  }
+  if (settings.superadminDeviceLimit !== undefined) {
+    superadminDeviceLimit.value = settings.superadminDeviceLimit;
   }
 }
 
@@ -51,6 +58,7 @@ export function useSite(): {
   logoUpdatedAt: typeof logoUpdatedAt;
   operatorDeviceLimit: typeof operatorDeviceLimit;
   adminDeviceLimit: typeof adminDeviceLimit;
+  superadminDeviceLimit: typeof superadminDeviceLimit;
 } {
   return {
     title,
@@ -58,5 +66,6 @@ export function useSite(): {
     logoUpdatedAt,
     operatorDeviceLimit,
     adminDeviceLimit,
+    superadminDeviceLimit,
   };
 }

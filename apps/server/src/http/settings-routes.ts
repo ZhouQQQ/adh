@@ -14,6 +14,8 @@ const UpdateSiteBody = z.object({
   operatorDeviceLimit: z.number().int().min(0).max(50).optional(),
   /** 管理员同时控制设备上限，0 表示不限。 */
   adminDeviceLimit: z.number().int().min(0).max(50).optional(),
+  /** 超级管理员同时控制设备上限，0 表示不限。 */
+  superadminDeviceLimit: z.number().int().min(0).max(50).optional(),
 });
 
 /** 站点设置：标题与 Logo。读取公开（登录页也要用），写入仅管理员。 */
@@ -46,6 +48,7 @@ export async function registerSettingsRoutes(
       subtitle: parsed.data.subtitle ?? current.subtitle,
       operatorDeviceLimit: parsed.data.operatorDeviceLimit,
       adminDeviceLimit: parsed.data.adminDeviceLimit,
+      superadminDeviceLimit: parsed.data.superadminDeviceLimit,
     });
   });
 
