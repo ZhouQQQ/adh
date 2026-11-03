@@ -54,6 +54,9 @@ const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
 const sessionId = ref<string | null>(null);
 const loading = ref(false);
 const errorText = ref<string | null>(null);
+const viewerClosed = computed(() =>
+  Boolean(errorText.value?.includes('关闭其他人查看')),
+);
 const controller = ref(false);
 const text = ref('');
 const fileShow = ref(false);
@@ -761,10 +764,15 @@ onBeforeUnmount(() => {
           <div class="placeholder-icon">
             <n-icon :size="32"><CloudOfflineOutline /></n-icon>
           </div>
-          <div class="placeholder-title">画面连接已断开</div>
-          <div class="placeholder-desc">
+          <div class="placeholder-title">
+            {{ errorText || '画面连接已断开' }}
+          </div>
+          <div v-if="!errorText" class="placeholder-desc">
             可能是网络波动，或设备被其他操作占用。<br />
             重新连接会重新建立投屏会话。
+          </div>
+          <div v-else-if="viewerClosed" class="placeholder-desc">
+            控制者关闭了查看权限，暂时无法继续观看。
           </div>
           <button type="button" class="placeholder-btn" @click="createSession">
             重新连接
