@@ -192,8 +192,9 @@ const cpuText = computed(() => {
 <template>
   <article
     class="device-card"
-    :class="[{ offline: device.status !== 'online', selected }, usageTone]"
+    :class="{ offline: device.status !== 'online', selected }"
   >
+    <span v-if="usageTone" class="tone-bar" :class="usageTone" />
     <div class="thumb">
       <button
         v-if="selectable"
@@ -342,36 +343,45 @@ const cpuText = computed(() => {
 
 <style scoped>
 .device-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   overflow: hidden;
+  /* 极轻的阴影，避免白底白卡时下边框看不出来 */
+  box-shadow: 0 1px 2px rgba(9, 9, 11, 0.04);
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease;
 }
 
 .device-card:hover {
-  border-color: var(--border-strong);
+  border-color: var(--text-faint);
   background: #fcfcfd;
 }
 
-/* 红=被锁定，蓝=我在用，黄=别人在用 */
-.device-card.locked {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 1px #ef4444;
+/* 状态用顶部细色条表示，不再给整圈边框上色 */
+.tone-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 3;
 }
 
-.device-card.mine {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px #3b82f6;
+.tone-bar.locked {
+  background: #ef4444;
 }
 
-.device-card.busy {
-  border-color: #f59e0b;
-  box-shadow: 0 0 0 1px #f59e0b;
+.tone-bar.mine {
+  background: #3b82f6;
+}
+
+.tone-bar.busy {
+  background: #f59e0b;
 }
 
 .device-card.offline {
