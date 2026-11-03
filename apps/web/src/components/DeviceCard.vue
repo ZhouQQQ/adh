@@ -67,7 +67,7 @@ let clockTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
   clockTimer = setInterval(() => {
     now.value = Date.now();
-  }, 30_000);
+  }, 10_000);
 });
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer);

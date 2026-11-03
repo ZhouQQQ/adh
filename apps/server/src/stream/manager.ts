@@ -157,6 +157,8 @@ export class StreamManager {
         if (viewer.readyState === 1) viewer.send(session.lastKeyFrame);
       }
     }
+
+    this.notifyDevice(deviceId);
     return true;
   }
 
@@ -316,6 +318,9 @@ export class StreamManager {
     }
 
     viewerMeta.set(socket, { user, ip, lastTouch: 0 });
+
+    // 控制权发生变化时立刻推送设备卡片（控制者、使用中）
+    if (becomesController) this.notifyDevice(session.device.id);
 
     if (user) {
       void this.deps.deviceLogs.write({

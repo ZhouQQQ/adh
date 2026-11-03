@@ -10,8 +10,12 @@ const connection = ref<ConnectionState>('connecting');
 
 let socket: WebSocket | null = null;
 let retryTimer: number | undefined;
+let syncTimer: number | undefined;
 let started = false;
 let closed = false;
+
+/** 兜底轮询间隔：WebSocket 偶尔丢事件时用它校正，正常情况不会触发变化。 */
+const SYNC_INTERVAL = 30_000;
 
 function upsert<T>(list: T[], item: T, keyOf: (value: T) => string): T[] {
   const index = list.findIndex((entry) => keyOf(entry) === keyOf(item));
@@ -87,6 +91,11 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** 页面重新可见时立刻校正一次，避免后台标签页错过事件。 */
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'visible') void refresh();
+}
+
 /** 全局只启动一次：拉快照 + 订阅增量。 */
 export function startFleet(): void {
   if (started) return;
@@ -94,12 +103,20 @@ export function startFleet(): void {
   closed = false;
   void refresh();
   connect();
+  if (syncTimer === undefined) {
+    syncTimer = window.setInterval(() => void refresh(), SYNC_INTERVAL);
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange);
 }
 
 export function stopFleet(): void {
   closed = true;
   started = false;
   if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+  if (syncTimer !== undefined) window.clearInterval(syncTimer);
+  retryTimer = undefined;
+  syncTimer = undefined;
+  document.removeEventListener('visibilitychange', onVisibilityChange);
   socket?.close();
   socket = null;
 }

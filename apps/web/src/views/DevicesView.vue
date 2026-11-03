@@ -158,8 +158,8 @@ const memoryPresent = computed(() => {
 });
 
 const usagePresent = computed(() => ({
-  busy: devices.value.some((device) => device.inUse),
-  idle: devices.value.some((device) => !device.inUse),
+  busy: devices.value.some((device) => Boolean(device.control)),
+  idle: devices.value.some((device) => !device.control),
 }));
 
 const cpuVendorOptions = computed(() => {
@@ -416,7 +416,9 @@ function openDetail(device: DeviceSummary): void {
 
 function openControl(device: DeviceSummary): void {
   detailShow.value = false;
-  void router.push(`/devices/${device.id}/control`);
+  // 控制页放在新标签页，设备列表可以继续实时刷新
+  const { href } = router.resolve(`/devices/${device.id}/control`);
+  window.open(href, '_blank', 'noopener');
 }
 
 function toggleSelect(id: string): void {
