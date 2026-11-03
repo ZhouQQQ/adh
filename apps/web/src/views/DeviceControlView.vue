@@ -7,6 +7,7 @@ import {
   NInput,
   NSelect,
   NSpin,
+  NSwitch,
   NTag,
   useMessage,
 } from 'naive-ui';
