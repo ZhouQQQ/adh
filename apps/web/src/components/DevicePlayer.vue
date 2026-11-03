@@ -57,6 +57,10 @@ let iosPinchStart: number | null = null;
 let iosPinchLast = 0;
 /** 触控板捏合（Ctrl + wheel）的累计量，攒够再触发一次手势。 */
 let wheelPinchAccum = 0;
+/** 触控板缩放正在进行的双指手势状态。 */
+let pinchActive = false;
+let pinchRadius = 0.15;
+let pinchTimer: ReturnType<typeof setTimeout> | null = null;
 let recorder: MediaRecorder | null = null;
 let iosRecordTimer: ReturnType<typeof setInterval> | null = null;
 let iosRecordCanvas: HTMLCanvasElement | null = null;
@@ -491,6 +495,13 @@ function resetPointers(): void {
   iosPinchLast = 0;
   iosStart = null;
   pressing = false;
+  if (pinchTimer) {
+    clearTimeout(pinchTimer);
+    pinchTimer = null;
+  }
+  pinchActive = false;
+  pinchRadius = 0.15;
+  wheelPinchAccum = 0;
 }
 
 /** 两根手指之间的归一化距离，用于 iOS 计算 pinch 比例。 */
@@ -580,35 +591,39 @@ function onPointerDown(event: PointerEvent): void {
   }
 }
 
-/** 触控板捏合 = Ctrl + wheel：用两根手指的完整手势模拟一次缩放。 */
+/** 触控板捏合 = Ctrl + wheel：保持一个连续的双指手势，空闲后再抬起。 */
 function sendPinchGesture(scale: number): void {
   if (!controller.value) return;
 
-  // 固定以画面中心为缩放中心：靠近边缘时可用半径会被压得很小，
-  // 导致放大方向没有位移、只剩缩小能生效
   const centerX = 0.5;
   const centerY = 0.5;
-  const startRadius = 0.15;
   const maxRadius = 0.4;
-  const endRadius = Math.min(
-    maxRadius,
-    Math.max(0.02, startRadius * scale),
-  );
-  if (Math.abs(endRadius - startRadius) < 0.01) return;
-
   const leftId = 1001;
   const rightId = 1002;
-  const left = { x: centerX - startRadius, y: centerY };
-  const right = { x: centerX + startRadius, y: centerY };
-  const leftEnd = { x: centerX - endRadius, y: centerY };
-  const rightEnd = { x: centerX + endRadius, y: centerY };
 
-  sendLocal({ t: 'touch', phase: 'began', x: left.x, y: left.y, pointerId: leftId, pressure: 1 });
-  sendLocal({ t: 'touch', phase: 'began', x: right.x, y: right.y, pointerId: rightId, pressure: 1 });
-  sendLocal({ t: 'touch', phase: 'moved', x: leftEnd.x, y: leftEnd.y, pointerId: leftId, pressure: 1 });
-  sendLocal({ t: 'touch', phase: 'moved', x: rightEnd.x, y: rightEnd.y, pointerId: rightId, pressure: 1 });
-  sendLocal({ t: 'touch', phase: 'ended', x: leftEnd.x, y: leftEnd.y, pointerId: leftId, pressure: 0 });
-  sendLocal({ t: 'touch', phase: 'ended', x: rightEnd.x, y: rightEnd.y, pointerId: rightId, pressure: 0 });
+  // 第一次触发：两指按下，之后只更新距离，避免每帧都 down/up 导致抖动
+  if (!pinchActive) {
+    pinchActive = true;
+    pinchRadius = 0.15;
+    sendLocal({ t: 'touch', phase: 'began', x: centerX - pinchRadius, y: centerY, pointerId: leftId, pressure: 1 });
+    sendLocal({ t: 'touch', phase: 'began', x: centerX + pinchRadius, y: centerY, pointerId: rightId, pressure: 1 });
+  }
+
+  pinchRadius = Math.min(
+    maxRadius,
+    Math.max(0.03, pinchRadius * scale),
+  );
+  sendLocal({ t: 'touch', phase: 'moved', x: centerX - pinchRadius, y: centerY, pointerId: leftId, pressure: 1 });
+  sendLocal({ t: 'touch', phase: 'moved', x: centerX + pinchRadius, y: centerY, pointerId: rightId, pressure: 1 });
+
+  // 触控板停止捏合 150ms 后抬起两指
+  if (pinchTimer) clearTimeout(pinchTimer);
+  pinchTimer = setTimeout(() => {
+    sendLocal({ t: 'touch', phase: 'ended', x: centerX - pinchRadius, y: centerY, pointerId: leftId, pressure: 0 });
+    sendLocal({ t: 'touch', phase: 'ended', x: centerX + pinchRadius, y: centerY, pointerId: rightId, pressure: 0 });
+    pinchActive = false;
+    pinchTimer = null;
+  }, 150);
 }
 
 /** 鼠标滚轮：触控板捏合 → 缩放，普通滚动 → 滚动；iOS 用短滑动模拟。 */
@@ -629,8 +644,16 @@ function onWheel(event: WheelEvent): void {
     if (Math.abs(wheelPinchAccum) < 30) return;
     const step = wheelPinchAccum;
     wheelPinchAccum = 0;
-    // 向上滚 / 张开手指（dy < 0）放大，向下滚 / 收拢缩小
-    const scale = Math.min(2, Math.max(0.5, Math.exp(-step / 300)));
+    // 两指张开（step > 0）放大，收拢（step < 0）缩小
+    // 个别触控板 / 系统滚动设置方向相反，可用 localStorage 的 adh.pinchInvert=1 翻转
+    const invert = localStorage.getItem('adh.pinchInvert') === '1';
+    // 触控板一次捏合会产生很多条事件，Android 每次都是完整手势，
+    // 除数调大避免一下放大/缩小过头；iOS 调用频率低，保持灵敏
+    const divisor = isIos.value ? 300 : 900;
+    const scale = Math.min(
+      2,
+      Math.max(0.5, Math.exp((invert ? -step : step) / divisor)),
+    );
 
     if (import.meta.env.DEV) {
       console.info('[adh pinch]', { step, scale });
