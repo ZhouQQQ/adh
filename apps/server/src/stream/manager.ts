@@ -694,6 +694,9 @@ export class StreamManager {
     const user = meta.user;
     if (!user) return;
 
+    // 触摸 / 滚动太频繁，暂时不写设备日志；后期需要时删掉这一行即可恢复
+    if (message.t === 'touch' || message.t === 'scroll') return;
+
     let action = '';
     let detail = '';
 

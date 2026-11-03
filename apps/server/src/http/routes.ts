@@ -290,8 +290,6 @@ interface RuntimeStats {
   uptimeSeconds: number | null;
 }
 
-/** iOS 触摸日志节流：设备 id → 上次记录时间。 */
-const lastIosTouchAt = new Map<string, number>();
 /** iOS 屏幕亮灭状态，用于电源键切换。 */
 const iosScreenUnlocked = new Map<string, boolean>();
 
@@ -1751,17 +1749,14 @@ export async function registerHttpRoutes(
         await wdaTypeText(payload.text);
       }
 
-      // 记录 iOS 输入操作（触摸做 1.2 秒节流，避免日志刷屏）
+      // 记录 iOS 输入操作（触摸日志暂时关闭，后期需要时取消注释）
       if (payload.type === 'tap' || payload.type === 'swipe') {
-        const now = Date.now();
-        if (now - (lastIosTouchAt.get(device.id) ?? 0) >= 1200) {
-          lastIosTouchAt.set(device.id, now);
-          const detail =
-            payload.type === 'tap'
-              ? `(${payload.x.toFixed(3)}, ${payload.y.toFixed(3)})`
-              : `(${payload.fromX.toFixed(3)}, ${payload.fromY.toFixed(3)}) → (${payload.toX.toFixed(3)}, ${payload.toY.toFixed(3)})`;
-          logDevice(request, device, 'input.touch', detail);
-        }
+        // const now = Date.now();
+        // if (now - (lastIosTouchAt.get(device.id) ?? 0) >= 1200) {
+        //   lastIosTouchAt.set(device.id, now);
+        //   const detail = ...
+        //   logDevice(request, device, 'input.touch', detail);
+        // }
       } else if (payload.type === 'text') {
         logDevice(
           request,
