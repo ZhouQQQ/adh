@@ -338,7 +338,9 @@ export class StreamManager {
   ): boolean {
     const session = this.findSessionByDevice(deviceId);
     if (!session) {
-      // iOS 没有投屏会话，按设备级开关处理
+      // iOS 没有投屏会话：只有当前控制者或管理员能改
+      const ios = this.liveIosControl(deviceId);
+      if (!isAdminRole(user.role) && ios?.userId !== user.id) return false;
       this.deviceViewers.set(deviceId, { allow, owner: user.id });
       // 广播给所有 Web 客户端，只读用户的页面可以立即显示/隐藏
       this.notifyDevice(deviceId);
