@@ -172,47 +172,51 @@ async function onImageSelected(event: Event): Promise<void> {
   <n-drawer :show="show" :width="520" @update:show="emit('update:show', $event)">
     <n-drawer-content :title="title" closable>
       <template v-if="device">
-        <div class="preview">
-          <n-image
-            v-if="device.thumbnailAt > 0"
-            :src="thumbnailUrl(device)"
-            object-fit="contain"
-            :img-props="{ style: 'max-height: 100%; max-width: 100%; object-fit: contain' }"
-            show-toolbar
-          />
-          <div v-else class="preview-empty">
-            <n-icon :size="20"><PhonePortraitOutline /></n-icon>
-            <span>暂无图片</span>
+        <div class="detail-top">
+          <div class="preview">
+            <n-image
+              v-if="device.thumbnailAt > 0"
+              :src="thumbnailUrl(device)"
+              object-fit="contain"
+              :img-props="{ style: 'max-height: 100%; max-width: 100%; object-fit: contain' }"
+              show-toolbar
+            />
+            <div v-else class="preview-empty">
+              <n-icon :size="20"><PhonePortraitOutline /></n-icon>
+              <span>暂无图片</span>
+            </div>
+
+            <n-tag
+              class="preview-status"
+              size="small"
+              :type="statusMeta.type"
+              :bordered="false"
+              round
+            >
+              {{ statusMeta.label }}
+            </n-tag>
+            <n-button
+              class="preview-upload"
+              size="tiny"
+              :loading="uploading"
+              @click="pickImage"
+            >
+              上传图片
+            </n-button>
+            <input
+              ref="imageInput"
+              type="file"
+              accept="image/*"
+              hidden
+              @change="onImageSelected"
+            />
           </div>
 
-          <n-tag
-            class="preview-status"
-            size="small"
-            :type="statusMeta.type"
-            :bordered="false"
-            round
-          >
-            {{ statusMeta.label }}
-          </n-tag>
-          <n-button
-            class="preview-upload"
-            size="tiny"
-            :loading="uploading"
-            @click="pickImage"
-          >
-            上传图片
-          </n-button>
-          <input
-            ref="imageInput"
-            type="file"
-            accept="image/*"
-            hidden
-            @change="onImageSelected"
-          />
+          <div class="stats-col">
+            <div class="stats-title">运行状态</div>
+            <DeviceStats v-if="show" :device-id="device.id" />
+          </div>
         </div>
-
-        <div class="stats-title">运行状态</div>
-        <DeviceStats v-if="show" :device-id="device.id" />
 
         <div class="stats-title">设备信息</div>
         <n-descriptions
@@ -302,10 +306,24 @@ async function onImageSelected(event: Event): Promise<void> {
   margin-top: 0;
 }
 
+.detail-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.stats-col {
+  flex: 1;
+  min-width: 0;
+}
+
 .preview {
   position: relative;
-  height: 132px;
-  margin-bottom: 12px;
+  flex: none;
+  width: 190px;
+  height: 170px;
+  margin-bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -321,7 +339,7 @@ async function onImageSelected(event: Event): Promise<void> {
 }
 
 .preview :deep(.n-image img) {
-  max-height: 132px;
+  max-height: 170px;
   max-width: 100%;
   object-fit: contain;
   cursor: zoom-in;
