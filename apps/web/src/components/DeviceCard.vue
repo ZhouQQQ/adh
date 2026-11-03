@@ -508,14 +508,6 @@ const wifiTitle = computed(() => {
   left: 34px;
 }
 
-.control-tag.mine {
-  background: rgba(37, 99, 235, 0.92);
-}
-
-.control-tag.busy {
-  background: rgba(217, 119, 6, 0.92);
-}
-
 .control-name {
   max-width: 88px;
   overflow: hidden;
@@ -524,7 +516,7 @@ const wifiTitle = computed(() => {
 }
 
 .control-time {
-  color: #71717a;
+  color: #52525b;
   white-space: nowrap;
 }
 
