@@ -11,7 +11,7 @@ import {
 
 const props = defineProps<{ visible: boolean }>();
 
-const STORAGE_KEY = 'adh.safe-keyboard.layout';
+const STORAGE_KEY = 'adh.safe-keyboard.layout.v2';
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
 
 interface Layout {
@@ -24,7 +24,7 @@ interface Layout {
   opacity: number;
 }
 
-const DEFAULTS: Layout = { x: 0, y: 0, height: 48, opacity: 0.7 };
+const DEFAULTS: Layout = { x: 0, y: 0, height: 41, opacity: 0.7 };
 
 function load(): Layout {
   try {
@@ -216,6 +216,7 @@ onBeforeUnmount(() => {
         <div class="password">
           <span v-for="n in 6" :key="n" class="cell" />
         </div>
+        <div class="spacer" />
         <div class="keys">
           <span
             v-for="(key, index) in KEYS"
@@ -280,19 +281,23 @@ onBeforeUnmount(() => {
 
 .password {
   flex: none;
-  height: 12%;
+  height: 10%;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 0.9%;
+}
+
+.spacer {
+  flex: none;
+  height: 10%;
 }
 
 .cell {
-  height: 76%;
+  height: 78%;
   aspect-ratio: 1.15;
-  border: 1px solid rgba(24, 24, 27, 0.5);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.6);
+  border-radius: 5px;
+  background: rgba(24, 24, 27, 0.1);
 }
 
 .keys {
@@ -308,7 +313,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(15px, 2.6vmin, 30px);
+  font-size: clamp(16px, 3.2vmin, 34px);
   font-weight: 500;
   background: rgba(255, 255, 255, 0.66);
   border-radius: 4px;
