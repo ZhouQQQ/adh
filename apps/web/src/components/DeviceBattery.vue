@@ -111,7 +111,8 @@ const fillWidth = computed(() => {
   box-sizing: border-box;
   border: 1px solid #d4d4d8;
   border-radius: 4px;
-  background: #fff;
+  /* 未填充区域用浅灰，白字也有底可依 */
+  background: #e4e4e7;
   overflow: hidden;
 }
 
@@ -139,8 +140,7 @@ const fillWidth = computed(() => {
   font-weight: 600;
   line-height: 12px;
   color: #ffffff;
-  text-shadow: 0 1px 2px rgba(9, 9, 11, 0.55);
-  -webkit-text-stroke: 0.4px rgba(9, 9, 11, 0.35);
+  text-shadow: 0 1px 1px rgba(9, 9, 11, 0.35);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
 }
