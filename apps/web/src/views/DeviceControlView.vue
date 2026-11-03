@@ -1241,6 +1241,15 @@ onBeforeUnmount(() => {
   display: none;
 }
 
+/* 网页全屏不显示顶部工具栏，只保留右侧操作列 */
+.control-page.web-fullscreen .toolbar {
+  display: none;
+}
+
+.control-page.web-fullscreen .body {
+  padding: 8px;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
