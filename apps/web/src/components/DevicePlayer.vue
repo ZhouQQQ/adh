@@ -55,6 +55,8 @@ const PINCH_POINTER_ID = -1001;
 /** iOS 双指手势的起始 / 当前两指距离（归一化）。 */
 let iosPinchStart: number | null = null;
 let iosPinchLast = 0;
+/** 触控板捏合（Ctrl + wheel）的累计量，攒够再触发一次手势。 */
+let wheelPinchAccum = 0;
 let recorder: MediaRecorder | null = null;
 let iosRecordTimer: ReturnType<typeof setInterval> | null = null;
 let iosRecordCanvas: HTMLCanvasElement | null = null;
@@ -578,7 +580,39 @@ function onPointerDown(event: PointerEvent): void {
   }
 }
 
-/** 鼠标滚轮：Android 发 scroll 控制；iOS 用短滑动模拟。 */
+/** 触控板捏合 = Ctrl + wheel：用两根手指的完整手势模拟一次缩放。 */
+function sendPinchGesture(
+  scale: number,
+  center: { x: number; y: number },
+): void {
+  if (!controller.value) return;
+  const maxRadius = Math.max(
+    0.03,
+    Math.min(center.x, 1 - center.x, center.y, 1 - center.y, 0.45),
+  );
+  const startRadius = Math.min(0.2, maxRadius);
+  const endRadius = Math.min(
+    maxRadius,
+    Math.max(0.01, startRadius * scale),
+  );
+  if (Math.abs(endRadius - startRadius) < 0.005) return;
+
+  const leftId = 1001;
+  const rightId = 1002;
+  const left = { x: center.x - startRadius, y: center.y };
+  const right = { x: center.x + startRadius, y: center.y };
+  const leftEnd = { x: center.x - endRadius, y: center.y };
+  const rightEnd = { x: center.x + endRadius, y: center.y };
+
+  sendLocal({ t: 'touch', phase: 'began', x: left.x, y: left.y, pointerId: leftId, pressure: 1 });
+  sendLocal({ t: 'touch', phase: 'began', x: right.x, y: right.y, pointerId: rightId, pressure: 1 });
+  sendLocal({ t: 'touch', phase: 'moved', x: leftEnd.x, y: leftEnd.y, pointerId: leftId, pressure: 1 });
+  sendLocal({ t: 'touch', phase: 'moved', x: rightEnd.x, y: rightEnd.y, pointerId: rightId, pressure: 1 });
+  sendLocal({ t: 'touch', phase: 'ended', x: leftEnd.x, y: leftEnd.y, pointerId: leftId, pressure: 0 });
+  sendLocal({ t: 'touch', phase: 'ended', x: rightEnd.x, y: rightEnd.y, pointerId: rightId, pressure: 0 });
+}
+
+/** 鼠标滚轮：触控板捏合 → 缩放，普通滚动 → 滚动；iOS 用短滑动模拟。 */
 function onWheel(event: WheelEvent): void {
   if (!controller.value) return;
   const position = pointerPosition(event);
@@ -587,6 +621,31 @@ function onWheel(event: WheelEvent): void {
   const unit = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1;
   const dx = event.deltaX * unit;
   const dy = event.deltaY * unit;
+
+  // 触控板双指捏合会被浏览器映射成 Ctrl + wheel
+  if (event.ctrlKey) {
+    if (dy === 0) return;
+    // 触控板每帧只给几像素，攒够一段再发，避免刷爆控制流
+    wheelPinchAccum += dy;
+    if (Math.abs(wheelPinchAccum) < 30) return;
+    const step = wheelPinchAccum;
+    wheelPinchAccum = 0;
+    // 向上滚（dy < 0）放大，向下滚缩小
+    const scale = Math.min(2, Math.max(0.5, Math.exp(-step / 300)));
+
+    if (isIos.value) {
+      void iosInput({
+        type: 'pinch',
+        scale,
+        duration: 0.2,
+      });
+    } else {
+      sendPinchGesture(scale, position);
+    }
+    return;
+  }
+
+  wheelPinchAccum = 0;
 
   if (isIos.value) {
     if (dy === 0) return;
