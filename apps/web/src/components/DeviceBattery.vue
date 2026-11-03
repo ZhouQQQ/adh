@@ -105,7 +105,7 @@ const fillWidth = computed(() => {
 
 .shell {
   position: relative;
-  width: 34px;
+  width: 46px;
   height: 16px;
   padding: 1.5px;
   box-sizing: border-box;
@@ -135,10 +135,12 @@ const fillWidth = computed(() => {
   z-index: 1;
   display: block;
   text-align: center;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 12px;
-  color: #18181b;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(9, 9, 11, 0.55);
+  -webkit-text-stroke: 0.4px rgba(9, 9, 11, 0.35);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
 }
