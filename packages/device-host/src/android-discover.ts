@@ -12,6 +12,8 @@ interface AndroidDetail {
   cpuVendor?: string;
   cpuModel?: string;
   cpuCores?: number;
+  cpuArch?: string;
+  cpuCode?: string;
   memoryMb?: number;
   rooted?: boolean;
   resolution?: Resolution;
@@ -163,6 +165,13 @@ async function queryDetails(udid: string): Promise<AndroidDetail> {
   }
   const cores = parseCores(cpuResult.stdout);
   if (cores) detail.cpuCores = cores;
+
+  const abi = props.get('ro.product.cpu.abi')?.trim();
+  if (abi) detail.cpuArch = abi;
+  // ro.board.platform 保留原始代号（sm8250 / mt6893），ro.hardware 作为兜底
+  const code =
+    props.get('ro.board.platform')?.trim() || props.get('ro.hardware')?.trim();
+  if (code) detail.cpuCode = code;
   const memoryMb = parseMemoryMb(memResult.stdout);
   if (memoryMb) detail.memoryMb = memoryMb;
 
@@ -233,6 +242,8 @@ export async function discoverAndroid(): Promise<AndroidScanResult> {
     if (detail.cpuVendor) info.cpuVendor = detail.cpuVendor;
     if (detail.cpuModel) info.cpuModel = detail.cpuModel;
     if (detail.cpuCores) info.cpuCores = detail.cpuCores;
+    if (detail.cpuArch) info.cpuArch = detail.cpuArch;
+    if (detail.cpuCode) info.cpuCode = detail.cpuCode;
     if (detail.memoryMb) info.memoryMb = detail.memoryMb;
     if (detail.rooted !== undefined) info.rooted = detail.rooted;
     if (detail.resolution) info.resolution = detail.resolution;

@@ -257,10 +257,18 @@ async function fetchAppIcon(udid: string, packageName: string): Promise<Buffer |
 }
 
 interface RuntimeStats {
-  battery: { level: number | null; charging: boolean; status: string };
+  battery: {
+    level: number | null;
+    charging: boolean;
+    status: string;
+    /** 电池温度（摄氏度），设备不提供时为 null。 */
+    temperature: number | null;
+  };
   memory: { totalMb: number; usedMb: number | null } | null;
   storage: { totalMb: number; usedMb: number } | null;
   wifi: { connected: boolean; ssid: string | null; enabled: boolean; ip?: string | null } | null;
+  /** 已开机秒数，拿不到时为 null。 */
+  uptimeSeconds: number | null;
 }
 
 /** go-ios 的命令名兼容 ios / go-ios。 */
@@ -307,6 +315,8 @@ function parseIosBattery(raw: string): RuntimeStats['battery'] | null {
     level: typeof info.BatteryCurrentCapacity === 'number' ? info.BatteryCurrentCapacity : null,
     charging,
     status: charging ? 'charging' : 'discharging',
+    // iOS 的 batterycheck 不提供温度
+    temperature: null,
   };
 }
 
@@ -329,6 +339,10 @@ function parseIosStorage(raw: string): RuntimeStats['storage'] {
 function parseBattery(raw: string): RuntimeStats['battery'] {
   const level = Number(/^\s*level:\s*(\d+)/m.exec(raw)?.[1] ?? NaN);
   const status = Number(/^\s*status:\s*(\d+)/m.exec(raw)?.[1] ?? NaN);
+  // dumpsys 的温度单位是 0.1℃，300 表示 30.0℃
+  const temperatureRaw = Number(
+    /^\s*temperature:\s*(-?\d+)/m.exec(raw)?.[1] ?? NaN,
+  );
   const powered =
     /AC powered: true/.test(raw) ||
     /USB powered: true/.test(raw) ||
@@ -347,6 +361,9 @@ function parseBattery(raw: string): RuntimeStats['battery'] {
             : status === 3
               ? 'discharging'
               : 'unknown',
+    temperature: Number.isFinite(temperatureRaw)
+      ? Math.round(Math.abs(temperatureRaw)) / 10
+      : null,
   };
 }
 
@@ -358,6 +375,11 @@ function parseMemory(raw: string): RuntimeStats['memory'] {
     totalMb: Math.round(totalKb / 1024),
     usedMb: Math.round((totalKb - availableKb) / 1024),
   };
+}
+
+function parseUptime(raw: string): number | null {
+  const seconds = Number(raw.trim().split(/\s+/)[0]);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds) : null;
 }
 
 function parseStorage(raw: string): RuntimeStats['storage'] {
@@ -1383,6 +1405,7 @@ export async function registerHttpRoutes(
             level: null,
             charging: false,
             status: 'unknown',
+            temperature: null,
           },
         memory: device.memoryMb
           ? { totalMb: device.memoryMb, usedMb: null }
@@ -1392,6 +1415,7 @@ export async function registerHttpRoutes(
         wifi: wda
           ? { connected: true, ssid: null, enabled: true, ip: wda.ip }
           : null,
+        uptimeSeconds: null,
       };
       return stats;
     }
@@ -1400,12 +1424,13 @@ export async function registerHttpRoutes(
       return reply.code(400).send({ error: '仅支持 Android / iOS 设备' });
     }
 
-    const [battery, meminfo, df, wifi, wifiIp] = await Promise.all([
+    const [battery, meminfo, df, wifi, wifiIp, uptime] = await Promise.all([
       runCommand('adb', ['-s', device.udid, 'shell', 'dumpsys', 'battery'], 10_000),
       runCommand('adb', ['-s', device.udid, 'shell', 'cat', '/proc/meminfo'], 10_000),
       runCommand('adb', ['-s', device.udid, 'shell', 'df', '-k', '/data'], 10_000),
       runCommand('adb', ['-s', device.udid, 'shell', 'cmd', 'wifi', 'status'], 10_000),
       runCommand('adb', ['-s', device.udid, 'shell', 'ip', '-f', 'inet', 'addr', 'show', 'wlan0'], 10_000),
+      runCommand('adb', ['-s', device.udid, 'shell', 'cat', '/proc/uptime'], 10_000),
     ]);
 
     const wifiInfo = parseWifi(wifi.stdout);
@@ -1417,6 +1442,7 @@ export async function registerHttpRoutes(
       memory: parseMemory(meminfo.stdout),
       storage: parseStorage(df.stdout),
       wifi: wifiInfo,
+      uptimeSeconds: parseUptime(uptime.stdout),
     };
     return stats;
   });

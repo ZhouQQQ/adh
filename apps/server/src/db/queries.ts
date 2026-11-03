@@ -22,6 +22,7 @@ const DEVICE_COLUMNS = `
   id, agent_id AS agentId, udid, platform, name, model,
   market_name AS marketName, brand, os_version AS osVersion, sdk,
   cpu, cpu_vendor AS cpuVendor, cpu_model AS cpuModel, cpu_cores AS cpuCores,
+  cpu_arch AS cpuArch, cpu_code AS cpuCode,
   memory_mb AS memoryMb, rooted, resolution, status, capabilities, tags,
   last_seen AS lastSeen, thumbnail_at AS thumbnailAt,
   thumbnail_source AS thumbnailSource, published_at AS publishedAt,
@@ -126,6 +127,8 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
   if (row.cpuVendor) summary.cpuVendor = row.cpuVendor;
   if (row.cpuModel) summary.cpuModel = row.cpuModel;
   if (row.cpuCores != null) summary.cpuCores = Number(row.cpuCores);
+  if (row.cpuArch) summary.cpuArch = row.cpuArch;
+  if (row.cpuCode) summary.cpuCode = row.cpuCode;
   if (row.memoryMb != null) summary.memoryMb = Number(row.memoryMb);
   if (row.rooted != null) summary.rooted = Boolean(row.rooted);
   const resolution = parseResolution(row.resolution);
@@ -362,6 +365,8 @@ export function createQueries(db: SqlDriver) {
         cpuVendor: info.cpuVendor ?? null,
         cpuModel: info.cpuModel ?? null,
         cpuCores: info.cpuCores ?? null,
+        cpuArch: info.cpuArch ?? null,
+        cpuCode: info.cpuCode ?? null,
         memoryMb: info.memoryMb ?? null,
         rooted: info.rooted === undefined ? null : info.rooted ? 1 : 0,
         resolution: info.resolution ? JSON.stringify(info.resolution) : null,
@@ -376,7 +381,7 @@ export function createQueries(db: SqlDriver) {
           `UPDATE adh_devices SET
              platform = ?, name = ?, model = ?, market_name = ?, brand = ?,
              os_version = ?, sdk = ?, cpu = ?, cpu_vendor = ?, cpu_model = ?,
-             cpu_cores = ?, memory_mb = ?, rooted = ?, resolution = ?, status = ?,
+             cpu_cores = ?, cpu_arch = ?, cpu_code = ?, memory_mb = ?, rooted = ?, resolution = ?, status = ?,
              capabilities = ?, tags = ?, last_seen = ?
            WHERE id = ?`,
           [
@@ -391,6 +396,8 @@ export function createQueries(db: SqlDriver) {
             values.cpuVendor,
             values.cpuModel,
             values.cpuCores,
+            values.cpuArch,
+            values.cpuCode,
             values.memoryMb,
             values.rooted,
             values.resolution,
@@ -415,10 +422,10 @@ export function createQueries(db: SqlDriver) {
       await db.execute(
         `INSERT INTO adh_devices
           (id, agent_id, udid, platform, name, model, market_name, brand,
-           os_version, sdk, cpu, cpu_vendor, cpu_model, cpu_cores, memory_mb,
-           rooted, resolution, status, capabilities, tags, last_seen, thumbnail_at,
-           thumbnail_source, published_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           os_version, sdk, cpu, cpu_vendor, cpu_model, cpu_cores, cpu_arch, cpu_code,
+           memory_mb, rooted, resolution, status, capabilities, tags, last_seen,
+           thumbnail_at, thumbnail_source, published_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.id,
           row.agentId,
@@ -434,6 +441,8 @@ export function createQueries(db: SqlDriver) {
           row.cpuVendor,
           row.cpuModel,
           row.cpuCores,
+          row.cpuArch,
+          row.cpuCode,
           row.memoryMb,
           row.rooted,
           row.resolution,
@@ -476,6 +485,8 @@ export function createQueries(db: SqlDriver) {
         set('cpu_vendor', patch.cpuVendor ?? null);
       if (patch.cpuModel !== undefined) set('cpu_model', patch.cpuModel ?? null);
       if (patch.cpuCores !== undefined) set('cpu_cores', patch.cpuCores ?? null);
+      if (patch.cpuArch !== undefined) set('cpu_arch', patch.cpuArch ?? null);
+      if (patch.cpuCode !== undefined) set('cpu_code', patch.cpuCode ?? null);
       if (patch.memoryMb !== undefined) set('memory_mb', patch.memoryMb ?? null);
       if (patch.rooted !== undefined) set('rooted', patch.rooted ? 1 : 0);
       if (patch.status !== undefined) set('status', patch.status);

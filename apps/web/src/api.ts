@@ -35,10 +35,18 @@ export interface DeviceApp {
 }
 
 export interface DeviceRuntime {
-  battery: { level: number | null; charging: boolean; status: string };
+  battery: {
+    level: number | null;
+    charging: boolean;
+    status: string;
+    /** 电池温度（摄氏度），设备不提供时为 null。 */
+    temperature: number | null;
+  };
   memory: { totalMb: number; usedMb: number | null } | null;
   storage: { totalMb: number; usedMb: number } | null;
   wifi: { connected: boolean; ssid: string | null; enabled: boolean; ip?: string | null } | null;
+  /** 已开机秒数，拿不到时为 null。 */
+  uptimeSeconds: number | null;
 }
 
 export interface ServerInfo {

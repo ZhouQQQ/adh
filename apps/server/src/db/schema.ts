@@ -30,6 +30,8 @@ export interface DeviceRow {
   cpuVendor: string | null;
   cpuModel: string | null;
   cpuCores: number | null;
+  cpuArch: string | null;
+  cpuCode: string | null;
   memoryMb: number | null;
   rooted: number | null;
   resolution: string | null;

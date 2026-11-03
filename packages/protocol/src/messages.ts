@@ -51,6 +51,10 @@ export const DeviceInfoSchema = z.object({
   /** CPU 型号，如 天玑 9400+。 */
   cpuModel: z.string().optional(),
   cpuCores: z.number().int().optional(),
+  /** CPU 架构，如 arm64-v8a / arm64。 */
+  cpuArch: z.string().optional(),
+  /** SoC 代号，如 sm8250 / mt6893。 */
+  cpuCode: z.string().optional(),
   /** 物理内存总量（MB）。 */
   memoryMb: z.number().int().optional(),
   /** 是否已 root / 越狱。检测不到时为 undefined。 */

@@ -6,9 +6,11 @@ import {
   BatteryHalfOutline,
   ServerOutline,
   SpeedometerOutline,
+  TimerOutline,
   WifiOutline,
 } from '@vicons/ionicons5';
 import { api, type DeviceRuntime } from '../api';
+import { formatDateTime } from '../utils/format';
 
 const props = defineProps<{ deviceId: string }>();
 
@@ -51,12 +53,16 @@ const metrics = computed(() => {
     current.storage?.totalMb,
   );
 
+  const batteryHint = current.battery.charging ? '充电中' : '未充电';
+
   return [
     {
       key: 'battery',
       icon: current.battery.charging ? BatteryChargingOutline : BatteryHalfOutline,
       label: '电量',
-      hint: current.battery.charging ? '充电中' : '未充电',
+      hint: temperatureText.value
+        ? `${batteryHint} · ${temperatureText.value}`
+        : batteryHint,
       percent: current.battery.level,
       text: current.battery.level === null ? '—' : `${current.battery.level}%`,
       color: batteryColor(current.battery.level, current.battery.charging),
@@ -86,6 +92,34 @@ const metrics = computed(() => {
       color: storagePercent !== null && storagePercent >= 90 ? '#ef4444' : '#8b5cf6',
     },
   ];
+});
+
+const temperatureText = computed(() => {
+  const value = stats.value?.battery.temperature;
+  if (value === null || value === undefined) return '';
+  return `${Number(value.toFixed(1))}°C`;
+});
+
+function formatUptime(seconds: number): string {
+  const totalMinutes = Math.floor(seconds / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes} 分钟`;
+  return `${minutes} 分钟`;
+}
+
+const uptimeText = computed(() => {
+  const seconds = stats.value?.uptimeSeconds;
+  if (seconds === null || seconds === undefined) return '';
+  return formatUptime(seconds);
+});
+
+const bootedAtText = computed(() => {
+  const seconds = stats.value?.uptimeSeconds;
+  if (seconds === null || seconds === undefined) return '';
+  return formatDateTime(Date.now() - seconds * 1000);
 });
 
 const wifiText = computed(() => {
@@ -146,6 +180,18 @@ watch(() => props.deviceId, start);
         />
         <text class="ring-text" x="18" y="18">{{ metric.text }}</text>
       </svg>
+    </div>
+
+    <div v-if="uptimeText" class="stat boot">
+      <span class="stat-icon">
+        <n-icon :size="15"><TimerOutline /></n-icon>
+      </span>
+      <div class="stat-text">
+        <span class="stat-label">开机</span>
+        <span class="stat-hint" :title="`开机时间 ${bootedAtText}`">
+          已运行 {{ uptimeText }}
+        </span>
+      </div>
     </div>
 
     <div class="stat wifi">

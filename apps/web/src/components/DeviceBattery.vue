@@ -39,6 +39,13 @@ watch(() => [props.deviceId, props.online] as const, start);
 
 const level = computed(() => battery.value?.level ?? null);
 const charging = computed(() => battery.value?.charging ?? false);
+const temperature = computed(() => battery.value?.temperature ?? null);
+const temperatureText = computed(() =>
+  temperature.value === null
+    ? ''
+    : `${Number(temperature.value.toFixed(1))}°C`,
+);
+const temperatureHot = computed(() => (temperature.value ?? 0) >= 40);
 
 const tone = computed(() => {
   const value = level.value ?? 0;
@@ -58,7 +65,9 @@ const fillWidth = computed(() => {
     v-if="level !== null"
     class="battery"
     :class="tone"
-    :title="charging ? `充电中 · ${level}%` : `电量 ${level}%`"
+    :title="
+      `${charging ? '充电中' : '电量'} · ${level}%${temperatureText ? ` · 电池 ${temperatureText}` : ''}`
+    "
   >
     <span class="shell">
       <span class="fill" :style="{ width: fillWidth }" />
@@ -68,6 +77,9 @@ const fillWidth = computed(() => {
     <n-icon v-if="charging" class="bolt" :size="10">
       <FlashOutline />
     </n-icon>
+    <span v-if="temperatureText" class="temp" :class="{ hot: temperatureHot }">
+      {{ temperatureText }}
+    </span>
   </span>
 </template>
 
@@ -140,5 +152,19 @@ const fillWidth = computed(() => {
 
 .bolt {
   color: #16a34a;
+}
+
+.temp {
+  margin-left: 3px;
+  font-size: 10px;
+  line-height: 1;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.temp.hot {
+  color: #dc2626;
+  font-weight: 600;
 }
 </style>

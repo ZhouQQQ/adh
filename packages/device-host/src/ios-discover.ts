@@ -208,6 +208,9 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
 
     if (info?.ProductType) device.model = info.ProductType;
     if (info?.ProductVersion) device.osVersion = info.ProductVersion;
+    if (info?.CPUArchitecture) device.cpuArch = info.CPUArchitecture;
+    // Apple 没有公开的 SoC 代号，这里用硬件代号（如 D79AP）代替
+    if (info?.HardwareModel) device.cpuCode = info.HardwareModel;
 
     const hardware = lookupIosHardware(info?.ProductType);
     if (hardware) {

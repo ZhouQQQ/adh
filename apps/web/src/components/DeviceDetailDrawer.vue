@@ -237,6 +237,12 @@ async function onImageSelected(event: Event): Promise<void> {
           <n-descriptions-item label="CPU">
             <CopyValue :value="device.cpu" />
           </n-descriptions-item>
+          <n-descriptions-item label="CPU 架构">
+            <CopyValue :value="device.cpuArch" />
+          </n-descriptions-item>
+          <n-descriptions-item label="CPU 代号">
+            <CopyValue :value="device.cpuCode" />
+          </n-descriptions-item>
           <n-descriptions-item label="核心数">
             <CopyValue :value="coresLabel" />
           </n-descriptions-item>

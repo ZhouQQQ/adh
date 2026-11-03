@@ -713,6 +713,14 @@ onBeforeUnmount(() => {
           <CopyValue :value="cpuText" />
         </div>
         <div class="info-row">
+          <span>CPU 架构</span>
+          <CopyValue :value="device?.cpuArch" />
+        </div>
+        <div class="info-row">
+          <span>CPU 代号</span>
+          <CopyValue :value="device?.cpuCode" />
+        </div>
+        <div class="info-row">
           <span>内存</span>
           <CopyValue :value="memoryText" />
         </div>
