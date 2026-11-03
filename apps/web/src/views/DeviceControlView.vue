@@ -14,11 +14,35 @@ import {
   useMessage,
 } from 'naive-ui';
 import {
+  AlbumsOutline,
+  AppsOutline,
   ArrowBackOutline,
+  BrowsersOutline,
+  CameraOutline,
+  CloudDownloadOutline,
   CloudOfflineOutline,
+  CloseCircleOutline,
+  CopyOutline,
   EllipsisVerticalOutline,
+  ExpandOutline,
+  FolderOpenOutline,
+  HomeOutline,
+  KeypadOutline,
   LockClosedOutline,
   LockOpenOutline,
+  MoonOutline,
+  NotificationsOutline,
+  PaperPlaneOutline,
+  PowerOutline,
+  RefreshOutline,
+  ScanOutline,
+  StopCircleOutline,
+  SunnyOutline,
+  SwapHorizontalOutline,
+  VideocamOutline,
+  VolumeHighOutline,
+  VolumeLowOutline,
+  VolumeMuteOutline,
 } from '@vicons/ionicons5';
 import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
@@ -740,6 +764,9 @@ onBeforeUnmount(() => {
           ghost
           @click="reconnect"
         >
+          <template #icon>
+            <n-icon><RefreshOutline /></n-icon>
+          </template>
           重新连接
         </n-button>
         <n-button
@@ -749,6 +776,9 @@ onBeforeUnmount(() => {
           ghost
           @click="stopControl"
         >
+          <template #icon>
+            <n-icon><CloseCircleOutline /></n-icon>
+          </template>
           断开
         </n-button>
         <n-button
@@ -758,6 +788,9 @@ onBeforeUnmount(() => {
           ghost
           @click="kickControl"
         >
+          <template #icon>
+            <n-icon><CloseCircleOutline /></n-icon>
+          </template>
           断开
         </n-button>
         <n-button
@@ -767,6 +800,9 @@ onBeforeUnmount(() => {
           ghost
           @click="takeoverControl"
         >
+          <template #icon>
+            <n-icon><SwapHorizontalOutline /></n-icon>
+          </template>
           强制接管
         </n-button>
         <n-dropdown
@@ -997,12 +1033,15 @@ onBeforeUnmount(() => {
 
         <div class="stage-actions">
           <button type="button" class="overlay-btn" @click="togglePip">
+            <n-icon :size="13"><BrowsersOutline /></n-icon>
             {{ pipActive ? '收回画中画' : '画中画' }}
           </button>
           <button type="button" class="overlay-btn" @click="toggleWebFullscreen">
+            <n-icon :size="13"><ScanOutline /></n-icon>
             {{ isWebFullscreen ? '退出网页全屏' : '网页全屏' }}
           </button>
           <button type="button" class="overlay-btn" @click="toggleFullscreen">
+            <n-icon :size="13"><ExpandOutline /></n-icon>
             {{ isFullscreen ? '退出全屏' : '全屏' }}
           </button>
         </div>
@@ -1019,19 +1058,33 @@ onBeforeUnmount(() => {
             <div class="fs-title">导航</div>
             <div class="fs-grid">
               <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('back')">
+                <n-icon :size="13"><ArrowBackOutline /></n-icon>
                 返回
               </button>
-              <button type="button" class="bar-btn" @click="sendKey('home')">主页</button>
-              <button type="button" class="bar-btn" @click="sendKey('recent')">任务</button>
+              <button type="button" class="bar-btn" @click="sendKey('home')">
+                <n-icon :size="13"><HomeOutline /></n-icon>
+                主页
+              </button>
+              <button type="button" class="bar-btn" @click="sendKey('recent')">
+                <n-icon :size="13"><AlbumsOutline /></n-icon>
+                任务
+              </button>
             </div>
           </div>
 
           <div class="fs-group">
             <div class="fs-title">音量</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" @click="sendKey('volumeDown')">音量−</button>
-              <button type="button" class="bar-btn" @click="sendKey('volumeUp')">音量+</button>
+              <button type="button" class="bar-btn" @click="sendKey('volumeDown')">
+                <n-icon :size="13"><VolumeLowOutline /></n-icon>
+                音量−
+              </button>
+              <button type="button" class="bar-btn" @click="sendKey('volumeUp')">
+                <n-icon :size="13"><VolumeHighOutline /></n-icon>
+                音量+
+              </button>
               <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('mute')">
+                <n-icon :size="13"><VolumeMuteOutline /></n-icon>
                 静音
               </button>
             </div>
@@ -1041,12 +1094,15 @@ onBeforeUnmount(() => {
             <div class="fs-title">屏幕</div>
             <div class="fs-grid">
               <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('power')">
+                <n-icon :size="13"><PowerOutline /></n-icon>
                 电源
               </button>
               <button type="button" class="bar-btn" :disabled="isIos" @click="setScreen(false)">
+                <n-icon :size="13"><MoonOutline /></n-icon>
                 息屏
               </button>
               <button type="button" class="bar-btn" :disabled="isIos" @click="setScreen(true)">
+                <n-icon :size="13"><SunnyOutline /></n-icon>
                 亮屏
               </button>
             </div>
@@ -1056,15 +1112,23 @@ onBeforeUnmount(() => {
             <div class="fs-title">抓取</div>
             <div class="fs-grid cols-2">
               <button type="button" class="bar-btn" @click="copyScreenshot">
+                <n-icon :size="13"><CopyOutline /></n-icon>
                 复制截图
               </button>
-              <button type="button" class="bar-btn" @click="takeScreenshot">截图保存</button>
+              <button type="button" class="bar-btn" @click="takeScreenshot">
+                <n-icon :size="13"><CameraOutline /></n-icon>
+                截图保存
+              </button>
               <button
                 type="button"
                 class="bar-btn span-2"
                 :class="{ recording }"
                 @click="toggleRecording"
               >
+                <n-icon :size="13">
+                  <StopCircleOutline v-if="recording" />
+                  <VideocamOutline v-else />
+                </n-icon>
                 {{ recording ? '停止录屏' : '录屏' }}
               </button>
               <button
@@ -1075,6 +1139,7 @@ onBeforeUnmount(() => {
                 :disabled="!controller"
                 @click="toggleSafeKeyboard"
               >
+                <n-icon :size="13"><KeypadOutline /></n-icon>
                 {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
               </button>
             </div>
@@ -1082,6 +1147,7 @@ onBeforeUnmount(() => {
 
           <div class="fs-grid">
             <button type="button" class="bar-btn wide" @click="toggleFullscreen">
+              <n-icon :size="13"><ExpandOutline /></n-icon>
               退出全屏
             </button>
           </div>
@@ -1093,19 +1159,45 @@ onBeforeUnmount(() => {
           <div class="section-title">导航</div>
           <div class="grid-3">
             <n-button size="small" :disabled="isIos" @click="sendKey('back')">
+              <template #icon>
+                <n-icon><ArrowBackOutline /></n-icon>
+              </template>
               返回
             </n-button>
-            <n-button size="small" @click="sendKey('home')">主页</n-button>
-            <n-button size="small" @click="sendKey('recent')">任务</n-button>
+            <n-button size="small" @click="sendKey('home')">
+              <template #icon>
+                <n-icon><HomeOutline /></n-icon>
+              </template>
+              主页
+            </n-button>
+            <n-button size="small" @click="sendKey('recent')">
+              <template #icon>
+                <n-icon><AlbumsOutline /></n-icon>
+              </template>
+              任务
+            </n-button>
           </div>
         </section>
 
         <section class="section">
           <div class="section-title">音量</div>
           <div class="grid-3">
-            <n-button size="small" @click="sendKey('volumeDown')">音量−</n-button>
-            <n-button size="small" @click="sendKey('volumeUp')">音量+</n-button>
+            <n-button size="small" @click="sendKey('volumeDown')">
+              <template #icon>
+                <n-icon><VolumeLowOutline /></n-icon>
+              </template>
+              音量−
+            </n-button>
+            <n-button size="small" @click="sendKey('volumeUp')">
+              <template #icon>
+                <n-icon><VolumeHighOutline /></n-icon>
+              </template>
+              音量+
+            </n-button>
             <n-button size="small" :disabled="isIos" @click="sendKey('mute')">
+              <template #icon>
+                <n-icon><VolumeMuteOutline /></n-icon>
+              </template>
               静音
             </n-button>
           </div>
@@ -1115,20 +1207,35 @@ onBeforeUnmount(() => {
           <div class="section-title">设备</div>
           <div class="grid-3">
             <n-button size="small" :disabled="isIos" @click="sendKey('power')">
+              <template #icon>
+                <n-icon><PowerOutline /></n-icon>
+              </template>
               电源
             </n-button>
             <n-button size="small" :disabled="isIos" @click="setScreen(false)">
+              <template #icon>
+                <n-icon><MoonOutline /></n-icon>
+              </template>
               息屏
             </n-button>
             <n-button size="small" :disabled="isIos" @click="setScreen(true)">
+              <template #icon>
+                <n-icon><SunnyOutline /></n-icon>
+              </template>
               亮屏
             </n-button>
           </div>
           <div class="grid-2">
             <n-button size="small" :disabled="isIos" @click="fileShow = true">
+              <template #icon>
+                <n-icon><FolderOpenOutline /></n-icon>
+              </template>
               文件管理
             </n-button>
             <n-button size="small" :disabled="isIos" @click="openNotification">
+              <template #icon>
+                <n-icon><NotificationsOutline /></n-icon>
+              </template>
               通知栏
             </n-button>
           </div>
@@ -1138,9 +1245,17 @@ onBeforeUnmount(() => {
           <div class="section-title">抓取</div>
           <div class="grid-2">
             <n-button size="small" title="截图到剪贴板" @click="copyScreenshot">
+              <template #icon>
+                <n-icon><CopyOutline /></n-icon>
+              </template>
               复制截图
             </n-button>
-            <n-button size="small" @click="takeScreenshot">截图保存</n-button>
+            <n-button size="small" @click="takeScreenshot">
+              <template #icon>
+                <n-icon><CameraOutline /></n-icon>
+              </template>
+              截图保存
+            </n-button>
           </div>
           <n-button
             size="small"
@@ -1149,6 +1264,12 @@ onBeforeUnmount(() => {
             :class="{ recording }"
             @click="toggleRecording"
           >
+            <template #icon>
+              <n-icon>
+                <StopCircleOutline v-if="recording" />
+                <VideocamOutline v-else />
+              </n-icon>
+            </template>
             {{ recording ? '停止录屏' : '录屏' }}
           </n-button>
         </section>
@@ -1157,9 +1278,15 @@ onBeforeUnmount(() => {
           <div class="section-title">应用</div>
           <div class="grid-2">
             <n-button size="small" @click="installShow = true">
+              <template #icon>
+                <n-icon><CloudDownloadOutline /></n-icon>
+              </template>
               安装应用
             </n-button>
             <n-button size="small" @click="openApps">
+              <template #icon>
+                <n-icon><AppsOutline /></n-icon>
+              </template>
               应用管理
             </n-button>
           </div>
@@ -1183,6 +1310,9 @@ onBeforeUnmount(() => {
             :disabled="!controller"
             @click="sendText"
           >
+            <template #icon>
+              <n-icon><PaperPlaneOutline /></n-icon>
+            </template>
             发送到设备
           </n-button>
           <n-button
@@ -1194,6 +1324,9 @@ onBeforeUnmount(() => {
             :disabled="!controller"
             @click="toggleSafeKeyboard"
           >
+            <template #icon>
+              <n-icon><KeypadOutline /></n-icon>
+            </template>
             {{ safeKeyboard ? '隐藏安全键盘' : '安全键盘' }}
           </n-button>
         </section>
@@ -1449,6 +1582,9 @@ onBeforeUnmount(() => {
 }
 
 .overlay-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 5px 10px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1517,6 +1653,10 @@ onBeforeUnmount(() => {
 }
 
 .bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   padding: 6px 0;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1809,7 +1949,7 @@ onBeforeUnmount(() => {
 }
 
 .side {
-  width: 200px;
+  width: 260px;
   flex: none;
   min-height: 0;
   border: 1px solid var(--border);
