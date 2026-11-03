@@ -581,28 +581,27 @@ function onPointerDown(event: PointerEvent): void {
 }
 
 /** 触控板捏合 = Ctrl + wheel：用两根手指的完整手势模拟一次缩放。 */
-function sendPinchGesture(
-  scale: number,
-  center: { x: number; y: number },
-): void {
+function sendPinchGesture(scale: number): void {
   if (!controller.value) return;
-  const maxRadius = Math.max(
-    0.03,
-    Math.min(center.x, 1 - center.x, center.y, 1 - center.y, 0.45),
-  );
-  const startRadius = Math.min(0.2, maxRadius);
+
+  // 固定以画面中心为缩放中心：靠近边缘时可用半径会被压得很小，
+  // 导致放大方向没有位移、只剩缩小能生效
+  const centerX = 0.5;
+  const centerY = 0.5;
+  const startRadius = 0.15;
+  const maxRadius = 0.4;
   const endRadius = Math.min(
     maxRadius,
-    Math.max(0.01, startRadius * scale),
+    Math.max(0.02, startRadius * scale),
   );
-  if (Math.abs(endRadius - startRadius) < 0.005) return;
+  if (Math.abs(endRadius - startRadius) < 0.01) return;
 
   const leftId = 1001;
   const rightId = 1002;
-  const left = { x: center.x - startRadius, y: center.y };
-  const right = { x: center.x + startRadius, y: center.y };
-  const leftEnd = { x: center.x - endRadius, y: center.y };
-  const rightEnd = { x: center.x + endRadius, y: center.y };
+  const left = { x: centerX - startRadius, y: centerY };
+  const right = { x: centerX + startRadius, y: centerY };
+  const leftEnd = { x: centerX - endRadius, y: centerY };
+  const rightEnd = { x: centerX + endRadius, y: centerY };
 
   sendLocal({ t: 'touch', phase: 'began', x: left.x, y: left.y, pointerId: leftId, pressure: 1 });
   sendLocal({ t: 'touch', phase: 'began', x: right.x, y: right.y, pointerId: rightId, pressure: 1 });
@@ -640,7 +639,7 @@ function onWheel(event: WheelEvent): void {
         duration: 0.2,
       });
     } else {
-      sendPinchGesture(scale, position);
+      sendPinchGesture(scale);
     }
     return;
   }
