@@ -8,7 +8,6 @@ import {
   PeopleOutline,
   PhonePortraitOutline,
   PulseOutline,
-  ServerOutline,
   TimeOutline,
   TimerOutline,
 } from '@vicons/ionicons5';
@@ -52,6 +51,15 @@ function formatDuration(seconds: number): string {
   if (hours > 0) return `${hours} 小时 ${minutes} 分钟`;
   if (minutes > 0) return `${minutes} 分钟`;
   return `${seconds} 秒`;
+}
+
+/** 卡片上的时长用紧凑写法，避免一行放不下。 */
+function compactDuration(seconds: number): string {
+  if (seconds <= 0) return '0';
+  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟`;
+  if (seconds < 86_400) return `${(seconds / 3600).toFixed(1)} 小时`;
+  return `${(seconds / 86_400).toFixed(1)} 天`;
 }
 
 function formatSize(size: number): string {
@@ -111,7 +119,7 @@ const cards = computed(() => {
     {
       key: 'today',
       label: '今日使用',
-      value: formatDuration(d.usage.todaySeconds),
+      value: compactDuration(d.usage.todaySeconds),
       hint: `${d.usage.todaySessions} 次控制 · ${d.usage.todayUsers} 人参与`,
       icon: TimeOutline,
       tone: 'amber',
@@ -119,7 +127,7 @@ const cards = computed(() => {
     {
       key: 'usage',
       label: `近 ${d.usage.windowDays} 天使用`,
-      value: formatDuration(d.usage.seconds),
+      value: compactDuration(d.usage.seconds),
       hint: `${d.usage.sessions} 次控制会话`,
       icon: TimerOutline,
       tone: 'violet',
@@ -131,14 +139,6 @@ const cards = computed(() => {
       hint: `离线 ${d.devices.offline} · 未授权 ${d.devices.unauthorized}`,
       icon: PulseOutline,
       tone: 'cyan',
-    },
-    {
-      key: 'agents',
-      label: '节点',
-      value: `${d.agents.online}/${d.agents.total}`,
-      hint: '在线 / 全部',
-      icon: ServerOutline,
-      tone: 'slate',
     },
     {
       key: 'packages',
@@ -328,15 +328,15 @@ function userText(item: DashboardData['recent'][number]): string {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
 }
 
 .card {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
-  padding: 18px 20px;
+  gap: 12px;
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
@@ -352,11 +352,11 @@ function userText(item: DashboardData['recent'][number]): string {
 
 .card-icon {
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 8px;
   background: #eff6ff;
   color: #3b82f6;
 }
@@ -417,10 +417,13 @@ function userText(item: DashboardData['recent'][number]): string {
 }
 
 .card-value {
-  margin: 4px 0 3px;
-  font-size: 24px;
+  margin: 6px 0 4px;
+  font-size: 21px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-hint {
