@@ -61,8 +61,8 @@ onMounted(async () => {
   await loadSiteSettings();
   titleInput.value = title.value;
   subtitleInput.value = subtitle.value;
-  operatorLimit.value = limit.value;
-  adminLimit.value = adminDeviceLimit.value;
+  operatorLimit.value = limit?.value ?? 1;
+  adminLimit.value = adminDeviceLimit?.value ?? 0;
 
   try {
     const [h, info] = await Promise.all([api.health(), api.serverInfo()]);
