@@ -30,7 +30,7 @@ export const router = createRouter({
       path: '/dashboard',
       name: 'dashboard',
       component: DashboardView,
-      meta: { title: '仪表盘' },
+      meta: { title: '仪表盘', admin: true },
     },
     {
       path: '/devices/batch',

@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { NSpin, NTag, useMessage } from 'naive-ui';
+import { NIcon, NSpin, NTag, useMessage } from 'naive-ui';
+import {
+  ArchiveOutline,
+  CalendarOutline,
+  FlashOutline,
+  PeopleOutline,
+  PhonePortraitOutline,
+  PulseOutline,
+  ServerOutline,
+  TimeOutline,
+  TimerOutline,
+} from '@vicons/ionicons5';
 import { api, type DashboardData } from '../api';
 
 const message = useMessage();
@@ -76,6 +87,86 @@ const onlineRate = computed(() => {
   return Math.round((devices.online / devices.total) * 100);
 });
 
+/** 顶部指标卡：数值、说明、图标和配色。 */
+const cards = computed(() => {
+  const d = data.value;
+  if (!d) return [];
+  return [
+    {
+      key: 'users',
+      label: '用户',
+      value: String(d.users.total),
+      hint: `管理员 ${d.users.admins} · 启用 ${d.users.enabled}`,
+      icon: PeopleOutline,
+      tone: 'blue',
+    },
+    {
+      key: 'devices',
+      label: '设备',
+      value: String(d.devices.total),
+      hint: `在线 ${d.devices.online} · 占用 ${d.devices.inUse} · 锁定 ${d.devices.locked}`,
+      icon: PhonePortraitOutline,
+      tone: 'emerald',
+    },
+    {
+      key: 'today',
+      label: '今日使用',
+      value: formatDuration(d.usage.todaySeconds),
+      hint: `${d.usage.todaySessions} 次控制 · ${d.usage.todayUsers} 人参与`,
+      icon: TimeOutline,
+      tone: 'amber',
+    },
+    {
+      key: 'usage',
+      label: `近 ${d.usage.windowDays} 天使用`,
+      value: formatDuration(d.usage.seconds),
+      hint: `${d.usage.sessions} 次控制会话`,
+      icon: TimerOutline,
+      tone: 'violet',
+    },
+    {
+      key: 'rate',
+      label: '设备在线率',
+      value: `${onlineRate.value}%`,
+      hint: `离线 ${d.devices.offline} · 未授权 ${d.devices.unauthorized}`,
+      icon: PulseOutline,
+      tone: 'cyan',
+    },
+    {
+      key: 'agents',
+      label: '节点',
+      value: `${d.agents.online}/${d.agents.total}`,
+      hint: '在线 / 全部',
+      icon: ServerOutline,
+      tone: 'slate',
+    },
+    {
+      key: 'packages',
+      label: '安装包',
+      value: String(d.packages.total),
+      hint: `APK ${d.packages.apk} · IPA ${d.packages.ipa} · ${formatSize(d.packages.totalSize)}`,
+      icon: ArchiveOutline,
+      tone: 'rose',
+    },
+    {
+      key: 'age',
+      label: '设备平均年龄',
+      value: formatAge(d.devices.avgAgeDays),
+      hint: `依据 ${d.devices.publishedCount} 台已填发布时间的设备`,
+      icon: CalendarOutline,
+      tone: 'orange',
+    },
+    {
+      key: 'active',
+      label: '今日活跃用户',
+      value: String(d.usage.todayUsers),
+      hint: '按控制次数去重',
+      icon: FlashOutline,
+      tone: 'indigo',
+    },
+  ];
+});
+
 const actionLabels: Record<string, string> = {
   'control.start': '开始控制',
   'control.view': '观看投屏',
@@ -85,12 +176,28 @@ const actionLabels: Record<string, string> = {
   'control.viewers': '查看权限',
   'device.lock': '锁定设备',
   'device.unlock': '解除锁定',
+  'input.touch': '触摸操作',
+  'input.key': '按键',
+  'input.text': '文本输入',
+  'input.rotate': '旋转屏幕',
+  'input.screen': '亮屏 / 息屏',
+  'input.panel': '通知栏',
   'app.install': '安装应用',
   'app.uninstall': '卸载应用',
   'file.upload': '上传文件',
   'file.download': '下载文件',
   'file.delete': '删除文件',
+  'file.rename': '重命名文件',
+  'file.copy': '复制文件',
+  'file.move': '移动文件',
 };
+
+function userText(item: DashboardData['recent'][number]): string {
+  if (!item.username) return '—';
+  return item.displayName
+    ? `${item.username}（${item.displayName}）`
+    : item.username;
+}
 </script>
 
 <template>
@@ -98,67 +205,20 @@ const actionLabels: Record<string, string> = {
     <n-spin :show="loading">
       <template v-if="data">
         <div class="cards">
-          <div class="card">
-            <div class="card-label">用户</div>
-            <div class="card-value">{{ data.users.total }}</div>
-            <div class="card-hint">
-              管理员 {{ data.users.admins }} · 启用 {{ data.users.enabled }}
+          <div
+            v-for="card in cards"
+            :key="card.key"
+            class="card"
+            :class="card.tone"
+          >
+            <span class="card-icon">
+              <n-icon :size="16"><component :is="card.icon" /></n-icon>
+            </span>
+            <div class="card-body">
+              <div class="card-label">{{ card.label }}</div>
+              <div class="card-value">{{ card.value }}</div>
+              <div class="card-hint">{{ card.hint }}</div>
             </div>
-          </div>
-          <div class="card">
-            <div class="card-label">设备</div>
-            <div class="card-value">{{ data.devices.total }}</div>
-            <div class="card-hint">
-              在线 {{ data.devices.online }} · 占用 {{ data.devices.inUse }} · 锁定
-              {{ data.devices.locked }}
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-label">今日使用</div>
-            <div class="card-value">{{ formatDuration(data.usage.todaySeconds) }}</div>
-            <div class="card-hint">
-              {{ data.usage.todaySessions }} 次控制 · {{ data.usage.todayUsers }} 人参与
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-label">近 {{ data.usage.windowDays }} 天使用时长</div>
-            <div class="card-value">{{ formatDuration(data.usage.seconds) }}</div>
-            <div class="card-hint">{{ data.usage.sessions }} 次控制会话</div>
-          </div>
-        </div>
-
-        <div class="cards small">
-          <div class="card">
-            <div class="card-label">设备在线率</div>
-            <div class="card-value">{{ onlineRate }}%</div>
-            <div class="card-hint">
-              离线 {{ data.devices.offline }} · 未授权 {{ data.devices.unauthorized }}
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-label">节点</div>
-            <div class="card-value">{{ data.agents.online }}/{{ data.agents.total }}</div>
-            <div class="card-hint">在线 / 全部</div>
-          </div>
-          <div class="card">
-            <div class="card-label">安装包</div>
-            <div class="card-value">{{ data.packages.total }}</div>
-            <div class="card-hint">
-              APK {{ data.packages.apk }} · IPA {{ data.packages.ipa }} ·
-              {{ formatSize(data.packages.totalSize) }}
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-label">设备平均年龄</div>
-            <div class="card-value">{{ formatAge(data.devices.avgAgeDays) }}</div>
-            <div class="card-hint">
-              依据 {{ data.devices.publishedCount }} 台已填发布时间的设备
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-label">今日活跃用户</div>
-            <div class="card-value">{{ data.usage.todayUsers }}</div>
-            <div class="card-hint">按控制次数去重</div>
           </div>
         </div>
 
@@ -246,7 +306,7 @@ const actionLabels: Record<string, string> = {
           <div v-else class="recent">
             <div v-for="(item, index) in data.recent" :key="index" class="recent-row">
               <span class="recent-time">{{ clock(item.createdAt) }}</span>
-              <span class="recent-user">{{ item.username || '—' }}</span>
+              <span class="recent-user" :title="userText(item)">{{ userText(item) }}</span>
               <span class="recent-device">{{ item.deviceName || '—' }}</span>
               <n-tag size="tiny" :bordered="false">
                 {{ actionLabels[item.action] ?? item.action }}
@@ -263,21 +323,92 @@ const actionLabels: Record<string, string> = {
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-width: 1180px;
+  gap: 18px;
 }
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
 }
 
 .card {
-  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 14px rgba(9, 9, 11, 0.06);
+}
+
+.card-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: #3b82f6;
+}
+
+.card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.card.blue .card-icon {
+  background: #eff6ff;
+  color: #3b82f6;
+}
+
+.card.emerald .card-icon {
+  background: #ecfdf5;
+  color: #10b981;
+}
+
+.card.amber .card-icon {
+  background: #fffbeb;
+  color: #f59e0b;
+}
+
+.card.violet .card-icon {
+  background: #f5f3ff;
+  color: #8b5cf6;
+}
+
+.card.cyan .card-icon {
+  background: #ecfeff;
+  color: #06b6d4;
+}
+
+.card.slate .card-icon {
+  background: #f4f4f5;
+  color: #52525b;
+}
+
+.card.rose .card-icon {
+  background: #fff1f2;
+  color: #f43f5e;
+}
+
+.card.orange .card-icon {
+  background: #fff7ed;
+  color: #f97316;
+}
+
+.card.indigo .card-icon {
+  background: #eef2ff;
+  color: #6366f1;
 }
 
 .card-label {
@@ -286,7 +417,7 @@ const actionLabels: Record<string, string> = {
 }
 
 .card-value {
-  margin: 6px 0 4px;
+  margin: 4px 0 3px;
   font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -295,23 +426,26 @@ const actionLabels: Record<string, string> = {
 .card-hint {
   font-size: 11px;
   color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panels {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
 }
 
 .panel {
-  padding: 14px 16px;
+  padding: 18px 20px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface);
 }
 
 .panel-title {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-dim);
@@ -424,10 +558,10 @@ const actionLabels: Record<string, string> = {
 
 .recent-row {
   display: grid;
-  grid-template-columns: 80px 110px 1fr auto;
-  gap: 10px;
+  grid-template-columns: 80px 160px 1fr auto;
+  gap: 12px;
   align-items: center;
-  padding: 7px 0;
+  padding: 9px 0;
   border-top: 1px solid var(--border);
   font-size: 12px;
 }

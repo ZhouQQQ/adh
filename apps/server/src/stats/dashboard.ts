@@ -45,6 +45,7 @@ export interface DashboardData {
   recent: Array<{
     deviceName: string | null;
     username: string | null;
+    displayName: string | null;
     action: string;
     createdAt: number;
   }>;
@@ -259,12 +260,16 @@ export async function loadDashboard(deps: DashboardDeps): Promise<DashboardData>
   const recent = await deps.db.query<{
     deviceName: string | null;
     username: string | null;
+    displayName: string | null;
     action: string;
     createdAt: number;
   }>(
-    `SELECT device_name AS deviceName, username, action, created_at AS createdAt
-     FROM adh_device_logs
-     ORDER BY created_at DESC
+    `SELECT l.device_name AS deviceName, l.username,
+            u.display_name AS displayName, l.action,
+            l.created_at AS createdAt
+     FROM adh_device_logs l
+     LEFT JOIN adh_users u ON u.username = l.username
+     ORDER BY l.created_at DESC
      LIMIT 12`,
   );
 
@@ -330,6 +335,7 @@ export async function loadDashboard(deps: DashboardDeps): Promise<DashboardData>
     recent: recent.map((row) => ({
       deviceName: row.deviceName,
       username: row.username,
+      displayName: row.displayName,
       action: row.action,
       createdAt: Number(row.createdAt),
     })),

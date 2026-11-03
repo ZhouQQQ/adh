@@ -83,28 +83,36 @@ watch([user, () => route.meta.admin], () => {
 });
 
 const menuOptions = computed<MenuOption[]>(() => {
+  const deviceChildren: MenuOption[] = [];
+
+  // 仪表盘只有管理员能看
+  if (isAdmin.value) {
+    deviceChildren.push({
+      label: () => h(RouterLink, { to: '/dashboard' }, { default: () => '仪表盘' }),
+      key: '/dashboard',
+      icon: () => h(NIcon, null, { default: () => h(SpeedometerOutline) }),
+    });
+  }
+
+  deviceChildren.push(
+    {
+      label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
+      key: '/devices',
+      icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
+    },
+    {
+      label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
+      key: '/apps',
+      icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
+    },
+  );
+
   const groups: MenuOption[] = [
     {
       type: 'group',
       label: '设备',
       key: 'group-devices',
-      children: [
-        {
-          label: () => h(RouterLink, { to: '/dashboard' }, { default: () => '仪表盘' }),
-          key: '/dashboard',
-          icon: () => h(NIcon, null, { default: () => h(SpeedometerOutline) }),
-        },
-        {
-          label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
-          key: '/devices',
-          icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
-        },
-        {
-          label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
-          key: '/apps',
-          icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
-        },
-      ],
+      children: deviceChildren,
     },
   ];
 

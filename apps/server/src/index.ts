@@ -192,10 +192,13 @@ async function main(): Promise<void> {
     port: config.port,
   });
 
-  /** 仪表盘统计：用户、设备、使用时长与排行。 */
-  app.get('/api/dashboard', async () =>
-    loadDashboard({ db: driver, queries, packages, streams, registry }),
-  );
+  /** 仪表盘统计：用户、设备、使用时长与排行（仅管理员）。 */
+  app.get('/api/dashboard', async (request, reply) => {
+    if (request.user?.role !== 'admin') {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    return loadDashboard({ db: driver, queries, packages, streams, registry });
+  });
 
   // 静态资源与 SPA 回退：Vite 构建产物输出到 apps/server/public
   // ADH_SERVE_WEB=0 时只提供 API，页面统一走 Vite 开发服务器

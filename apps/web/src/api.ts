@@ -92,6 +92,7 @@ export interface DashboardData {
   recent: Array<{
     deviceName: string | null;
     username: string | null;
+    displayName: string | null;
     action: string;
     createdAt: number;
   }>;
