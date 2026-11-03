@@ -512,26 +512,41 @@ watch(controller, (value, previous) => {
 });
 
 // iOS 没有 WebSocket 会话，通过 device.updated 推送感知被接管 / 被断开
+let lastControlName = '';
 watch(
   () => device.value?.control?.userId,
-  (userId) => {
-    if (!isIos.value || !controller.value) return;
-    if (userId && userId === user.value?.id) return;
-
+  (userId, previous) => {
+    if (!isIos.value) return;
     const name =
-      device.value?.control?.displayName ?? device.value?.control?.username;
-    stopIosHeartbeat();
-    selfReleased = true;
-    controller.value = false;
-    selfLeft.value = false;
-    releasedBy.value = name ?? '控制者';
-    readonlyBannerClosed.value = false;
-    message.warning(
-      name
-        ? `控制权已被 ${name} 接管，你现在是只读`
-        : '控制权已被释放，你现在是只读',
-    );
+      device.value?.control?.displayName || device.value?.control?.username;
+    // 记住最近一次看到的控制者，断开推送里没有名字时可以还原
+    if (name) lastControlName = name;
+
+    if (controller.value) {
+      if (userId && userId === user.value?.id) return;
+      stopIosHeartbeat();
+      selfReleased = true;
+      controller.value = false;
+      selfLeft.value = false;
+      releasedBy.value = name || lastControlName || '控制者';
+      readonlyBannerClosed.value = false;
+      message.warning(
+        name || lastControlName
+          ? `控制权已被 ${name || lastControlName} 接管，你现在是只读`
+          : '控制权已被释放，你现在是只读',
+      );
+      return;
+    }
+
+    // 只读观看：控制者断开时提示可以接管，并带上具体名字
+    if (previous && !userId) {
+      releasedBy.value = lastControlName || '控制者';
+      readonlyBannerClosed.value = false;
+    } else if (userId) {
+      releasedBy.value = '';
+    }
   },
+  { immediate: true },
 );
 
 async function kickControl(): Promise<void> {
