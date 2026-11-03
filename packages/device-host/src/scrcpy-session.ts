@@ -86,6 +86,8 @@ function connectPort(port: number, timeoutMs = 6_000): Promise<net.Socket> {
  */
 export class ScrcpySession {
   private server: ChildProcess | null = null;
+  /** 会话开始前系统是否已经开启触摸显示，用于退出时恢复。 */
+  private showTouchesWasOn = false;
   private videoSocket: net.Socket | null = null;
   private controlSocket: net.Socket | null = null;
   private forwardPort = 0;
@@ -107,6 +109,15 @@ export class ScrcpySession {
     const { udid } = this.options;
 
     await this.pushServer(udid);
+
+    // 记录原值：会话结束后如果本来没开，就恢复关闭，避免触摸点一直残留
+    const current = await runCommand(
+      'adb',
+      ['-s', udid, 'shell', 'settings', 'get', 'system', 'show_touches'],
+      5_000,
+    );
+    this.showTouchesWasOn = current.stdout.trim() === '1';
+
     this.spawnServer(udid);
 
     // 给设备端 app_process 一点启动时间
@@ -134,6 +145,24 @@ export class ScrcpySession {
 
     this.server?.kill();
     this.server = null;
+
+    // 恢复触摸显示设置，避免退出后真机一直显示白点
+    if (!this.showTouchesWasOn) {
+      await runCommand(
+        'adb',
+        [
+          '-s',
+          this.options.udid,
+          'shell',
+          'settings',
+          'put',
+          'system',
+          'show_touches',
+          '0',
+        ],
+        5_000,
+      );
+    }
 
     if (this.forwardPort > 0) {
       await runCommand(
@@ -181,6 +210,7 @@ export class ScrcpySession {
       'tunnel_forward=true',
       'cleanup=false',
       'stay_awake=true',
+      'show_touches=true',
       `max_size=${maxSize}`,
       `max_fps=${maxFps}`,
       `video_bit_rate=${bitrate}`,

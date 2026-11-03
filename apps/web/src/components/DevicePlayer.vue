@@ -74,8 +74,8 @@ function send(message: ViewerToStreamMessage): void {
 
 /** 本地输入：发给自己并通知外部，供批量联动转发。 */
 function sendLocal(message: ViewerToStreamMessage): void {
-  // 本地触摸打点，实时画面和录屏都能看到操作位置
-  if (message.t === 'touch' && message.phase !== 'moved') {
+  // 本地触摸打点：Android 由 scrcpy 自带的 show_touches 显示，只有 iOS 需要前端叠加
+  if (isIos.value && message.t === 'touch' && message.phase !== 'moved') {
     touchMarks.push({ x: message.x, y: message.y, at: Date.now() });
     if (touchMarks.length > 24) touchMarks.shift();
   }
