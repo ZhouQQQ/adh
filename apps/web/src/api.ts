@@ -275,6 +275,8 @@ export const api = {
     patch: {
       publishedAt?: number;
       safeKeyboard?: SafeKeyboardLayout | null;
+      /** 仅管理员可用：锁定后普通用户不能控制也不能查看。 */
+      locked?: boolean;
     },
   ): Promise<DeviceSummary> {
     return request(`/api/devices/${id}`, {

@@ -26,7 +26,8 @@ const DEVICE_COLUMNS = `
   memory_mb AS memoryMb, rooted, resolution, status, capabilities, tags,
   last_seen AS lastSeen, thumbnail_at AS thumbnailAt,
   thumbnail_source AS thumbnailSource, published_at AS publishedAt,
-  safe_keyboard AS safeKeyboard
+  safe_keyboard AS safeKeyboard,
+  locked, locked_by AS lockedBy, locked_at AS lockedAt
 `;
 
 function parseStringArray(raw: string | null): string[] {
@@ -117,6 +118,8 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
     thumbnailSource: (row.thumbnailSource as 'auto' | 'manual') ?? 'auto',
     publishedAt: Number(row.publishedAt ?? 0),
     inUse: false,
+    locked: Boolean(row.locked),
+    lockedAt: Number(row.lockedAt ?? 0),
   };
   if (row.model) summary.model = row.model;
   if (row.marketName) summary.marketName = row.marketName;
@@ -135,6 +138,9 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
   if (resolution) summary.resolution = resolution;
   const safeKeyboard = parseSafeKeyboard(row.safeKeyboard);
   if (safeKeyboard) summary.safeKeyboard = safeKeyboard;
+
+  if (row.lockedBy) summary.lockedBy = row.lockedBy;
+
   return summary;
 }
 
@@ -417,6 +423,9 @@ export function createQueries(db: SqlDriver) {
         thumbnailSource: 'auto',
         publishedAt: 0,
         safeKeyboard: null,
+        locked: 0,
+        lockedBy: null,
+        lockedAt: 0,
         ...values,
       };
       await db.execute(
@@ -544,6 +553,9 @@ export function createQueries(db: SqlDriver) {
       patch: {
         publishedAt?: number;
         safeKeyboard?: SafeKeyboardLayout | null;
+        locked?: boolean;
+        lockedBy?: string | null;
+        lockedAt?: number;
       },
     ): Promise<DeviceSummary | undefined> {
       const existing = await this.getDevice(id);
@@ -561,6 +573,18 @@ export function createQueries(db: SqlDriver) {
         params.push(
           patch.safeKeyboard ? JSON.stringify(patch.safeKeyboard) : null,
         );
+      }
+      if (patch.locked !== undefined) {
+        sets.push('locked = ?');
+        params.push(patch.locked ? 1 : 0);
+      }
+      if (patch.lockedBy !== undefined) {
+        sets.push('locked_by = ?');
+        params.push(patch.lockedBy);
+      }
+      if (patch.lockedAt !== undefined) {
+        sets.push('locked_at = ?');
+        params.push(patch.lockedAt);
       }
 
       if (sets.length > 0) {

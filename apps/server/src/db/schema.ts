@@ -43,6 +43,9 @@ export interface DeviceRow {
   thumbnailSource: string;
   publishedAt: number;
   safeKeyboard: string | null;
+  locked: number | null;
+  lockedBy: string | null;
+  lockedAt: number | null;
 }
 
 export interface PackageRow {

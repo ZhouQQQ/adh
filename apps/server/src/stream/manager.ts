@@ -47,6 +47,8 @@ interface StreamSession {
   controllerLeftAt: number;
   /** 是否允许其他人查看（默认允许，管理员不受限制） */
   allowViewers: boolean;
+  /** 设备是否被管理员锁定：普通用户不能控制也不能查看 */
+  locked: boolean;
   agentSocket: WebSocket | null;
   local: LocalStream | null;
   meta: StreamReady | null;
@@ -121,11 +123,34 @@ export class StreamManager {
   }
 
   /** 管理员强制断开某台设备的投屏会话。 */
-  kickDevice(deviceId: string): boolean {
+  kickDevice(deviceId: string, reason = '管理员强制断开连接'): boolean {
     const session = this.findSessionByDevice(deviceId);
     if (!session) return false;
-    this.destroy(session.id, '管理员强制断开连接');
+    this.destroy(session.id, reason);
     return true;
+  }
+
+  /**
+   * 设置设备锁定状态：锁定后断开所有会话（管理员也不例外），
+   * 解锁前任何人都不能控制或查看。
+   */
+  setLocked(deviceId: string, locked: boolean): void {
+    const session = this.findSessionByDevice(deviceId);
+    if (!session) return;
+    session.locked = locked;
+    if (!locked) return;
+
+    for (const viewer of [...session.viewers]) {
+      sendJson(viewer, { t: 'error', message: '设备已被管理员锁定' });
+      viewer.close(4004, '设备已被管理员锁定');
+      session.viewers.delete(viewer);
+    }
+
+    if (session.controller && !session.viewers.has(session.controller)) {
+      session.controller = null;
+      session.controllerUserId = null;
+      session.controllerLeftAt = Date.now();
+    }
   }
 
   /** 控制者开关「允许其他人查看」，管理员不受限制。 */
@@ -259,6 +284,7 @@ export class StreamManager {
       controllerUserId: null,
       controllerLeftAt: 0,
       allowViewers: true,
+      locked: Boolean(device.locked),
       agentSocket: null,
       local: null,
       meta: null,
@@ -300,6 +326,13 @@ export class StreamManager {
     if (!session) {
       sendJson(socket, { t: 'error', message: '会话不存在或已结束' });
       socket.close();
+      return;
+    }
+
+    // 管理员锁定后，任何人都不能控制或查看
+    if (session.locked) {
+      sendJson(socket, { t: 'error', message: '设备已被管理员锁定' });
+      socket.close(4004, '设备已被管理员锁定');
       return;
     }
 

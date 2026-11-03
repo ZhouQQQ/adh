@@ -16,6 +16,7 @@ export function describeAudit(input: {
     package?: string;
     publishedAt?: number;
     safeKeyboard?: unknown;
+    locked?: boolean;
     displayName?: string;
     role?: string;
     enabled?: boolean;
@@ -57,6 +58,7 @@ export function describeAudit(input: {
     const fields: string[] = [];
     if (payload.publishedAt !== undefined) fields.push('发布时间');
     if (payload.safeKeyboard !== undefined) fields.push('安全键盘位置');
+    if (payload.locked !== undefined) fields.push(payload.locked ? '锁定' : '解锁');
     return {
       action: 'device.update',
       detail: `修改设备${subject}${fields.length > 0 ? `（${fields.join('、')}）` : ''}`,

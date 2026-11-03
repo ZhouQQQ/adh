@@ -32,6 +32,15 @@ export const SafeKeyboardLayoutSchema = z.object({
 });
 export type SafeKeyboardLayout = z.infer<typeof SafeKeyboardLayoutSchema>;
 
+/** 设备锁定信息，只有管理员能操作。 */
+export const DeviceLockSchema = z.object({
+  locked: z.boolean().default(false),
+  /** 锁定人用户名。 */
+  lockedBy: z.string().optional(),
+  /** 锁定时间（毫秒），0 表示未锁定。 */
+  lockedAt: z.number().default(0),
+});
+
 /** agent 上报的原始设备信息。 */
 export const DeviceInfoSchema = z.object({
   udid: z.string().min(1),
@@ -79,6 +88,7 @@ export type DeviceControlInfo = z.infer<typeof DeviceControlInfoSchema>;
 
 /** server 侧对外暴露的设备视图。 */
 export const DeviceSummarySchema = DeviceInfoSchema.extend({
+  ...DeviceLockSchema.shape,
   id: z.string(),
   agentId: z.string(),
   lastSeen: z.number(),

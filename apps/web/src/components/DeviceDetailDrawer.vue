@@ -13,11 +13,12 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui';
-import { PhonePortraitOutline } from '@vicons/ionicons5';
+import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import CopyValue from './CopyValue.vue';
 import DeviceStats from './DeviceStats.vue';
 import { api, thumbnailUrl } from '../api';
+import { useAuth } from '../stores/auth';
 import { useFleet } from '../stores/fleet';
 import {
   formatDateTime,
@@ -33,7 +34,16 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:show': [value: boolean] }>();
 
 const message = useMessage();
+const { isAdmin } = useAuth();
 const { agents, refresh } = useFleet();
+
+/** 只展示手动上传的图片，自动截图不放详情里。 */
+const manualThumbnail = computed(
+  () =>
+    Boolean(props.device) &&
+    (props.device?.thumbnailAt ?? 0) > 0 &&
+    props.device?.thumbnailSource === 'manual',
+);
 
 const publishedAt = ref<number | null>(null);
 
@@ -148,6 +158,23 @@ function toJpeg(file: File): Promise<Blob> {
   });
 }
 
+/** 管理员锁定 / 解锁设备；离线设备也能操作。 */
+async function toggleLock(): Promise<void> {
+  const device = props.device;
+  if (!device) return;
+
+  const next = !device.locked;
+  try {
+    await api.updateDevice(device.id, { locked: next });
+    message.success(
+      next ? '已锁定设备，任何人都不能控制或查看' : '已解除锁定',
+    );
+    await refresh();
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '操作失败');
+  }
+}
+
 async function onImageSelected(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -172,18 +199,44 @@ async function onImageSelected(event: Event): Promise<void> {
   <n-drawer :show="show" :width="520" @update:show="emit('update:show', $event)">
     <n-drawer-content :title="title" closable>
       <template v-if="device">
+        <div class="lock-bar">
+          <n-tag
+            v-if="device.locked"
+            size="small"
+            type="warning"
+            :bordered="false"
+            round
+          >
+            已锁定 · 任何人不能控制或查看
+          </n-tag>
+          <span v-else class="lock-hint">未锁定</span>
+          <span class="lock-spacer" />
+          <n-button
+            v-if="isAdmin"
+            size="tiny"
+            :type="device.locked ? 'warning' : 'default'"
+            :ghost="device.locked"
+            @click="toggleLock"
+          >
+            {{ device.locked ? '解除锁定' : '锁定设备' }}
+          </n-button>
+        </div>
+
         <div class="detail-top">
-          <div class="preview">
+          <div class="preview" :class="{ empty: !manualThumbnail }">
             <n-image
-              v-if="device.thumbnailAt > 0"
+              v-if="manualThumbnail"
               :src="thumbnailUrl(device)"
               object-fit="contain"
               :img-props="{ style: 'max-height: 100%; max-width: 100%; object-fit: contain' }"
               show-toolbar
             />
-            <div v-else class="preview-empty">
-              <n-icon :size="20"><PhonePortraitOutline /></n-icon>
-              <span>暂无图片</span>
+            <div v-else class="preview-empty" :class="device.platform">
+              <n-icon :size="46">
+                <LogoAndroid v-if="device.platform === 'android'" />
+                <LogoApple v-else />
+              </n-icon>
+              <span>未上传图片</span>
             </div>
 
             <n-tag
@@ -308,9 +361,25 @@ async function onImageSelected(event: Event): Promise<void> {
 
 .detail-top {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 14px;
   margin-bottom: 16px;
+}
+
+.lock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lock-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.lock-spacer {
+  flex: 1;
 }
 
 .stats-col {
@@ -322,8 +391,8 @@ async function onImageSelected(event: Event): Promise<void> {
   position: relative;
   flex: none;
   width: 190px;
-  height: 170px;
-  margin-bottom: 0;
+  min-height: 150px;
+  align-self: stretch;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -331,6 +400,10 @@ async function onImageSelected(event: Event): Promise<void> {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.preview.empty {
+  background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
 }
 
 .preview :deep(.n-image) {

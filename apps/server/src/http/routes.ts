@@ -9,6 +9,7 @@ import {
   UpdateAgentBodySchema,
   type AgentSummary,
   type DeviceSummary,
+  type SafeKeyboardLayout,
 } from '@adh/protocol';
 import { runCommand, runCommandBuffer, resolveQuality } from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
@@ -115,6 +116,8 @@ const SafeKeyboardBody = z.object({
 const UpdateDeviceBody = z.object({
   publishedAt: z.number().int().min(0).optional(),
   safeKeyboard: SafeKeyboardBody.nullable().optional(),
+  /** 仅管理员可用：锁定后普通用户不能控制也不能查看。 */
+  locked: z.boolean().optional(),
 });
 
 /** 这些目录不允许被删除或移动。 */
@@ -687,20 +690,50 @@ export async function registerHttpRoutes(
     return { ...device, inUse: deps.streams.isInUse(id), control: deps.streams.getControl(id) };
   });
 
-  /** 编辑设备元信息（目前只有发布时间）。 */
+  /** 编辑设备元信息（发布时间、安全键盘、管理员锁定）。 */
   app.patch('/api/devices/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const parsed = UpdateDeviceBody.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: '参数不合法' });
     }
+    if (parsed.data.locked !== undefined && request.user?.role !== 'admin') {
+      return reply.code(403).send({ error: '只有管理员可以锁定设备' });
+    }
 
-    const updated = await deps.queries.updateDeviceMeta(id, parsed.data);
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+
+    const patch = { ...parsed.data } as {
+      publishedAt?: number;
+      safeKeyboard?: SafeKeyboardLayout | null;
+      locked?: boolean;
+      lockedBy?: string | null;
+      lockedAt?: number;
+    };
+    if (parsed.data.locked !== undefined) {
+      patch.lockedBy = parsed.data.locked
+        ? (request.user?.username ?? null)
+        : null;
+      patch.lockedAt = parsed.data.locked ? Date.now() : 0;
+    }
+
+    const updated = await deps.queries.updateDeviceMeta(id, patch);
     if (!updated) return reply.code(404).send({ error: '设备不存在' });
 
-    const device = { ...updated, inUse: deps.streams.isInUse(id) };
-    deps.hub.broadcast({ t: 'device.updated', device });
-    return device;
+    // 锁定时立刻断开所有正在控制 / 观看的人，解锁后才能重新进入
+    if (parsed.data.locked !== undefined) {
+      deps.streams.setLocked(id, parsed.data.locked);
+      if (parsed.data.locked) {
+        logDevice(request, device, 'device.lock', '锁定设备，任何人不能控制或查看');
+      } else {
+        logDevice(request, device, 'device.unlock', '解除设备锁定');
+      }
+    }
+
+    const summary = { ...updated, inUse: deps.streams.isInUse(id) };
+    deps.hub.broadcast({ t: 'device.updated', device: summary });
+    return summary;
   });
 
   /** 手动上传设备图片，覆盖自动截图。 */
@@ -729,6 +762,12 @@ export async function registerHttpRoutes(
   /** 创建投屏会话，返回 sessionId 供浏览器连接 /ws/stream/:id。 */
   app.post('/api/devices/:id/stream', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    // 锁定后只有管理员能进入，其他人既不能控制也不能查看
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
     const body = request.body as { quality?: string } | undefined;
     try {
       return await deps.streams.create(id, body?.quality ?? 'medium');
@@ -742,6 +781,11 @@ export async function registerHttpRoutes(
   /** 切换画质：重建会话。 */
   app.post('/api/devices/:id/stream/restart', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
     const body = request.body as { quality?: string } | undefined;
     try {
       return await deps.streams.restart(id, body?.quality ?? 'medium');
@@ -774,6 +818,9 @@ export async function registerHttpRoutes(
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: '设备不存在' });
     if (!request.user) return reply.code(401).send({ error: '请先登录' });
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
 
     const ok = deps.streams.takeover(id, request.user);
     if (!ok) {
@@ -1458,6 +1505,9 @@ export async function registerHttpRoutes(
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
     }
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
 
     const { preset } = resolveQuality(
       (request.query as { quality?: string }).quality,
@@ -1489,6 +1539,9 @@ export async function registerHttpRoutes(
     if (!device) return reply;
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
     }
 
     const parsed = IosInputBody.safeParse(request.body);
@@ -1569,6 +1622,9 @@ export async function registerHttpRoutes(
     if (!device) return reply;
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
     }
 
     const port = await ensureMjpegPort(device.udid);

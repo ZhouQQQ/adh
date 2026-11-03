@@ -1,17 +1,25 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NButton,
+  NDropdown,
   NIcon,
   NInput,
   NSelect,
   NSpin,
   NSwitch,
   NTag,
+  type DropdownOption,
   useMessage,
 } from 'naive-ui';
-import { ArrowBackOutline, CloudOfflineOutline } from '@vicons/ionicons5';
+import {
+  ArrowBackOutline,
+  CloudOfflineOutline,
+  EllipsisVerticalOutline,
+  LockClosedOutline,
+  LockOpenOutline,
+} from '@vicons/ionicons5';
 import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import DeviceAppsDrawer from '../components/DeviceAppsDrawer.vue';
@@ -167,6 +175,36 @@ function onControlReleased(username: string): void {
 
 const allowViewers = ref(true);
 
+/** 设备被锁定后，任何人都不能控制或查看，只有管理员能解锁。 */
+const lockedBlocked = computed(() => Boolean(device.value?.locked));
+
+const moreOptions = computed<DropdownOption[]>(() => [
+  {
+    label: device.value?.locked ? '解除锁定' : '锁定设备',
+    key: 'lock',
+    icon: () =>
+      h(NIcon, null, {
+        default: () =>
+          h(device.value?.locked ? LockOpenOutline : LockClosedOutline),
+      }),
+  },
+]);
+
+async function onMoreSelect(key: string): Promise<void> {
+  if (key !== 'lock') return;
+  const current = device.value;
+  if (!current) return;
+
+  const next = !current.locked;
+  try {
+    await api.updateDevice(current.id, { locked: next });
+    message.success(next ? '已锁定设备，其他人不能控制或查看' : '已解除锁定');
+    await refresh();
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '操作失败');
+  }
+}
+
 function onViewersAllow(value: boolean): void {
   allowViewers.value = value;
 }
@@ -316,6 +354,14 @@ async function onQualityChange(
 
 async function createSession(): Promise<void> {
   if (!device.value) return;
+
+  // 被管理员锁定时，普通用户直接停在提示页，不发请求
+  if (lockedBlocked.value) {
+    loading.value = false;
+    sessionId.value = null;
+    errorText.value = '设备已被管理员锁定';
+    return;
+  }
 
   // iOS 走 WDA，没有 scrcpy 会话
   if (device.value.platform === 'ios') {
@@ -602,6 +648,15 @@ onBeforeUnmount(() => {
       </n-button>
       <div class="title">{{ device?.name ?? '设备控制' }}</div>
       <n-tag
+        v-if="device?.locked"
+        size="small"
+        type="warning"
+        :bordered="false"
+        round
+      >
+        已锁定
+      </n-tag>
+      <n-tag
         v-if="device?.control"
         size="small"
         :bordered="false"
@@ -680,6 +735,19 @@ onBeforeUnmount(() => {
         >
           强制接管
         </n-button>
+        <n-dropdown
+          v-if="isAdmin"
+          trigger="click"
+          placement="bottom-end"
+          :options="moreOptions"
+          @select="onMoreSelect"
+        >
+          <n-button quaternary circle size="small" title="更多操作">
+            <template #icon>
+              <n-icon><EllipsisVerticalOutline /></n-icon>
+            </template>
+          </n-button>
+        </n-dropdown>
         <div class="toolbar-user">
           <span class="toolbar-user-name">
             {{ user?.displayName || user?.username || '未登录' }}
@@ -791,8 +859,11 @@ onBeforeUnmount(() => {
           <div v-else-if="viewerClosed" class="placeholder-desc">
             控制者关闭了查看权限，暂时无法继续观看。
           </div>
+          <div v-else-if="lockedBlocked" class="placeholder-desc">
+            设备已被管理员锁定，暂时不能控制或查看。
+          </div>
           <button
-            v-if="!viewerClosed"
+            v-if="!viewerClosed && !lockedBlocked"
             type="button"
             class="placeholder-btn"
             @click="createSession"

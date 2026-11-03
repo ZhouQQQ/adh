@@ -57,11 +57,12 @@ const canKick = computed(
 );
 
 /** 别人正在控制时，按钮统一变成「查看」（管理员也需要手动接管） */
-const controlLabel = computed(() =>
-  props.device.control && props.device.control.userId !== user.value?.id
+const controlLabel = computed(() => {
+  if (props.device.locked) return '已锁定';
+  return props.device.control && props.device.control.userId !== user.value?.id
     ? '查看'
-    : '控制',
-);
+    : '控制';
+});
 
 let clockTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
@@ -105,9 +106,10 @@ const resolutionText = computed(() =>
   formatResolution(props.device.resolution),
 );
 
-/** Android 在线即可控制；iOS 需要 WDA 已就绪。 */
+/** Android 在线即可控制；iOS 需要 WDA 已就绪。锁定后任何人都不能进。 */
 const canControl = computed(
   () =>
+    !props.device.locked &&
     props.device.status === 'online' &&
     (props.device.platform === 'android' ||
       props.device.capabilities.includes('wda')),
@@ -193,15 +195,26 @@ const cpuText = computed(() => {
         最后在线 {{ formatAgo(device.lastSeen) }}
       </div>
 
-      <n-tag
-        class="status-tag"
-        size="small"
-        :type="statusMeta.type"
-        :bordered="false"
-        round
-      >
-        {{ statusMeta.label }}
-      </n-tag>
+      <div class="thumb-badges">
+        <n-tag
+          class="status-tag"
+          size="small"
+          :type="statusMeta.type"
+          :bordered="false"
+          round
+        >
+          {{ statusMeta.label }}
+        </n-tag>
+        <n-tag
+          v-if="device.locked"
+          size="small"
+          type="warning"
+          :bordered="false"
+          round
+        >
+          已锁定
+        </n-tag>
+      </div>
     </div>
 
     <div class="body">
@@ -328,10 +341,17 @@ const cpuText = computed(() => {
   opacity: 0.8;
 }
 
-.status-tag {
+.thumb-badges {
   position: absolute;
   bottom: 8px;
   left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.status-tag {
   backdrop-filter: blur(6px);
 }
 
