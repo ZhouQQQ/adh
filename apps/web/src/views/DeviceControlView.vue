@@ -536,15 +536,6 @@ onBeforeUnmount(() => {
         ]"
         @update:value="onQualityChange"
       />
-      <n-button
-        v-if="controller && !isIos"
-        size="tiny"
-        type="error"
-        ghost
-        @click="stopControl"
-      >
-        断开
-      </n-button>
       <n-tag
         v-if="device?.control"
         size="small"
@@ -580,6 +571,16 @@ onBeforeUnmount(() => {
       >
         只读
       </n-tag>
+      <n-button
+        v-if="controller && !isIos"
+        class="toolbar-right"
+        size="tiny"
+        type="error"
+        ghost
+        @click="stopControl"
+      >
+        断开
+      </n-button>
     </header>
 
     <div class="body">
@@ -916,6 +917,10 @@ onBeforeUnmount(() => {
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
   flex: none;
+}
+
+.toolbar-right {
+  margin-left: auto;
 }
 
 .title {

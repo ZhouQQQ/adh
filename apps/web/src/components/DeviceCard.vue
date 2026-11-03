@@ -182,16 +182,6 @@ const cpuText = computed(() => {
         <span class="control-name">{{ controlName }}</span>
         <span class="control-time">已使用 {{ controlDuration }}</span>
       </div>
-      <n-tag
-        v-else-if="device.inUse"
-        class="usage-tag"
-        size="small"
-        type="info"
-        :bordered="false"
-        round
-      >
-        有人观看
-      </n-tag>
       <div class="battery-tag">
         <DeviceBattery
           :device-id="device.id"
@@ -350,13 +340,6 @@ const cpuText = computed(() => {
   top: 8px;
   right: 8px;
   z-index: 2;
-}
-
-.usage-tag {
-  position: absolute;
-  top: 34px;
-  left: 8px;
-  backdrop-filter: blur(6px);
 }
 
 .control-tag {

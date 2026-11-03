@@ -236,8 +236,8 @@ const filtered = computed(() => {
         const gb = memoryGb(device.memoryMb);
         if (gb !== memory.value) return false;
       }
-      if (usage.value === 'busy' && !device.inUse) return false;
-      if (usage.value === 'idle' && device.inUse) return false;
+      if (usage.value === 'busy' && !device.control) return false;
+      if (usage.value === 'idle' && device.control) return false;
       if (kw) {
         const haystack = [
           device.name,
@@ -663,6 +663,36 @@ function resetFilters(): void {
             @click="memory = option.value"
           >
             {{ option.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">使用状态:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: usage === 'all' }"
+            @click="usage = 'all'"
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: usage === 'idle' }"
+            @click="usage = 'idle'"
+          >
+            空闲中
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: usage === 'busy' }"
+            @click="usage = 'busy'"
+          >
+            使用中
           </button>
         </div>
       </div>
