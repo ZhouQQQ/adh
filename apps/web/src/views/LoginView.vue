@@ -13,10 +13,10 @@ const password = ref('');
 const loading = ref(false);
 
 onMounted(() => {
-  // 被新登录挤下线时提示一次
+  // 账号在其他位置登录时提示一次
   if (localStorage.getItem('adh.kicked') === '1') {
     localStorage.removeItem('adh.kicked');
-    message.warning('账号已在其他位置登录，你已被挤下线');
+    message.warning('账号已在其他位置登录，请重新登录');
   }
 });
 
