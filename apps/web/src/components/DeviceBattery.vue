@@ -87,7 +87,7 @@ const fillWidth = computed(() => {
 .battery {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   padding: 0;
 }
 
@@ -145,19 +145,21 @@ const fillWidth = computed(() => {
 
 /* 充电时给内部闪电留位置 */
 .value.with-bolt {
-  padding-right: 8px;
+  padding-left: 7px;
 }
 
+/* 电池正极：紧贴电池体，看起来连在一起 */
 .tip {
-  width: 2px;
+  width: 3px;
   height: 7px;
+  margin-left: -1px;
   border-radius: 0 2px 2px 0;
   background: #d4d4d8;
 }
 
 .bolt {
   position: absolute;
-  right: 1px;
+  left: 1px;
   top: 50%;
   z-index: 2;
   transform: translateY(-50%);
