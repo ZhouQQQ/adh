@@ -204,9 +204,8 @@ export function splitNals(annexB: Uint8Array): Uint8Array[] {
   return nals;
 }
 
-/** Annex-B → AVCC，供 WebCodecs 使用。 */
-export function annexBToAvcc(annexB: Uint8Array): Uint8Array {
-  const nals = splitNals(annexB);
+/** 把若干 NAL（不含起始码）拼成 AVCC 格式。 */
+export function nalsToAvcc(nals: Uint8Array[]): Uint8Array {
   let size = 0;
   for (const nal of nals) size += 4 + nal.length;
   const out = new Uint8Array(size);
@@ -220,4 +219,9 @@ export function annexBToAvcc(annexB: Uint8Array): Uint8Array {
     offset += nal.length;
   }
   return out;
+}
+
+/** Annex-B → AVCC，供 WebCodecs 使用。 */
+export function annexBToAvcc(annexB: Uint8Array): Uint8Array {
+  return nalsToAvcc(splitNals(annexB));
 }

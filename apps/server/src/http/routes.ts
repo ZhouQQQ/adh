@@ -31,6 +31,7 @@ import AdmZip from 'adm-zip';
 import sharp from 'sharp';
 import {
   wdaAppSwitcher,
+  wdaApplyMjpegSettings,
   wdaPressButton,
   wdaScreenshot,
   wdaStatus,
@@ -1769,7 +1770,7 @@ export async function registerHttpRoutes(
         .send({ error: '无法建立 WDA MJPEG 转发，请确认 go-ios 可用' });
     }
 
-    const { quality, preset } = resolveQuality(
+    const { quality } = resolveQuality(
       (request.query as { quality?: string }).quality,
     );
 
@@ -1785,77 +1786,29 @@ export async function registerHttpRoutes(
 
     reply.hijack();
 
-    // 高画质直接透传，中/低画质在服务端逐帧缩放，兼顾帧率与带宽
-    if (quality === 'high') {
-      reply.raw.writeHead(200, {
-        'content-type':
-          upstream.headers.get('content-type') ??
-          'multipart/x-mixed-replace; boundary=--BoundaryString',
-        'cache-control': 'no-store',
-        connection: 'close',
-      });
-      const stream = Readable.fromWeb(upstream.body as never);
-      stream.pipe(reply.raw);
-      request.raw.on('close', () => stream.destroy());
-      return;
-    }
+    // 直接透传 WDA 的 MJPEG：帧率/质量/缩放交给 WDA 自己控制，
+    // 避免服务端逐帧解码再编码，延迟可以降一个数量级
+    await wdaApplyMjpegSettings(
+      quality === 'low'
+        ? { framerate: 15, quality: 35, scaling: 40 }
+        : quality === 'medium'
+          ? { framerate: 24, quality: 55, scaling: 60 }
+          : quality === 'high'
+            ? { framerate: 30, quality: 75, scaling: 100 }
+            : { framerate: 30, quality: 95, scaling: 100 },
+    );
 
     reply.raw.writeHead(200, {
-      'content-type': 'multipart/x-mixed-replace; boundary=--BoundaryString',
+      'content-type':
+        upstream.headers.get('content-type') ??
+        'multipart/x-mixed-replace; boundary=--BoundaryString',
       'cache-control': 'no-store',
       connection: 'close',
     });
-
-    const reader = upstream.body.getReader();
-    let buffer = Buffer.alloc(0);
-    let closed = false;
-    request.raw.on('close', () => {
-      closed = true;
-      void reader.cancel().catch(() => undefined);
-    });
-
-    void (async () => {
-      try {
-        while (!closed) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer = Buffer.concat([buffer, Buffer.from(value)]);
-
-          while (true) {
-            const start = buffer.indexOf(Buffer.from([0xff, 0xd8]));
-            const end =
-              start >= 0
-                ? buffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2)
-                : -1;
-            if (start < 0 || end < 0) break;
-
-            const frame = buffer.subarray(start, end + 2);
-            buffer = buffer.subarray(end + 2);
-
-            try {
-              const jpeg = await sharp(frame)
-                .resize({ width: preset.iosWidth, withoutEnlargement: true })
-                .jpeg({ quality: preset.iosQuality })
-                .toBuffer();
-              if (closed) break;
-              reply.raw.write(
-                `--BoundaryString\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`,
-              );
-              reply.raw.write(jpeg);
-              reply.raw.write('\r\n');
-            } catch {
-              /* 单帧解码失败跳过 */
-            }
-          }
-
-          if (buffer.length > 4_000_000) {
-            buffer = buffer.subarray(buffer.length - 2);
-          }
-        }
-      } finally {
-        if (!closed) reply.raw.end();
-      }
-    })();
+    const stream = Readable.fromWeb(upstream.body as never);
+    stream.pipe(reply.raw);
+    request.raw.on('close', () => stream.destroy());
+    return;
   });
 
   /* ---------------------------------------------------------------- */

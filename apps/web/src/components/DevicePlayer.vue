@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   FRAME_KIND,
-  annexBToAvcc,
   decodeFrame,
+  nalsToAvcc,
   splitNals,
   type StreamReady,
   type ViewerToStreamMessage,
@@ -13,7 +13,7 @@ const props = defineProps<{
   sessionId: string;
   platform?: 'android' | 'ios';
   deviceId?: string;
-  quality?: 'low' | 'medium' | 'high';
+  quality?: 'low' | 'medium' | 'high' | 'ultra';
   /** 批量控制等场景：去掉画面四周留白，贴满容器。 */
   flush?: boolean;
 }>();
@@ -187,14 +187,12 @@ function handleBinary(data: ArrayBuffer): void {
   const { kind, payload } = decodeFrame(new Uint8Array(data));
   if (kind !== FRAME_KIND.h264) return;
 
-  let isKey = false;
-  for (const nal of splitNals(payload)) {
+  // 参数集走 description，帧内再带 SPS/PPS 容易让解码器颜色错乱（绿屏）
+  const nals = splitNals(payload).filter((nal) => {
     const type = (nal[0] ?? 0) & 0x1f;
-    if (type === 5) {
-      isKey = true;
-      break;
-    }
-  }
+    return type !== 7 && type !== 8;
+  });
+  const isKey = nals.some((nal) => ((nal[0] ?? 0) & 0x1f) === 5);
 
   // 中途加入的观看者会先收到 P 帧，必须等第一个关键帧再解码，否则黑屏
   if (waitingKey) {
@@ -207,7 +205,7 @@ function handleBinary(data: ArrayBuffer): void {
       new EncodedVideoChunk({
         type: isKey ? 'key' : 'delta',
         timestamp,
-        data: annexBToAvcc(payload),
+        data: nalsToAvcc(nals),
       }),
     );
     timestamp += 33_333;

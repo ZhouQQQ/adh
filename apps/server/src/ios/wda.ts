@@ -3,6 +3,33 @@ const WDA_BASE = (process.env.ADH_WDA_URL ?? 'http://127.0.0.1:8100').replace(
   '',
 );
 
+/**
+ * 调整 WDA 内置 MJPEG 服务的帧率、JPEG 质量与缩放。
+ * 直接改服务端参数比在转发时逐帧转码快得多。
+ */
+export async function wdaApplyMjpegSettings(input: {
+  framerate: number;
+  quality: number;
+  scaling: number;
+}): Promise<void> {
+  try {
+    await fetch(`${WDA_BASE}/appium/settings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          mjpegServerFramerate: input.framerate,
+          mjpegServerScreenshotQuality: input.quality,
+          mjpegServerScalingFactor: input.scaling,
+        },
+      }),
+      signal: AbortSignal.timeout(3_000),
+    });
+  } catch {
+    /* 旧版 WDA 不支持该设置时忽略，继续用默认参数 */
+  }
+}
+
 let sessionId: string | null = null;
 let sessionAt = 0;
 let windowSize: { width: number; height: number } | null = null;

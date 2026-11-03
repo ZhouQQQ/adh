@@ -1,5 +1,5 @@
 /** 实时预览画质档位：默认 low，优先保证速度和帧率。 */
-export type StreamQuality = 'low' | 'medium' | 'high';
+export type StreamQuality = 'low' | 'medium' | 'high' | 'ultra';
 
 export interface StreamQualityPreset {
   /** scrcpy 长边像素上限 */
@@ -15,11 +15,14 @@ export interface StreamQualityPreset {
 export const STREAM_QUALITY_PRESETS: Record<StreamQuality, StreamQualityPreset> = {
   low: { maxSize: 720, bitrate: 2_000_000, iosWidth: 360, iosQuality: 40 },
   medium: { maxSize: 1080, bitrate: 4_000_000, iosWidth: 540, iosQuality: 55 },
-  high: { maxSize: 1440, bitrate: 8_000_000, iosWidth: 0, iosQuality: 100 },
+  high: { maxSize: 1440, bitrate: 8_000_000, iosWidth: 720, iosQuality: 75 },
+  // ultra：不限制分辨率，码率和 iOS 质量拉满
+  ultra: { maxSize: 0, bitrate: 20_000_000, iosWidth: 0, iosQuality: 100 },
 };
 
 export function normalizeQuality(value?: string | null): StreamQuality {
-  return value === 'low' || value === 'high' ? value : 'medium';
+  if (value === 'low' || value === 'high' || value === 'ultra') return value;
+  return 'medium';
 }
 
 export function resolveQuality(value?: string | null): {

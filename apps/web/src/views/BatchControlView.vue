@@ -35,7 +35,7 @@ const connecting = ref<Record<string, boolean>>({});
 const installShow = ref(false);
 const addShow = ref(false);
 /** 所有设备统一画质，默认中。 */
-const quality = ref<'low' | 'medium' | 'high'>('medium');
+const quality = ref<'low' | 'medium' | 'high' | 'ultra'>('medium');
 const switchingQuality = ref(false);
 /** 联动：一台设备的输入同步到其余设备。 */
 const linkEnabled = ref(false);
@@ -261,7 +261,7 @@ function onControllerChange(deviceId: string, value: boolean): void {
 }
 
 async function onQualityChange(
-  value: 'low' | 'medium' | 'high',
+  value: 'low' | 'medium' | 'high' | 'ultra',
 ): Promise<void> {
   quality.value = value;
 
@@ -333,6 +333,7 @@ async function onQualityChange(
             { label: '低画质', value: 'low' },
             { label: '中画质', value: 'medium' },
             { label: '高画质', value: 'high' },
+            { label: '极高画质', value: 'ultra' },
           ]"
           :disabled="switchingQuality"
           @update:value="onQualityChange"

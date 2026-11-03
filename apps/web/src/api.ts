@@ -440,7 +440,7 @@ export const api = {
   /** 创建投屏会话。 */
   createStream(
     deviceId: string,
-    quality: 'low' | 'medium' | 'high' = 'medium',
+    quality: 'low' | 'medium' | 'high' | 'ultra' = 'medium',
   ): Promise<{ sessionId: string }> {
     return request(`/api/devices/${deviceId}/stream`, {
       method: 'POST',
@@ -484,7 +484,7 @@ export const api = {
   /** 切换画质：重建投屏会话。 */
   restartStream(
     deviceId: string,
-    quality: 'low' | 'medium' | 'high',
+    quality: 'low' | 'medium' | 'high' | 'ultra',
   ): Promise<{ sessionId: string }> {
     return request(`/api/devices/${deviceId}/stream/restart`, {
       method: 'POST',

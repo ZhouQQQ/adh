@@ -243,7 +243,7 @@ const publishedText = computed(() => {
 const isIos = computed(() => device.value?.platform === 'ios');
 /** iOS 端不支持的操作统一提示。 */
 const iosTip = 'iOS 暂不支持该操作';
-const quality = ref<'low' | 'medium' | 'high'>('medium');
+const quality = ref<'low' | 'medium' | 'high' | 'ultra'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
 const reloadNonce = ref(0);
@@ -435,7 +435,7 @@ watch(previews, (list) => {
 });
 
 async function onQualityChange(
-  value: 'low' | 'medium' | 'high',
+  value: 'low' | 'medium' | 'high' | 'ultra',
 ): Promise<void> {
   quality.value = value;
 
@@ -824,6 +824,7 @@ onBeforeUnmount(() => {
             { label: '低画质', value: 'low' },
             { label: '中画质', value: 'medium' },
             { label: '高画质', value: 'high' },
+            { label: '极高画质', value: 'ultra' },
           ]"
           @update:value="onQualityChange"
         />
