@@ -25,8 +25,6 @@ import type { AgentRegistry } from '../registry.js';
 import type { WebHub } from '../ws/web-hub.js';
 
 const IDLE_TIMEOUT_MS = 5 * 60_000;
-/** 控制者断开后保留控制权的宽限期（刷新页面可恢复） */
-const CONTROL_GRACE_MS = 15_000;
 const AGENT_ATTACH_TIMEOUT_MS = 15_000;
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 
@@ -47,8 +45,6 @@ interface StreamSession {
   controllerUserId: string | null;
   /** 控制者断开的时间 */
   controllerLeftAt: number;
-  /** 宽限期结束后把控制权交给仍在观看的人 */
-  graceTimer: NodeJS.Timeout | null;
   agentSocket: WebSocket | null;
   local: LocalStream | null;
   meta: StreamReady | null;
@@ -157,7 +153,6 @@ export class StreamManager {
     session.controllerSince = Date.now();
     session.controllerUserId = user.id;
     session.controllerLeftAt = 0;
-    this.clearGraceTimer(session);
     this.touchActivity(session);
 
     if (previous) sendJson(previous, { t: 'role', controller: false });
@@ -200,7 +195,6 @@ export class StreamManager {
       controllerSince: 0,
       controllerUserId: null,
       controllerLeftAt: 0,
-      graceTimer: null,
       agentSocket: null,
       local: null,
       meta: null,
@@ -246,17 +240,10 @@ export class StreamManager {
     }
 
     const previousController = session.controller;
-    // 控制者刷新页面会短暂断开：同一用户在这段时间内重连可以恢复控制权
-    const sameUser = Boolean(
-      user && session.controllerUserId === user.id,
-    );
-    const graceActive =
-      !previousController &&
-      session.controllerUserId !== null &&
-      Date.now() - session.controllerLeftAt < CONTROL_GRACE_MS;
+    // 已有人控制时，只有原控制者本人重连才能恢复，其他人保持只读
+    const sameUser = Boolean(user && session.controllerUserId === user.id);
     const becomesController =
-      !previousController &&
-      (!session.controllerUserId || sameUser || !graceActive);
+      !previousController && (!session.controllerUserId || sameUser);
 
     session.viewers.add(socket);
     if (becomesController) {
@@ -264,7 +251,6 @@ export class StreamManager {
       session.controllerSince = Date.now();
       session.controllerUserId = user?.id ?? null;
       session.controllerLeftAt = 0;
-      this.clearGraceTimer(session);
       this.touchActivity(session);
     }
 
@@ -304,11 +290,9 @@ export class StreamManager {
       if (session.controller === socket) {
         session.controller = null;
         session.controllerLeftAt = Date.now();
-        // 保留 controllerUserId：同一用户刷新后重连可以恢复控制权
+        // 保留 controllerUserId：只有本人重连能恢复，其他观看者保持只读
         if (session.viewers.size === 0) {
           this.scheduleIdleStop(session);
-        } else {
-          this.scheduleGraceTakeover(session);
         }
         this.notifyDevice(session.device.id);
         return;
@@ -365,7 +349,6 @@ export class StreamManager {
     session.closed = true;
     this.sessions.delete(sessionId);
     this.clearIdleTimer(session);
-    this.clearGraceTimer(session);
     if (session.activityTimer) clearTimeout(session.activityTimer);
     session.activityTimer = null;
     if (session.agentTimer) clearTimeout(session.agentTimer);
@@ -611,53 +594,6 @@ export class StreamManager {
       if (session.closed) return;
       this.destroy(session.id, '长时间无操作，已自动断开');
     }, IDLE_TIMEOUT_MS);
-  }
-
-  /** 控制者断开但还有观看者时，宽限期后把控制权交给下一个人。 */
-  private scheduleGraceTakeover(session: StreamSession): void {
-    this.clearGraceTimer(session);
-    session.graceTimer = setTimeout(() => {
-      session.graceTimer = null;
-      if (session.closed || session.controller) return;
-
-      const next = [...session.viewers].find(
-        (viewer) => viewer.readyState === 1,
-      );
-      if (!next) {
-        session.controllerUserId = null;
-        this.notifyDevice(session.device.id);
-        return;
-      }
-
-      session.controller = next;
-      session.controllerSince = Date.now();
-      session.controllerUserId =
-        viewerMeta.get(next)?.user?.id ?? null;
-      session.controllerLeftAt = 0;
-      sendJson(next, { t: 'role', controller: true });
-      this.touchActivity(session);
-
-      const meta = viewerMeta.get(next);
-      if (meta?.user) {
-        void this.deps.deviceLogs.write({
-          deviceId: session.device.id,
-          deviceName: session.device.name,
-          userId: meta.user.id,
-          username: meta.user.username,
-          action: 'control.takeover',
-          detail: '原控制者离开，自动接管',
-          ip: meta.ip,
-        });
-      }
-      this.notifyDevice(session.device.id);
-    }, CONTROL_GRACE_MS);
-  }
-
-  private clearGraceTimer(session: StreamSession): void {
-    if (session.graceTimer) {
-      clearTimeout(session.graceTimer);
-      session.graceTimer = null;
-    }
   }
 
   private clearIdleTimer(session: StreamSession): void {
