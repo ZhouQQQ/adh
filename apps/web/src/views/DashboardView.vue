@@ -203,7 +203,8 @@ function userText(item: DashboardData['recent'][number]): string {
 <template>
   <div class="dashboard">
     <n-spin :show="loading">
-      <template v-if="data">
+      <div class="dashboard-body">
+        <template v-if="data">
         <div class="cards">
           <div
             v-for="card in cards"
@@ -314,13 +315,21 @@ function userText(item: DashboardData['recent'][number]): string {
             </div>
           </div>
         </section>
-      </template>
+        </template>
+      </div>
     </n-spin>
   </div>
 </template>
 
 <style scoped>
 .dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* n-spin 会包一层容器，间距要放在内层，否则卡片和面板会贴在一起 */
+.dashboard-body {
   display: flex;
   flex-direction: column;
   gap: 18px;
