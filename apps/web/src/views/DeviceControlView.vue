@@ -588,26 +588,6 @@ onBeforeUnmount(() => {
         </template>
       </n-button>
       <div class="title">{{ device?.name ?? '设备控制' }}</div>
-      <label v-if="controller" class="viewers-switch">
-        <n-switch
-          size="small"
-          :value="allowViewers"
-          @update:value="toggleViewers"
-        />
-        <span>允许他人查看</span>
-      </label>
-      <n-select
-        v-model:value="quality"
-        size="tiny"
-        class="quality-select"
-        :disabled="!controller"
-        :options="[
-          { label: '低画质', value: 'low' },
-          { label: '中画质', value: 'medium' },
-          { label: '高画质', value: 'high' },
-        ]"
-        @update:value="onQualityChange"
-      />
       <n-tag
         v-if="device?.control"
         size="small"
@@ -636,6 +616,30 @@ onBeforeUnmount(() => {
       </n-tag>
 
       <div class="toolbar-right">
+        <label
+          v-if="controller || isAdmin"
+          class="viewers-switch"
+          title="关闭后其他人无法查看，管理员不受限制"
+        >
+          <n-switch
+            size="small"
+            :value="allowViewers"
+            @update:value="toggleViewers"
+          />
+          <span>允许他人查看</span>
+        </label>
+        <n-select
+          v-model:value="quality"
+          size="tiny"
+          class="quality-select"
+          :disabled="!controller"
+          :options="[
+            { label: '低画质', value: 'low' },
+            { label: '中画质', value: 'medium' },
+            { label: '高画质', value: 'high' },
+          ]"
+          @update:value="onQualityChange"
+        />
         <n-button
           v-if="device && device.status !== 'online'"
           size="tiny"
@@ -1044,14 +1048,15 @@ onBeforeUnmount(() => {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
 
 .toolbar-user {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding-left: 10px;
+  margin-left: 6px;
+  padding-left: 14px;
   border-left: 1px solid var(--border);
 }
 
