@@ -28,6 +28,9 @@ export class ScrcpyControlTranslator {
       case 'text':
         // 走剪贴板，兼容中文
         return [setClipboard(message.text, true)];
+      case 'clipboard':
+        // 只写剪贴板，不自动粘贴
+        return [setClipboard(message.text, false)];
       case 'rotate':
         return [rotateDevice()];
       case 'screen':

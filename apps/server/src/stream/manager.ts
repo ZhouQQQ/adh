@@ -665,6 +665,10 @@ export class StreamManager {
         action = 'input.text';
         detail = `输入 ${message.text.length} 个字符`;
         break;
+      case 'clipboard':
+        action = 'input.clipboard';
+        detail = `复制 ${message.text.length} 个字符到剪贴板`;
+        break;
       case 'rotate':
         action = 'input.rotate';
         detail = '旋转屏幕';

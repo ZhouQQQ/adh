@@ -362,6 +362,12 @@ export const ViewerTextSchema = z.object({
   text: z.string(),
 });
 
+/** 只写入设备剪贴板，不自动粘贴。 */
+export const ViewerClipboardSchema = z.object({
+  t: z.literal('clipboard'),
+  text: z.string(),
+});
+
 export const ViewerRotateSchema = z.object({
   t: z.literal('rotate'),
 });
@@ -387,6 +393,7 @@ export const ViewerToStreamMessageSchema = z.discriminatedUnion('t', [
   ViewerTouchSchema,
   ViewerKeySchema,
   ViewerTextSchema,
+  ViewerClipboardSchema,
   ViewerRotateSchema,
   ViewerScreenSchema,
   ViewerPanelSchema,

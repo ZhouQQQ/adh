@@ -546,6 +546,14 @@ function sendText(text: string): void {
   sendLocal({ t: 'text', text });
 }
 
+/** 只把文本写进设备剪贴板，不自动粘贴。 */
+function sendClipboard(text: string): void {
+  if (!text) return;
+  if (isIos.value) return;
+  if (!controller.value) return;
+  sendLocal({ t: 'clipboard', text });
+}
+
 function sendRotate(): void {
   if (isIos.value) return;
   if (!controller.value) return;
@@ -745,6 +753,7 @@ onBeforeUnmount(() => {
 defineExpose({
   sendKey,
   sendText,
+  sendClipboard,
   sendRotate,
   setScreen,
   expandNotification,

@@ -460,6 +460,18 @@ function sendText(): void {
   text.value = '';
 }
 
+/** 把文本复制到设备剪贴板（不自动粘贴）。 */
+function copyToDeviceClipboard(): void {
+  const value = text.value.trim();
+  if (!value) {
+    message.warning('请先输入要复制的内容');
+    return;
+  }
+  if (!requireController()) return;
+  playerRef.value?.sendClipboard(value);
+  message.success('已复制到设备剪贴板');
+}
+
 function deviceFileName(extension: string): string {
   const name = safeFileName(device.value?.name ?? 'device');
   return `${name}-${fileTimestamp()}.${extension}`;
@@ -1314,6 +1326,18 @@ onBeforeUnmount(() => {
               <n-icon><PaperPlaneOutline /></n-icon>
             </template>
             发送到设备
+          </n-button>
+          <n-button
+            v-if="!isIos"
+            size="small"
+            block
+            :disabled="!controller"
+            @click="copyToDeviceClipboard"
+          >
+            <template #icon>
+              <n-icon><CopyOutline /></n-icon>
+            </template>
+            复制到剪贴板
           </n-button>
           <n-button
             v-if="!isIos"
