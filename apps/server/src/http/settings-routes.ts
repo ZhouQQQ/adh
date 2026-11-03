@@ -33,7 +33,7 @@ export async function registerSettingsRoutes(
   });
 
   app.put('/api/settings', async (request, reply) => {
-    if (request.user?.role !== 'admin') {
+    if (request.user?.role !== 'superadmin') {
       return reply.code(403).send({ error: '需要管理员权限' });
     }
     const parsed = UpdateSiteBody.safeParse(request.body);
@@ -50,7 +50,7 @@ export async function registerSettingsRoutes(
   });
 
   app.post('/api/settings/logo', async (request, reply) => {
-    if (request.user?.role !== 'admin') {
+    if (request.user?.role !== 'superadmin') {
       return reply.code(403).send({ error: '需要管理员权限' });
     }
     const body = request.body;
@@ -77,7 +77,7 @@ export async function registerSettingsRoutes(
   });
 
   app.delete('/api/settings/logo', async (request, reply) => {
-    if (request.user?.role !== 'admin') {
+    if (request.user?.role !== 'superadmin') {
       return reply.code(403).send({ error: '需要管理员权限' });
     }
     await deps.settings.removeLogo();

@@ -58,8 +58,11 @@ export function useAuth() {
     token,
     user,
     loading,
-    isAdmin: computed(() => user.value?.role === 'admin'),
-    canWrite: computed(() => user.value?.role === 'admin' || user.value?.role === 'operator'),
+    isAdmin: computed(
+      () => user.value?.role === 'admin' || user.value?.role === 'superadmin',
+    ),
+    isSuper: computed(() => user.value?.role === 'superadmin'),
+    canWrite: computed(() => Boolean(user.value)),
     login,
     logout,
     loadMe,

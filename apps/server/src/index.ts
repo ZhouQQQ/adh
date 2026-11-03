@@ -28,6 +28,7 @@ import { registerStreamChannel } from './ws/stream.js';
 import { WebHub } from './ws/web-hub.js';
 import { loadDashboard } from './stats/dashboard.js';
 import { SettingsService } from './settings/service.js';
+import { isAdminRole } from './auth/service.js';
 import { registerSettingsRoutes } from './http/settings-routes.js';
 
 /** ADH_SERVE_WEB=0 时只提供 API，前端页面走 Vite 开发服务器。 */
@@ -96,9 +97,21 @@ async function main(): Promise<void> {
     }
     request.user = user;
 
-    if (path.startsWith('/api/users') || path.startsWith('/api/audit')) {
-      if (user.role !== 'admin') {
-        return reply.code(403).send({ error: '需要管理员权限' });
+    if (path.startsWith('/api/users') && !isAdminRole(user.role)) {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    if (path.startsWith('/api/device-logs') && !isAdminRole(user.role)) {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    // 以下功能仅超级管理员
+    if (
+      path.startsWith('/api/audit') ||
+      path === '/api/dashboard' ||
+      (path.startsWith('/api/settings') && request.method !== 'GET') ||
+      (path.startsWith('/api/agents') && request.method !== 'GET')
+    ) {
+      if (user.role !== 'superadmin') {
+        return reply.code(403).send({ error: '需要超级管理员权限' });
       }
     }
   });
@@ -203,10 +216,10 @@ async function main(): Promise<void> {
     port: config.port,
   });
 
-  /** 仪表盘统计：用户、设备、使用时长与排行（仅管理员）。 */
+  /** 仪表盘统计：用户、设备、使用时长与排行（仅超级管理员）。 */
   app.get('/api/dashboard', async (request, reply) => {
-    if (request.user?.role !== 'admin') {
-      return reply.code(403).send({ error: '需要管理员权限' });
+    if (request.user?.role !== 'superadmin') {
+      return reply.code(403).send({ error: '需要超级管理员权限' });
     }
     return loadDashboard({ db: driver, queries, packages, streams, registry });
   });

@@ -2,8 +2,24 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { SqlDriver } from '../db/driver.js';
 import { hashPassword, verifyPassword } from './password.js';
 
-export const ROLES = ['admin', 'operator'] as const;
+export const ROLES = ['superadmin', 'admin', 'operator'] as const;
 export type Role = (typeof ROLES)[number];
+
+/** 管理员与超级管理员都能做的操作。 */
+export function isAdminRole(role: string): boolean {
+  return role === 'admin' || role === 'superadmin';
+}
+
+/** 超级管理员专属（仪表盘、审计、节点、系统设置等）。 */
+export function isSuperAdminRole(role: string): boolean {
+  return role === 'superadmin';
+}
+
+export function roleLabel(role: string): string {
+  if (role === 'superadmin') return '超级管理员';
+  if (role === 'admin') return '管理员';
+  return '普通用户';
+}
 
 export interface AuthUser {
   id: string;
@@ -85,10 +101,10 @@ export class AuthService {
       await this.createUser({
         username: 'admin',
         password: 'admin',
-        role: 'admin',
+        role: 'superadmin',
         displayName: '超级管理员',
       });
-      console.log('[auth] created default admin: admin');
+      console.log('[auth] created default superadmin: admin');
       return;
     }
 
@@ -98,7 +114,7 @@ export class AuthService {
     if (root && !admin) {
       await this.db.execute(
         `UPDATE adh_users
-         SET username = 'admin', password_hash = ?, display_name = '超级管理员'
+         SET username = 'admin', password_hash = ?, display_name = '超级管理员', role = 'superadmin'
          WHERE id = ?`,
         [hashPassword('admin'), root.id],
       );
@@ -335,9 +351,16 @@ export class AuthService {
     return true;
   }
 
+  async countSuperAdmins(): Promise<number> {
+    const [row] = await this.db.query<{ total: number }>(
+      "SELECT COUNT(*) AS total FROM adh_users WHERE role = 'superadmin' AND enabled = 1",
+    );
+    return Number(row?.total ?? 0);
+  }
+
   async countAdmins(): Promise<number> {
     const [row] = await this.db.query<{ total: number }>(
-      "SELECT COUNT(*) AS total FROM adh_users WHERE role = 'admin' AND enabled = 1",
+      "SELECT COUNT(*) AS total FROM adh_users WHERE role IN ('admin','superadmin') AND enabled = 1",
     );
     return Number(row?.total ?? 0);
   }

@@ -74,7 +74,7 @@ export class SettingsService {
 
   /** 按角色取同时控制上限，0 表示不限。 */
   async getDeviceLimit(role: string): Promise<number> {
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'superadmin') {
       const value = await this.getValue('control.maxDevices.admin');
       return value === null ? DEFAULT_ADMIN_LIMIT : Math.max(0, Number(value) || 0);
     }

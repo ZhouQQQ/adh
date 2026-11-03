@@ -3,6 +3,7 @@ import { computed, h, onMounted, ref } from 'vue';
 import {
   NButton,
   NDataTable,
+  NIcon,
   NInput,
   NModal,
   NSelect,
@@ -13,12 +14,16 @@ import {
   useMessage,
   type DataTableColumns,
 } from 'naive-ui';
+import {
+  CheckmarkCircleOutline,
+  CloseCircleOutline,
+} from '@vicons/ionicons5';
 import { api, type Role, type UserRecord } from '../api';
 import { useAuth } from '../stores/auth';
 
 const message = useMessage();
 const dialog = useDialog();
-const { user: current } = useAuth();
+const { user: current, isSuper } = useAuth();
 
 const users = ref<UserRecord[]>([]);
 const loading = ref(false);
@@ -36,18 +41,62 @@ const form = ref({
   enabled: true,
 });
 
-const roleOptions = [
-  { label: '管理员', value: 'admin' },
-  { label: '普通用户', value: 'operator' },
+const roleOptions = computed(() =>
+  isSuper.value
+    ? [
+        { label: '超级管理员', value: 'superadmin' },
+        { label: '管理员', value: 'admin' },
+        { label: '普通用户', value: 'operator' },
+      ]
+    : [{ label: '普通用户', value: 'operator' }],
+);
+
+const visibleRoles = computed(() =>
+  isSuper.value
+    ? [
+        { value: 'superadmin', short: '超级管理员' },
+        { value: 'admin', short: '管理员' },
+        { value: 'operator', short: '普通用户' },
+      ]
+    : [{ value: 'operator', short: '普通用户' }],
+);
+
+/** 角色权限矩阵，用于新建用户时的提示。 */
+const PERMISSIONS: Array<{
+  name: string;
+  superadmin: boolean;
+  admin: boolean;
+  operator: boolean;
+}> = [
+  { name: '查看设备列表', superadmin: true, admin: true, operator: true },
+  { name: '控制 / 观看投屏', superadmin: true, admin: true, operator: true },
+  { name: '接管他人控制', superadmin: true, admin: true, operator: false },
+  { name: '强制断开投屏', superadmin: true, admin: true, operator: false },
+  { name: '锁定 / 解锁设备', superadmin: true, admin: true, operator: false },
+  { name: '设备日志', superadmin: true, admin: true, operator: false },
+  { name: '应用管理', superadmin: true, admin: true, operator: true },
+  { name: '用户管理', superadmin: true, admin: true, operator: false },
+  { name: '审计日志', superadmin: true, admin: false, operator: false },
+  { name: '仪表盘', superadmin: true, admin: false, operator: false },
+  { name: '节点管理', superadmin: true, admin: false, operator: false },
+  { name: '系统设置', superadmin: true, admin: false, operator: false },
 ];
 
+function hasPermission(item: (typeof PERMISSIONS)[number], role: string): boolean {
+  if (role === 'superadmin') return item.superadmin;
+  if (role === 'admin') return item.admin;
+  return item.operator;
+}
+
 const roleLabel: Record<Role, string> = {
+  superadmin: '超级管理员',
   admin: '管理员',
   operator: '普通用户',
 };
 
-function roleType(role: Role): 'error' | 'warning' {
-  return role === 'admin' ? 'error' : 'warning';
+function roleType(role: Role): 'error' | 'warning' | 'success' {
+  if (role === 'superadmin') return 'error';
+  return role === 'admin' ? 'warning' : 'success';
 }
 
 function formatTime(ts: number): string {
@@ -55,12 +104,25 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleString('zh-CN', { hour12: false });
 }
 
+const roleFilter = ref<'all' | Role>('all');
+
+const roleFilterOptions = computed(() => [
+  { label: '全部角色', value: 'all' },
+  ...visibleRoles.value.map((item) => ({
+    label: item.short,
+    value: item.value,
+  })),
+]);
+
 const filteredUsers = computed(() => {
   const text = keyword.value.trim().toLowerCase();
-  if (!text) return users.value;
   return users.value.filter((user) => {
+    if (roleFilter.value !== 'all' && user.role !== roleFilter.value) {
+      return false;
+    }
+    if (!text) return true;
     const haystack = `${user.username} ${user.displayName ?? ''} ${
-      roleLabel[user.role]
+      roleLabel[user.role] ?? ''
     }`.toLowerCase();
     return haystack.includes(text);
   });
@@ -90,6 +152,10 @@ function openCreate(): void {
 }
 
 function openEdit(row: UserRecord): void {
+  if (!isSuper.value && row.role !== 'operator') {
+    message.warning('管理员只能管理普通用户');
+    return;
+  }
   editing.value = row;
   form.value = {
     username: row.username,
@@ -200,12 +266,19 @@ const columns: DataTableColumns<UserRecord> = [
   {
     title: '操作',
     key: 'actions',
-    render: (row) =>
-      h(NSpace, { size: 4 }, {
+    render: (row) => {
+      // 管理员只能管理普通用户，避免越权
+      const canManage = isSuper.value || row.role === 'operator';
+      return h(NSpace, { size: 4 }, {
         default: () => [
           h(
             NButton,
-            { size: 'tiny', quaternary: true, onClick: () => openEdit(row) },
+            {
+              size: 'tiny',
+              quaternary: true,
+              disabled: !canManage,
+              onClick: () => openEdit(row),
+            },
             { default: () => '编辑' },
           ),
           h(
@@ -213,13 +286,14 @@ const columns: DataTableColumns<UserRecord> = [
             {
               size: 'tiny',
               quaternary: true,
-              disabled: row.id === current.value?.id,
+              disabled: !canManage || row.id === current.value?.id,
               onClick: () => remove(row),
             },
             { default: () => '删除' },
           ),
         ],
-      }),
+      });
+    },
   },
 ];
 
@@ -235,6 +309,12 @@ onMounted(load);
         clearable
         placeholder="搜索用户名 / 显示名"
         style="width: 220px"
+      />
+      <n-select
+        v-model:value="roleFilter"
+        size="small"
+        :options="roleFilterOptions"
+        style="width: 150px"
       />
       <n-button size="small" type="primary" @click="openCreate">新建用户</n-button>
       <n-button size="small" :loading="loading" @click="load">刷新</n-button>
@@ -282,6 +362,48 @@ onMounted(load);
           <span>角色</span>
           <n-select v-model:value="form.role" :options="roleOptions" />
         </label>
+
+        <div class="perm">
+          <div class="perm-title">角色权限说明</div>
+          <div class="perm-table">
+            <div
+              class="perm-row head"
+              :style="{ gridTemplateColumns: `1fr repeat(${visibleRoles.length}, 76px)` }"
+            >
+              <span class="perm-name">权限</span>
+              <span
+                v-for="role in visibleRoles"
+                :key="role.value"
+                class="perm-role"
+                :class="{ active: form.role === role.value }"
+              >
+                {{ role.short }}
+              </span>
+            </div>
+            <div
+              v-for="item in PERMISSIONS"
+              :key="item.name"
+              class="perm-row"
+              :style="{ gridTemplateColumns: `1fr repeat(${visibleRoles.length}, 76px)` }"
+            >
+              <span class="perm-name">{{ item.name }}</span>
+              <span
+                v-for="role in visibleRoles"
+                :key="role.value"
+                class="perm-cell"
+                :class="{ active: form.role === role.value }"
+              >
+                <n-icon
+                  :size="15"
+                  :color="hasPermission(item, role.value) ? '#22c55e' : '#ef4444'"
+                >
+                  <CheckmarkCircleOutline v-if="hasPermission(item, role.value)" />
+                  <CloseCircleOutline v-else />
+                </n-icon>
+              </span>
+            </div>
+          </div>
+        </div>
         <label v-if="editing" class="switch-row">
           <span>启用</span>
           <n-switch v-model:value="form.enabled" />
@@ -305,6 +427,67 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.perm {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.perm-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.perm-table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.perm-row {
+  display: grid;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.perm-row:first-child {
+  border-top: none;
+}
+
+.perm-row.head {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.perm-name {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.perm-role {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.perm-role.active {
+  color: var(--text);
+}
+
+.perm-cell {
+  display: flex;
+  justify-content: center;
+}
+
+.perm-cell.active {
+  background: rgba(34, 197, 94, 0.08);
 }
 
 .toolbar {

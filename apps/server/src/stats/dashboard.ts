@@ -155,7 +155,7 @@ export async function loadDashboard(deps: DashboardDeps): Promise<DashboardData>
   ] = await Promise.all([
     deps.db.query<{ total: number }>('SELECT COUNT(*) AS total FROM adh_users'),
     deps.db.query<{ total: number }>(
-      "SELECT COUNT(*) AS total FROM adh_users WHERE role = 'admin'",
+      "SELECT COUNT(*) AS total FROM adh_users WHERE role IN ('admin','superadmin')",
     ),
     deps.db.query<{ total: number }>(
       'SELECT COUNT(*) AS total FROM adh_users WHERE enabled = 1',

@@ -21,6 +21,7 @@ import type { AgentRegistry } from '../registry.js';
 import { PackageStore, packageKind, type PackageKind } from '../storage/packages.js';
 import type { OssStore } from '../storage/oss.js';
 import type { SettingsService } from '../settings/service.js';
+import { isAdminRole } from '../auth/service.js';
 import { AppIconStore } from '../storage/app-icons.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { StreamManager } from '../stream/manager.js';
@@ -704,7 +705,10 @@ export async function registerHttpRoutes(
     if (!parsed.success) {
       return reply.code(400).send({ error: '参数不合法' });
     }
-    if (parsed.data.locked !== undefined && request.user?.role !== 'admin') {
+    if (
+      parsed.data.locked !== undefined &&
+      !isAdminRole(request.user?.role ?? '')
+    ) {
       return reply.code(403).send({ error: '只有管理员可以锁定设备' });
     }
 
@@ -820,7 +824,7 @@ export async function registerHttpRoutes(
 
   /** 管理员强制断开某台设备当前的投屏。 */
   app.post('/api/devices/:id/stream/kick', async (request, reply) => {
-    if (request.user?.role !== 'admin') {
+    if (!isAdminRole(request.user?.role ?? '')) {
       return reply.code(403).send({ error: '需要管理员权限' });
     }
     const { id } = request.params as { id: string };
@@ -852,7 +856,9 @@ export async function registerHttpRoutes(
       request,
       device,
       'control.takeover',
-      request.user.role === 'admin' ? '管理员接管控制权' : '接管控制权',
+      request.user.role === 'admin' || request.user.role === 'superadmin'
+        ? '管理员接管控制权'
+        : '接管控制权',
     );
     return { ok: true };
   });

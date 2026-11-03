@@ -35,7 +35,7 @@ const route = useRoute();
 const router = useRouter();
 const { agents, devices } = useFleet();
 const { previews, closeAllPreviews, focusPreview } = usePreviews();
-const { user, isAdmin, loadMe, logout } = useAuth();
+const { user, isAdmin, isSuper, loadMe, logout } = useAuth();
 const { title: siteTitle, subtitle: siteSubtitle, logoUpdatedAt } = useSite();
 
 const previewMenu = computed<DropdownOption[]>(() => {
@@ -70,9 +70,12 @@ onMounted(() => {
   startFleet();
 });
 
-const roleLabel = computed(() =>
-  user.value?.role === 'admin' ? '管理员' : '普通用户',
-);
+const roleLabel = computed(() => {
+  const role = user.value?.role;
+  if (role === 'superadmin') return '超级管理员';
+  if (role === 'admin') return '管理员';
+  return '普通用户';
+});
 
 async function handleLogout(): Promise<void> {
   stopFleet();
@@ -80,8 +83,18 @@ async function handleLogout(): Promise<void> {
   await router.replace('/login');
 }
 
-watch([user, () => route.meta.admin], () => {
-  if (route.meta.admin && user.value && user.value.role !== 'admin') {
+watch([user, () => route.meta], () => {
+  const current = user.value;
+  if (!current) return;
+  if (route.meta.super && current.role !== 'superadmin') {
+    void router.replace('/devices');
+    return;
+  }
+  if (
+    route.meta.admin &&
+    current.role !== 'admin' &&
+    current.role !== 'superadmin'
+  ) {
     void router.replace('/devices');
   }
 });
@@ -89,8 +102,8 @@ watch([user, () => route.meta.admin], () => {
 const menuOptions = computed<MenuOption[]>(() => {
   const deviceChildren: MenuOption[] = [];
 
-  // 仪表盘只有管理员能看
-  if (isAdmin.value) {
+  // 仪表盘只有超级管理员能看
+  if (isSuper.value) {
     deviceChildren.push({
       label: () => h(RouterLink, { to: '/dashboard' }, { default: () => '仪表盘' }),
       key: '/dashboard',
@@ -120,48 +133,57 @@ const menuOptions = computed<MenuOption[]>(() => {
     },
   ];
 
-  // 普通用户只看设备相关菜单
+  // 普通用户只有设备与应用两个菜单
   if (!isAdmin.value) return groups;
+
+  const logChildren: MenuOption[] = [];
+  if (isSuper.value) {
+    logChildren.push({
+      label: () => h(RouterLink, { to: '/audit' }, { default: () => '审计日志' }),
+      key: '/audit',
+      icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
+    });
+  }
+  logChildren.push({
+    label: () => h(RouterLink, { to: '/device-logs' }, { default: () => '设备日志' }),
+    key: '/device-logs',
+    icon: () => h(NIcon, null, { default: () => h(ReaderOutline) }),
+  });
+
+  const systemChildren: MenuOption[] = [
+    {
+      label: () => h(RouterLink, { to: '/users' }, { default: () => '用户管理' }),
+      key: '/users',
+      icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }),
+    },
+  ];
+  if (isSuper.value) {
+    systemChildren.push(
+      {
+        label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
+        key: '/agents',
+        icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
+      },
+      {
+        label: () => h(RouterLink, { to: '/settings' }, { default: () => '系统设置' }),
+        key: '/settings',
+        icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
+      },
+    );
+  }
 
   groups.push(
     {
       type: 'group',
       label: '日志',
       key: 'group-logs',
-      children: [
-        {
-          label: () => h(RouterLink, { to: '/audit' }, { default: () => '审计日志' }),
-          key: '/audit',
-          icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
-        },
-        {
-          label: () => h(RouterLink, { to: '/device-logs' }, { default: () => '设备日志' }),
-          key: '/device-logs',
-          icon: () => h(NIcon, null, { default: () => h(ReaderOutline) }),
-        },
-      ],
+      children: logChildren,
     },
     {
       type: 'group',
       label: '系统',
       key: 'group-system',
-      children: [
-        {
-          label: () => h(RouterLink, { to: '/users' }, { default: () => '用户管理' }),
-          key: '/users',
-          icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }),
-        },
-        {
-          label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
-          key: '/agents',
-          icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
-        },
-        {
-          label: () => h(RouterLink, { to: '/settings' }, { default: () => '系统设置' }),
-          key: '/settings',
-          icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
-        },
-      ],
+      children: systemChildren,
     },
   );
 

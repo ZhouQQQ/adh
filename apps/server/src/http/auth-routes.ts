@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ROLES, type AuthService } from '../auth/service.js';
+import { ROLES, isAdminRole, roleLabel, type AuthService } from '../auth/service.js';
 import { bearerToken } from '../auth/token.js';
 
 interface AuthRouteDeps {
@@ -88,6 +88,9 @@ export async function registerAuthRoutes(
     if (existing) {
       return reply.code(409).send({ error: '用户名已存在' });
     }
+    if (request.user?.role !== 'superadmin' && parsed.data.role !== 'operator') {
+      return reply.code(403).send({ error: '管理员只能创建普通用户' });
+    }
 
     const user = await deps.auth.createUser(parsed.data);
     await deps.auth.writeAudit({
@@ -98,7 +101,7 @@ export async function registerAuthRoutes(
       target: user.username,
       status: 201,
       ip: request.ip,
-      detail: `创建用户「${user.username}」，角色=${user.role === 'admin' ? '管理员' : '普通用户'}`,
+      detail: `创建用户「${user.username}」，角色=${roleLabel(user.role)}`,
     });
     return reply.code(201).send({ user });
   });
@@ -112,16 +115,33 @@ export async function registerAuthRoutes(
 
     const target = await deps.auth.getUser(id);
     if (!target) return reply.code(404).send({ error: '用户不存在' });
+    if (request.user?.role !== 'superadmin') {
+      if (
+        target.role !== 'operator' ||
+        (parsed.data.role !== undefined && parsed.data.role !== 'operator')
+      ) {
+        return reply.code(403).send({ error: '管理员只能管理普通用户' });
+      }
+    }
 
     const nextRole = parsed.data.role ?? target.role;
     const nextEnabled = parsed.data.enabled ?? target.enabled;
     if (
-      target.role === 'admin' &&
+      isAdminRole(target.role) &&
       target.enabled &&
-      (nextRole !== 'admin' || !nextEnabled)
+      (!isAdminRole(nextRole) || !nextEnabled)
     ) {
       if ((await deps.auth.countAdmins()) <= 1) {
         return reply.code(400).send({ error: '至少要保留一个启用的管理员' });
+      }
+    }
+    if (
+      target.role === 'superadmin' &&
+      target.enabled &&
+      (nextRole !== 'superadmin' || !nextEnabled)
+    ) {
+      if ((await deps.auth.countSuperAdmins()) <= 1) {
+        return reply.code(400).send({ error: '至少要保留一个启用的超级管理员' });
       }
     }
 
@@ -130,7 +150,7 @@ export async function registerAuthRoutes(
 
     const changes: string[] = [];
     if (parsed.data.role !== undefined) {
-      changes.push(`角色=${parsed.data.role === 'admin' ? '管理员' : '普通用户'}`);
+      changes.push(`角色=${roleLabel(parsed.data.role)}`);
     }
     if (parsed.data.enabled !== undefined) {
       changes.push(parsed.data.enabled ? '启用账号' : '禁用账号');
@@ -159,10 +179,21 @@ export async function registerAuthRoutes(
 
     const target = await deps.auth.getUser(id);
     if (!target) return reply.code(404).send({ error: '用户不存在' });
+    if (request.user?.role !== 'superadmin' && target.role !== 'operator') {
+      return reply.code(403).send({ error: '管理员只能删除普通用户' });
+    }
+    if (target.role === 'superadmin' && request.user?.role !== 'superadmin') {
+      return reply.code(403).send({ error: '只有超级管理员可以删除超级管理员' });
+    }
 
-    if (target.role === 'admin' && target.enabled) {
+    if (isAdminRole(target.role) && target.enabled) {
       if ((await deps.auth.countAdmins()) <= 1) {
         return reply.code(400).send({ error: '至少要保留一个启用的管理员' });
+      }
+    }
+    if (target.role === 'superadmin' && target.enabled) {
+      if ((await deps.auth.countSuperAdmins()) <= 1) {
+        return reply.code(400).send({ error: '至少要保留一个启用的超级管理员' });
       }
     }
 

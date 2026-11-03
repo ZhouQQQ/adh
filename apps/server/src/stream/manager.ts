@@ -17,7 +17,7 @@ import {
   resolveQuality,
   type StreamQuality,
 } from '@adh/device-host';
-import type { AuthUser } from '../auth/service.js';
+import { isAdminRole, type AuthUser } from '../auth/service.js';
 import type { Queries } from '../db/queries.js';
 import type { DeviceLogService } from '../logs/device-logs.js';
 import type { Logger } from '../log.js';
@@ -194,7 +194,7 @@ export class StreamManager {
     const session = this.findSessionByDevice(deviceId);
     if (!session) return false;
 
-    if (user.role !== 'admin') {
+    if (!isAdminRole(user.role)) {
       const meta = session.controller
         ? viewerMeta.get(session.controller)
         : undefined;
@@ -226,7 +226,7 @@ export class StreamManager {
 
     const controller = session.controller;
     const meta = controller ? viewerMeta.get(controller) : undefined;
-    if (user.role !== 'admin' && meta?.user?.id !== user.id) return false;
+    if (!isAdminRole(user.role) && meta?.user?.id !== user.id) return false;
 
     session.controller = null;
     session.controllerUserId = null;
@@ -258,8 +258,8 @@ export class StreamManager {
     if (!session) return false;
 
     // 有人正在控制，或原控制者刚离开还没释放，只有管理员能抢
-    if (session.controller && user.role !== 'admin') return false;
-    if (!session.controller && session.controllerUserId && user.role !== 'admin') {
+    if (session.controller && !isAdminRole(user.role)) return false;
+    if (!session.controller && session.controllerUserId && !isAdminRole(user.role)) {
       return false;
     }
 
@@ -718,7 +718,7 @@ export class StreamManager {
       // 控制者关闭查看时，普通观看者不再收到视频帧（管理员不受限制）
       if (!session.allowViewers && viewer !== session.controller) {
         const meta = viewerMeta.get(viewer);
-        if (meta?.user?.role !== 'admin') continue;
+        if (!isAdminRole(meta?.user?.role ?? '')) continue;
       }
       // 解码跟不上时丢弃该帧，避免延迟雪崩
       if (viewer.bufferedAmount > MAX_BUFFERED_BYTES) continue;

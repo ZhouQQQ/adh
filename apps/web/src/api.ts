@@ -120,7 +120,7 @@ export interface ServerInfo {
     | { driver: 'oss'; bucket: string; prefix: string };
 }
 
-export type Role = 'admin' | 'operator';
+export type Role = 'superadmin' | 'admin' | 'operator';
 
 export interface AuthUser {
   id: string;
