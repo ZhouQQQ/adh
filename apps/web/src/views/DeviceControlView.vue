@@ -847,9 +847,30 @@ function togglePip(): void {
   void openSmallWindow();
 }
 
+/** iOS 的控制权只由服务端申请结果决定，播放器不能反向覆盖。 */
+function onPlayerControllerChange(value: boolean): void {
+  if (isIos.value) return;
+  controller.value = value;
+}
+
+/** 关闭 / 刷新页面时尽量立即释放 iOS 控制权，不用等 TTL。 */
+function releaseIosControlOnLeave(): void {
+  if (!isIos.value || !controller.value) return;
+  const id = device.value?.id;
+  if (!id) return;
+  const token = localStorage.getItem('adh.token') ?? '';
+  // keepalive 保证页面已经关闭请求也能发出去
+  void fetch(`/api/devices/${id}/stream/stop`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 onMounted(async () => {
   document.addEventListener('fullscreenchange', onFullscreenChange);
   window.addEventListener('keydown', onKeydown);
+  window.addEventListener('pagehide', releaseIosControlOnLeave);
   clockTimer = window.setInterval(() => {
     now.value = Date.now();
   }, 1_000);
@@ -862,6 +883,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('pagehide', releaseIosControlOnLeave);
   if (clockTimer) window.clearInterval(clockTimer);
   document.title = 'ADH · 设备农场';
   if (document.fullscreenElement === stageRef.value) {
@@ -871,10 +893,7 @@ onBeforeUnmount(() => {
   if (pipActive.value) closePip();
   // iOS 离开页面时释放控制权，其他人可以立即接管
   stopIosHeartbeat();
-  if (isIos.value && controller.value) {
-    const id = device.value?.id;
-    if (id) void api.stopDeviceStream(id).catch(() => undefined);
-  }
+  releaseIosControlOnLeave();
   sessionId.value = null;
 });
 </script>
@@ -1118,7 +1137,7 @@ onBeforeUnmount(() => {
             :device-id="device?.id"
             :quality="quality"
             :control-allowed="controller"
-            @controller-change="controller = $event"
+            @controller-change="onPlayerControllerChange"
             @error="errorText = $event"
             @control-released="onControlReleased"
             @viewers-allow="onViewersAllow"
