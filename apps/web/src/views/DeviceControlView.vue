@@ -20,7 +20,7 @@ import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
 import type { SafeKeyboardLayout } from '@adh/protocol';
 import { api } from '../api';
-import { useFleet } from '../stores/fleet';
+import { stopFleet, useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
 import { openDevicePip, supportsDocumentPip } from '../utils/document-pip';
@@ -36,7 +36,17 @@ const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const { devices, agents, refresh } = useFleet();
-const { user, isAdmin } = useAuth();
+const { user, isAdmin, logout } = useAuth();
+
+const roleLabel = computed(() =>
+  user.value?.role === 'admin' ? '管理员' : '操作员',
+);
+
+async function handleLogout(): Promise<void> {
+  stopFleet();
+  await logout();
+  await router.replace('/login');
+}
 const { openPreview, closePreview, previews } = usePreviews();
 
 const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
@@ -134,6 +144,7 @@ const isIos = computed(() => device.value?.platform === 'ios');
 const quality = ref<'low' | 'medium' | 'high'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
+const reloadNonce = ref(0);
 const safeKeyboard = ref(false);
 const readonlyBannerClosed = ref(false);
 const releasedBy = ref('');
@@ -434,6 +445,20 @@ async function goBack(): Promise<void> {
   void router.push('/devices');
 }
 
+/** 设备断联后手动重连：先刷新设备状态，再重建播放器。 */
+async function reconnect(): Promise<void> {
+  await refresh();
+  const current = device.value;
+  if (!current) return;
+  if (current.status !== 'online') {
+    message.warning('设备仍未上线，请检查 USB 连接和 WDA');
+    return;
+  }
+  errorText.value = null;
+  reloadNonce.value += 1;
+  await createSession();
+}
+
 /** ESC 返回设备列表；输入框或有弹窗/抽屉时交给它们自己处理。 */
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape' || event.defaultPrevented) return;
@@ -593,15 +618,6 @@ onBeforeUnmount(() => {
         {{ controlDuration }}
       </n-tag>
       <n-button
-        v-if="canTakeover"
-        size="tiny"
-        type="primary"
-        ghost
-        @click="takeoverControl"
-      >
-        接管
-      </n-button>
-      <n-button
         v-if="canKick"
         size="tiny"
         type="error"
@@ -618,16 +634,43 @@ onBeforeUnmount(() => {
       >
         只读
       </n-tag>
-      <n-button
-        v-if="controller && !isIos"
-        class="toolbar-right"
-        size="tiny"
-        type="error"
-        ghost
-        @click="stopControl"
-      >
-        断开
-      </n-button>
+
+      <div class="toolbar-right">
+        <n-button
+          v-if="device && device.status !== 'online'"
+          size="tiny"
+          type="warning"
+          ghost
+          @click="reconnect"
+        >
+          重新连接
+        </n-button>
+        <n-button
+          v-if="controller && !isIos"
+          size="tiny"
+          type="error"
+          ghost
+          @click="stopControl"
+        >
+          断开
+        </n-button>
+        <n-button
+          v-if="canTakeover"
+          size="tiny"
+          type="primary"
+          ghost
+          @click="takeoverControl"
+        >
+          接管
+        </n-button>
+        <div class="toolbar-user">
+          <span class="toolbar-user-name">
+            {{ user?.displayName || user?.username || '未登录' }}
+          </span>
+          <n-tag size="tiny" :bordered="false">{{ roleLabel }}</n-tag>
+          <n-button text size="tiny" @click="handleLogout">退出</n-button>
+        </div>
+      </div>
     </header>
 
     <div class="body">
@@ -697,7 +740,7 @@ onBeforeUnmount(() => {
         >
           <DevicePlayer
             ref="playerRef"
-            :key="`${sessionId ?? ''}-${quality}`"
+            :key="`${sessionId ?? ''}-${quality}-${reloadNonce}`"
             :session-id="sessionId ?? ''"
             :platform="device?.platform"
             :device-id="device?.id"
@@ -757,6 +800,16 @@ onBeforeUnmount(() => {
           >
             ×
           </button>
+        </div>
+
+        <div v-if="device && device.status !== 'online'" class="offline-overlay">
+          <div class="offline-title">设备已离线</div>
+          <div class="offline-desc">
+            请检查 USB 连接；iOS 还需要确认手机已信任电脑、WDA 正在运行。
+          </div>
+          <n-button size="small" type="primary" @click="reconnect">
+            重新连接
+          </n-button>
         </div>
 
         <div v-if="pipActive" class="pip-notice">
@@ -989,6 +1042,26 @@ onBeforeUnmount(() => {
 
 .toolbar-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toolbar-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.toolbar-user-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .title {
@@ -1342,6 +1415,32 @@ onBeforeUnmount(() => {
 
 .readonly-banner.released {
   background: rgba(37, 99, 235, 0.94);
+}
+
+.offline-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  background: rgba(9, 9, 11, 0.78);
+  color: #e4e4e7;
+  text-align: center;
+}
+
+.offline-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.offline-desc {
+  max-width: 360px;
+  font-size: 12px;
+  color: #a1a1aa;
 }
 
 .banner-close:hover {
