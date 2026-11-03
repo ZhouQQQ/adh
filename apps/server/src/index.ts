@@ -91,6 +91,31 @@ async function main(): Promise<void> {
     }
   });
 
+  // 删除 / 修改前先取目标名称：等响应回来时记录已经被删掉，审计里就只剩 ID 了
+  app.addHook('onRequest', async (request) => {
+    if (request.method !== 'DELETE' && request.method !== 'PATCH') return;
+    const path = (request.raw.url ?? '').split('?')[0] ?? '';
+    const match = /^\/api\/(packages|devices|agents)\/([^/]+)$/.exec(path);
+    if (!match) return;
+    const [, kind, id] = match;
+    if (!id) return;
+
+    try {
+      if (kind === 'packages') {
+        const record = await packages.record(id);
+        if (record) request.auditSubject = record.name;
+      } else if (kind === 'devices') {
+        const device = await queries.getDevice(id);
+        if (device) request.auditSubject = device.name;
+      } else {
+        const agent = await queries.getAgent(id);
+        if (agent) request.auditSubject = agent.name;
+      }
+    } catch {
+      /* 查询失败不影响正常请求，审计里退回只用 ID / 动作 */
+    }
+  });
+
   // 写操作自动记审计日志，只记业务动作，不记接口路径
   app.addHook('onResponse', async (request, reply) => {
     const user = request.user;
@@ -104,6 +129,7 @@ async function main(): Promise<void> {
       path,
       body: request.body,
       headers: request.headers as Record<string, unknown>,
+      subjectName: request.auditSubject,
     });
     if (!info) return;
 

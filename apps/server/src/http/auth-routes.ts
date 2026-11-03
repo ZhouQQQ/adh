@@ -92,7 +92,7 @@ export async function registerAuthRoutes(
       target: user.username,
       status: 201,
       ip: request.ip,
-      detail: `角色=${user.role === 'admin' ? '管理员' : '操作员'}`,
+      detail: `创建用户「${user.username}」，角色=${user.role === 'admin' ? '管理员' : '操作员'}`,
     });
     return reply.code(201).send({ user });
   });
@@ -140,7 +140,7 @@ export async function registerAuthRoutes(
       target: user.username,
       status: 200,
       ip: request.ip,
-      detail: changes.join('，') || '更新资料',
+      detail: `修改用户「${user.username}」：${changes.join('，') || '更新资料'}`,
     });
     return { user };
   });
@@ -169,7 +169,7 @@ export async function registerAuthRoutes(
       target: target.username,
       status: 204,
       ip: request.ip,
-      detail: '删除用户',
+      detail: `删除用户「${target.username}」`,
     });
     return reply.code(204).send();
   });

@@ -7,6 +7,8 @@ export function describeAudit(input: {
   path: string;
   body?: unknown;
   headers?: Record<string, unknown>;
+  /** 操作前预取的目标名称（包名 / 设备名 / 节点名）。 */
+  subjectName?: string;
 }): { action: string; detail: string } | null {
   const { method, path, body } = input;
   const payload = (body ?? {}) as {
@@ -20,19 +22,35 @@ export function describeAudit(input: {
     password?: string;
   };
 
-  const suffix = payload.name ? `「${payload.name}」` : '';
+  const quote = (value?: string): string => (value ? `「${value}」` : '');
+  const suffix = quote(payload.name);
+  const subject = quote(input.subjectName);
+
+  /** 安装包目标统一带上平台，方便区分是 Android 还是 iOS 的包。 */
+  const packageLabel = (name?: string): string => {
+    if (!name) return '';
+    const platform = name.toLowerCase().endsWith('.ipa') ? 'iOS' : 'Android';
+    return `「${name}」（${platform}）`;
+  };
 
   if (method === 'POST' && path === '/api/agents') {
     return { action: 'agent.create', detail: `创建节点${suffix}` };
   }
   if (method === 'PATCH' && /^\/api\/agents\/[^/]+$/.test(path)) {
-    return { action: 'agent.update', detail: `重命名节点${suffix}` };
+    const detail =
+      payload.name && input.subjectName && payload.name !== input.subjectName
+        ? `重命名节点${subject} → ${suffix}`
+        : `重命名节点${suffix || subject}`;
+    return { action: 'agent.update', detail };
   }
   if (method === 'DELETE' && /^\/api\/agents\/[^/]+$/.test(path)) {
-    return { action: 'agent.delete', detail: '删除节点' };
+    return { action: 'agent.delete', detail: `删除节点${subject}` };
   }
   if (method === 'POST' && /^\/api\/agents\/[^/]+\/rotate$/.test(path)) {
-    return { action: 'agent.rotate', detail: '重置节点接入 Key' };
+    return {
+      action: 'agent.rotate',
+      detail: `重置节点${subject}的接入 Key`,
+    };
   }
 
   if (method === 'PATCH' && /^\/api\/devices\/[^/]+$/.test(path)) {
@@ -41,14 +59,14 @@ export function describeAudit(input: {
     if (payload.safeKeyboard !== undefined) fields.push('安全键盘位置');
     return {
       action: 'device.update',
-      detail: `修改设备${fields.length > 0 ? `（${fields.join('、')}）` : ''}`,
+      detail: `修改设备${subject}${fields.length > 0 ? `（${fields.join('、')}）` : ''}`,
     };
   }
   if (method === 'DELETE' && /^\/api\/devices\/[^/]+$/.test(path)) {
-    return { action: 'device.delete', detail: '删除设备' };
+    return { action: 'device.delete', detail: `删除设备${subject}` };
   }
   if (method === 'POST' && /^\/api\/devices\/[^/]+\/thumbnail$/.test(path)) {
-    return { action: 'device.thumbnail', detail: '上传设备图片' };
+    return { action: 'device.thumbnail', detail: `上传设备图片${subject}` };
   }
 
   if (method === 'POST' && path === '/api/packages') {
@@ -63,14 +81,21 @@ export function describeAudit(input: {
     }
     return {
       action: 'package.upload',
-      detail: `上传安装包${fileName ? `「${fileName}」` : ''}`,
+      detail: `上传安装包${packageLabel(fileName)}`,
     };
   }
   if (method === 'PATCH' && /^\/api\/packages\/[^/]+$/.test(path)) {
-    return { action: 'package.rename', detail: `重命名安装包${suffix}` };
+    const detail =
+      input.subjectName && payload.name && input.subjectName !== payload.name
+        ? `重命名安装包${subject} → ${packageLabel(payload.name)}`
+        : `重命名安装包${packageLabel(payload.name ?? input.subjectName)}`;
+    return { action: 'package.rename', detail };
   }
   if (method === 'DELETE' && /^\/api\/packages\/[^/]+$/.test(path)) {
-    return { action: 'package.delete', detail: '删除安装包' };
+    return {
+      action: 'package.delete',
+      detail: `删除安装包${packageLabel(input.subjectName)}`,
+    };
   }
 
   return null;
