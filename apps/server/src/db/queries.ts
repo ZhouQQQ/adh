@@ -7,6 +7,7 @@ import type {
   DeviceSummary,
   Platform,
   Resolution,
+  SafeKeyboardLayout,
 } from '@adh/protocol';
 import { BUILTIN_AGENT_ID } from '@adh/protocol';
 import type { SqlDriver } from './driver.js';
@@ -23,7 +24,8 @@ const DEVICE_COLUMNS = `
   cpu, cpu_vendor AS cpuVendor, cpu_model AS cpuModel, cpu_cores AS cpuCores,
   memory_mb AS memoryMb, rooted, resolution, status, capabilities, tags,
   last_seen AS lastSeen, thumbnail_at AS thumbnailAt,
-  thumbnail_source AS thumbnailSource, published_at AS publishedAt
+  thumbnail_source AS thumbnailSource, published_at AS publishedAt,
+  safe_keyboard AS safeKeyboard
 `;
 
 function parseStringArray(raw: string | null): string[] {
@@ -42,6 +44,27 @@ function parseResolution(raw: string | null): Resolution | undefined {
     const value = JSON.parse(raw) as Partial<Resolution>;
     if (typeof value.width === 'number' && typeof value.height === 'number') {
       return { width: value.width, height: value.height };
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+function parseSafeKeyboard(
+  raw: string | null,
+): SafeKeyboardLayout | undefined {
+  if (!raw) return undefined;
+  try {
+    const value = JSON.parse(raw) as Partial<SafeKeyboardLayout>;
+    const numbers = [value.x, value.y, value.height, value.opacity];
+    if (numbers.every((item) => typeof item === 'number')) {
+      return {
+        x: value.x as number,
+        y: value.y as number,
+        height: value.height as number,
+        opacity: value.opacity as number,
+      };
     }
   } catch {
     /* ignore */
@@ -107,6 +130,8 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
   if (row.rooted != null) summary.rooted = Boolean(row.rooted);
   const resolution = parseResolution(row.resolution);
   if (resolution) summary.resolution = resolution;
+  const safeKeyboard = parseSafeKeyboard(row.safeKeyboard);
+  if (safeKeyboard) summary.safeKeyboard = safeKeyboard;
   return summary;
 }
 
@@ -384,6 +409,7 @@ export function createQueries(db: SqlDriver) {
         thumbnailAt: 0,
         thumbnailSource: 'auto',
         publishedAt: 0,
+        safeKeyboard: null,
         ...values,
       };
       await db.execute(
@@ -504,16 +530,34 @@ export function createQueries(db: SqlDriver) {
 
     async updateDeviceMeta(
       id: string,
-      patch: { publishedAt?: number },
+      patch: {
+        publishedAt?: number;
+        safeKeyboard?: SafeKeyboardLayout | null;
+      },
     ): Promise<DeviceSummary | undefined> {
       const existing = await this.getDevice(id);
       if (!existing) return undefined;
 
+      const sets: string[] = [];
+      const params: unknown[] = [];
+
       if (patch.publishedAt !== undefined) {
-        await db.execute('UPDATE adh_devices SET published_at = ? WHERE id = ?', [
-          patch.publishedAt,
-          id,
-        ]);
+        sets.push('published_at = ?');
+        params.push(patch.publishedAt);
+      }
+      if (patch.safeKeyboard !== undefined) {
+        sets.push('safe_keyboard = ?');
+        params.push(
+          patch.safeKeyboard ? JSON.stringify(patch.safeKeyboard) : null,
+        );
+      }
+
+      if (sets.length > 0) {
+        params.push(id);
+        await db.execute(
+          `UPDATE adh_devices SET ${sets.join(', ')} WHERE id = ?`,
+          params,
+        );
       }
       return this.getDevice(id);
     },

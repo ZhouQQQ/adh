@@ -3,6 +3,7 @@ import type {
   AgentSummary,
   CreateAgentResponse,
   DeviceSummary,
+  SafeKeyboardLayout,
 } from '@adh/protocol';
 
 export interface DeviceFileEntry {
@@ -117,7 +118,10 @@ export const api = {
 
   updateDevice(
     id: string,
-    patch: { publishedAt?: number },
+    patch: {
+      publishedAt?: number;
+      safeKeyboard?: SafeKeyboardLayout | null;
+    },
   ): Promise<DeviceSummary> {
     return request(`/api/devices/${id}`, {
       method: 'PATCH',

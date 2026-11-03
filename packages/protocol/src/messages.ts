@@ -23,6 +23,15 @@ export type Resolution = z.infer<typeof ResolutionSchema>;
 /* 设备                                                                */
 /* ------------------------------------------------------------------ */
 
+/** 安全键盘辅助层的布局，按设备持久化，多人共享。 */
+export const SafeKeyboardLayoutSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  height: z.number(),
+  opacity: z.number(),
+});
+export type SafeKeyboardLayout = z.infer<typeof SafeKeyboardLayoutSchema>;
+
 /** agent 上报的原始设备信息。 */
 export const DeviceInfoSchema = z.object({
   udid: z.string().min(1),
@@ -65,6 +74,8 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   thumbnailSource: z.enum(['auto', 'manual']).default('auto'),
   /** 发布时间（毫秒时间戳），0 表示未设置。 */
   publishedAt: z.number().default(0),
+  /** 支付密码等黑屏页面用的模拟键盘位置。 */
+  safeKeyboard: SafeKeyboardLayoutSchema.optional(),
   /** 当前是否被某个控制会话占用。 */
   inUse: z.boolean().default(false),
 });

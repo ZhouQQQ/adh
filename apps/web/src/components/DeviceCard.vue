@@ -5,15 +5,19 @@ import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import {
   FingerPrintOutline,
   HardwareChipOutline,
-  LockOpenOutline,
   PhonePortraitOutline,
+  ResizeOutline,
   SpeedometerOutline,
   WifiOutline,
 } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import DeviceBattery from './DeviceBattery.vue';
 import { api } from '../api';
-import { formatMemory, formatAgo } from '../utils/format';
+import {
+  formatMemory,
+  formatAgo,
+  formatResolution,
+} from '../utils/format';
 
 const props = defineProps<{
   device: DeviceSummary;
@@ -55,10 +59,9 @@ const osText = computed(() => {
 
 const memoryText = computed(() => formatMemory(props.device.memoryMb));
 
-const rootedText = computed(() => {
-  if (props.device.rooted === undefined) return '—';
-  return props.device.rooted ? '已 Root' : '未 Root';
-});
+const resolutionText = computed(() =>
+  formatResolution(props.device.resolution),
+);
 
 /** Android 在线即可控制；iOS 需要 WDA 已就绪。 */
 const canControl = computed(
@@ -180,14 +183,10 @@ const cpuText = computed(() => {
           <span class="v" :title="cpuText">{{ cpuText }}</span>
         </div>
         <div class="kv">
-          <n-icon
-            class="k"
-            :size="12"
-            :title="device.rooted === undefined ? 'Root 状态未知' : '是否 Root'"
-          >
-            <LockOpenOutline />
+          <n-icon class="k" :size="12" title="分辨率">
+            <ResizeOutline />
           </n-icon>
-          <span class="v">{{ rootedText }}</span>
+          <span class="v">{{ resolutionText }}</span>
         </div>
         <div class="kv">
           <n-icon class="k" :size="12" title="IP 地址">
@@ -370,7 +369,7 @@ const cpuText = computed(() => {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .kv.span-2 {

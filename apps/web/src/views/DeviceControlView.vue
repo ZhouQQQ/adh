@@ -18,6 +18,7 @@ import DeviceStats from '../components/DeviceStats.vue';
 import InstallAppModal from '../components/InstallAppModal.vue';
 import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
+import type { SafeKeyboardLayout } from '@adh/protocol';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { usePreviews } from '../stores/previews';
@@ -127,6 +128,25 @@ const quality = ref<'low' | 'medium' | 'high'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
 const safeKeyboard = ref(false);
+
+/** 安全键盘位置存服务端，多人共享。 */
+function saveSafeKeyboard(layout: SafeKeyboardLayout): void {
+  const id = device.value?.id;
+  if (!id) return;
+  void api
+    .updateDevice(id, { safeKeyboard: layout })
+    .then((updated) => {
+      const cached = devices.value.find((item) => item.id === id);
+      if (cached) cached.safeKeyboard = updated.safeKeyboard;
+    })
+    .catch(() => undefined);
+}
+
+function toggleSafeKeyboard(): void {
+  safeKeyboard.value = !safeKeyboard.value;
+  // 打开时拉一次最新布局，别人调过的也能同步
+  if (safeKeyboard.value) void refresh();
+}
 
 watch(previews, (list) => {
   const id = device.value?.id;
@@ -527,7 +547,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="overlay-btn"
-            @click="safeKeyboard = !safeKeyboard"
+            @click="toggleSafeKeyboard"
           >
             {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
           </button>
@@ -542,6 +562,8 @@ onBeforeUnmount(() => {
         <SafeKeyboardOverlay
           :visible="safeKeyboard"
           :device-id="device?.id"
+          :layout="device?.safeKeyboard"
+          @change="saveSafeKeyboard"
         />
 
         <div v-if="isFullscreen" class="fullscreen-bar">

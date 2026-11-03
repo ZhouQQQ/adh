@@ -40,6 +40,7 @@ export interface DeviceRow {
   thumbnailAt: number;
   thumbnailSource: string;
   publishedAt: number;
+  safeKeyboard: string | null;
 }
 
 export interface PackageRow {

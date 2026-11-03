@@ -103,8 +103,16 @@ const FileRenameBody = z.object({
   newName: z.string().min(1).max(200),
 });
 
+const SafeKeyboardBody = z.object({
+  x: z.number().min(-100).max(100),
+  y: z.number().min(-100).max(100),
+  height: z.number().min(10).max(100),
+  opacity: z.number().min(0.05).max(1),
+});
+
 const UpdateDeviceBody = z.object({
   publishedAt: z.number().int().min(0).optional(),
+  safeKeyboard: SafeKeyboardBody.nullable().optional(),
 });
 
 /** 这些目录不允许被删除或移动。 */

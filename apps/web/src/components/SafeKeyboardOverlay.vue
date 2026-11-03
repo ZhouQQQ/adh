@@ -8,34 +8,36 @@ import {
   ref,
   watch,
 } from 'vue';
+import type { SafeKeyboardLayout } from '@adh/protocol';
 
-const props = defineProps<{ visible: boolean; deviceId?: string }>();
+const props = defineProps<{
+  visible: boolean;
+  deviceId?: string;
+  layout?: SafeKeyboardLayout | null;
+}>();
+
+const emit = defineEmits<{ change: [layout: SafeKeyboardLayout] }>();
 
 const STORAGE_PREFIX = 'adh.safe-keyboard.layout.v5';
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
 
-interface Layout {
-  /** 相对画面宽度的偏移百分比 */
-  x: number;
-  /** 相对画面高度的偏移百分比 */
-  y: number;
-  /** 键盘高度，占画面高度的百分比 */
-  height: number;
-  opacity: number;
-}
-
-const DEFAULTS: Layout = { x: 0, y: 0, height: 35, opacity: 0.7 };
+const DEFAULTS: SafeKeyboardLayout = {
+  x: 0,
+  y: 0,
+  height: 35,
+  opacity: 0.7,
+};
 
 /** 每台设备单独记住位置 */
 function storageKey(): string {
   return `${STORAGE_PREFIX}.${props.deviceId ?? 'default'}`;
 }
 
-function load(): Layout {
+function readLocal(): SafeKeyboardLayout {
   try {
     const raw = localStorage.getItem(storageKey());
     if (!raw) return { ...DEFAULTS };
-    const value = JSON.parse(raw) as Partial<Layout>;
+    const value = JSON.parse(raw) as Partial<SafeKeyboardLayout>;
     return {
       x: Number(value.x ?? DEFAULTS.x),
       y: Number(value.y ?? DEFAULTS.y),
@@ -47,31 +49,17 @@ function load(): Layout {
   }
 }
 
-const layout = reactive<Layout>(load());
+/** 服务端有配置就用服务端的，否则退回本地缓存 */
+function resolveLayout(): SafeKeyboardLayout {
+  return props.layout ? { ...props.layout } : readLocal();
+}
+
+const layout = reactive<SafeKeyboardLayout>(resolveLayout());
 const editing = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
 
 /** 手机画面在舞台里的实际显示区域（canvas 按比例缩放后的矩形） */
 const frame = reactive({ left: 0, top: 0, width: 100, height: 100 });
-
-watch(
-  layout,
-  () => {
-    try {
-      localStorage.setItem(storageKey(), JSON.stringify(layout));
-    } catch {
-      /* 隐私模式下可能写不了 */
-    }
-  },
-  { deep: true },
-);
-
-watch(
-  () => props.deviceId,
-  () => {
-    Object.assign(layout, load());
-  },
-);
 
 const boardStyle = computed(() => ({
   '--x': String(layout.x),
@@ -120,18 +108,64 @@ function frameRect(): DOMRect {
 }
 
 let measureTimer: number | null = null;
+let saveTimer: number | null = null;
+let applying = false;
 
-onMounted(() => {
-  measure();
-  // 会话建立 / 旋转 / 全屏后 canvas 尺寸会变，定时对齐一次
-  measureTimer = window.setInterval(measure, 500);
-});
+function writeLocal(): void {
+  try {
+    localStorage.setItem(storageKey(), JSON.stringify(layout));
+  } catch {
+    /* 隐私模式下可能写不了 */
+  }
+}
+
+function scheduleSave(delay = 400): void {
+  if (saveTimer) window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    emit('change', {
+      x: layout.x,
+      y: layout.y,
+      height: layout.height,
+      opacity: layout.opacity,
+    });
+  }, delay);
+}
+
+watch(
+  layout,
+  () => {
+    writeLocal();
+    if (!applying) scheduleSave();
+  },
+  { deep: true },
+);
+
+function applyLayout(next: SafeKeyboardLayout): void {
+  applying = true;
+  Object.assign(layout, next);
+  void nextTick(() => {
+    applying = false;
+  });
+}
+
+watch(
+  () => [props.visible, props.deviceId, JSON.stringify(props.layout ?? null)].join('|'),
+  () => {
+    if (!props.visible) {
+      editing.value = false;
+      return;
+    }
+    applyLayout(resolveLayout());
+    // 服务端还没有、但本地调过：把本地位置同步上去
+    if (!props.layout) scheduleSave(600);
+  },
+);
 
 interface DragState {
   pointerId: number;
   x: number;
   y: number;
-  layout: Layout;
+  layout: SafeKeyboardLayout;
   mode: 'move' | 'resize';
 }
 
@@ -167,11 +201,12 @@ function onMove(event: PointerEvent): void {
     layout.x = clamp(drag.layout.x + dx, -40, 40);
     layout.y = clamp(drag.layout.y + dy, -40, 40);
   } else {
-    layout.height = clamp(drag.layout.height - dy, 26, 82);
+    layout.height = clamp(drag.layout.height - dy, 20, 82);
   }
 }
 
 function onUp(): void {
+  if (drag) scheduleSave(0);
   drag = null;
   window.removeEventListener('pointermove', onMove);
   window.removeEventListener('pointerup', onUp);
@@ -186,20 +221,15 @@ function reset(): void {
   Object.assign(layout, DEFAULTS);
 }
 
-watch(
-  () => props.visible,
-  async (visible) => {
-    if (!visible) {
-      editing.value = false;
-      return;
-    }
-    await nextTick();
-    measure();
-  },
-);
+onMounted(() => {
+  measure();
+  // 会话建立 / 旋转 / 全屏后 canvas 尺寸会变，定时对齐一次
+  measureTimer = window.setInterval(measure, 500);
+});
 
 onBeforeUnmount(() => {
   if (measureTimer) window.clearInterval(measureTimer);
+  if (saveTimer) window.clearTimeout(saveTimer);
   onUp();
 });
 </script>
