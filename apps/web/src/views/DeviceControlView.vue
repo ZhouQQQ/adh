@@ -539,7 +539,10 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <SafeKeyboardOverlay :visible="safeKeyboard" />
+        <SafeKeyboardOverlay
+          :visible="safeKeyboard"
+          :device-id="device?.id"
+        />
 
         <div v-if="isFullscreen" class="fullscreen-bar">
           <div class="fs-group">

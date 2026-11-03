@@ -9,9 +9,9 @@ import {
   watch,
 } from 'vue';
 
-const props = defineProps<{ visible: boolean }>();
+const props = defineProps<{ visible: boolean; deviceId?: string }>();
 
-const STORAGE_KEY = 'adh.safe-keyboard.layout.v2';
+const STORAGE_PREFIX = 'adh.safe-keyboard.layout.v5';
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
 
 interface Layout {
@@ -24,11 +24,16 @@ interface Layout {
   opacity: number;
 }
 
-const DEFAULTS: Layout = { x: 0, y: 0, height: 41, opacity: 0.7 };
+const DEFAULTS: Layout = { x: 0, y: 0, height: 35, opacity: 0.7 };
+
+/** 每台设备单独记住位置 */
+function storageKey(): string {
+  return `${STORAGE_PREFIX}.${props.deviceId ?? 'default'}`;
+}
 
 function load(): Layout {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return { ...DEFAULTS };
     const value = JSON.parse(raw) as Partial<Layout>;
     return {
@@ -53,12 +58,19 @@ watch(
   layout,
   () => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+      localStorage.setItem(storageKey(), JSON.stringify(layout));
     } catch {
       /* 隐私模式下可能写不了 */
     }
   },
   { deep: true },
+);
+
+watch(
+  () => props.deviceId,
+  () => {
+    Object.assign(layout, load());
+  },
 );
 
 const boardStyle = computed(() => ({
@@ -260,6 +272,7 @@ onBeforeUnmount(() => {
   bottom: 0;
   width: 100%;
   height: calc(var(--h) * 1%);
+  box-sizing: border-box;
   transform: translate(calc(-50% + var(--x) * 1%), calc(var(--y) * 1%));
   display: flex;
   flex-direction: column;
@@ -290,7 +303,7 @@ onBeforeUnmount(() => {
 
 .spacer {
   flex: none;
-  height: 18%;
+  height: 28%;
 }
 
 .cell {
@@ -313,7 +326,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(16px, 3.2vmin, 34px);
+  font-size: clamp(14px, 2.8vmin, 30px);
   font-weight: 500;
   background: rgba(255, 255, 255, 0.66);
   border-radius: 4px;
