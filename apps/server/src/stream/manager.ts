@@ -627,10 +627,18 @@ export class StreamManager {
     socket: WebSocket,
     raw: string,
   ): void {
-    if (session.controller !== socket) return;
-
     const message = parseViewerMessage(raw);
     if (!message) return;
+
+    // 只读观看者也可以请求关键帧（解码器重建后恢复画面）
+    if (message.t === 'requestIdr') {
+      if (session.lastKeyFrame && socket.readyState === 1) {
+        socket.send(session.lastKeyFrame);
+      }
+      return;
+    }
+
+    if (session.controller !== socket) return;
 
     this.touchActivity(session);
 

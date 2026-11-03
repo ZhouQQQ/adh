@@ -37,6 +37,11 @@ const isIos = computed(() => props.platform === 'ios');
 
 let socket: WebSocket | null = null;
 let decoder: VideoDecoder | null = null;
+/** 最近一次 ready，用于解码器重建 */
+let lastReady: StreamReady | null = null;
+/** 最近一次成功解出画面的时间 */
+let lastOutputAt = 0;
+let watchdog: ReturnType<typeof setInterval> | null = null;
 let timestamp = 0;
 /** 新接入的观看者要等第一个关键帧再解码 */
 let waitingKey = true;
@@ -123,6 +128,9 @@ function configureDecoder(ready: StreamReady): void {
   const canvas = canvasRef.value;
   if (!canvas) return;
 
+  lastReady = ready;
+  lastOutputAt = Date.now();
+
   canvas.width = ready.width;
   canvas.height = ready.height;
   waitingKey = true;
@@ -130,6 +138,7 @@ function configureDecoder(ready: StreamReady): void {
   decoder?.close();
   decoder = new VideoDecoder({
     output: (frame) => {
+      lastOutputAt = Date.now();
       const context = canvas.getContext('2d');
       if (context) {
         context.drawImage(frame, 0, 0, canvas.width, canvas.height);
@@ -137,7 +146,14 @@ function configureDecoder(ready: StreamReady): void {
       }
       frame.close();
     },
-    error: (error) => emit('error', error.message),
+    error: (error) => {
+      emit('error', error.message);
+      // 解码出错时重建解码器并请求关键帧，避免一直花屏 / 绿屏
+      if (lastReady) {
+        configureDecoder(lastReady);
+        send({ t: 'requestIdr' });
+      }
+    },
   });
 
   const description = ready.description
@@ -149,6 +165,21 @@ function configureDecoder(ready: StreamReady): void {
     description,
     optimizeForLatency: true,
   });
+
+  startWatchdog();
+}
+
+/** 长时间解不出画面时自动重建解码器并请求关键帧。 */
+function startWatchdog(): void {
+  if (watchdog) return;
+  watchdog = setInterval(() => {
+    if (!decoder || decoder.state !== 'configured') return;
+    if (!lastReady || socket?.readyState !== 1) return;
+    if (Date.now() - lastOutputAt < 5_000) return;
+    configureDecoder(lastReady);
+    send({ t: 'requestIdr' });
+    lastOutputAt = Date.now();
+  }, 3_000);
 }
 
 function handleBinary(data: ArrayBuffer): void {
@@ -741,6 +772,10 @@ onBeforeUnmount(() => {
   }
   decoder?.close();
   decoder = null;
+  if (watchdog) {
+    clearInterval(watchdog);
+    watchdog = null;
+  }
 
   if (iosTimer) {
     clearTimeout(iosTimer);

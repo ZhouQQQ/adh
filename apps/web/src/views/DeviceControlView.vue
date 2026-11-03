@@ -6,6 +6,7 @@ import {
   NDropdown,
   NIcon,
   NInput,
+  NModal,
   NSelect,
   NSpin,
   NSwitch,
@@ -33,6 +34,7 @@ import {
   MoonOutline,
   NotificationsOutline,
   PaperPlaneOutline,
+  PersonCircleOutline,
   PowerOutline,
   RefreshOutline,
   ScanOutline,
@@ -82,6 +84,56 @@ async function handleLogout(): Promise<void> {
   await logout();
   await router.replace('/login');
 }
+
+const pwdShow = ref(false);
+const oldPassword = ref('');
+const newPassword = ref('');
+const confirmPassword = ref('');
+const pwdSaving = ref(false);
+
+const userMenu = computed<DropdownOption[]>(() => [
+  { label: '修改密码', key: 'password' },
+  { type: 'divider', key: 'divider' },
+  { label: '退出登录', key: 'logout' },
+]);
+
+function onUserMenu(key: string): void {
+  if (key === 'password') {
+    oldPassword.value = '';
+    newPassword.value = '';
+    confirmPassword.value = '';
+    pwdShow.value = true;
+    return;
+  }
+  if (key === 'logout') void handleLogout();
+}
+
+async function submitPassword(): Promise<void> {
+  if (!oldPassword.value) {
+    message.warning('请输入原密码');
+    return;
+  }
+  if (newPassword.value.length < 6) {
+    message.warning('新密码至少 6 位');
+    return;
+  }
+  if (newPassword.value !== confirmPassword.value) {
+    message.warning('两次输入的新密码不一致');
+    return;
+  }
+
+  pwdSaving.value = true;
+  try {
+    await api.changePassword(oldPassword.value, newPassword.value);
+    message.success('密码已修改');
+    pwdShow.value = false;
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '修改失败');
+  } finally {
+    pwdSaving.value = false;
+  }
+}
+
 const { openPreview, closePreview, previews } = usePreviews();
 
 const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
@@ -749,7 +801,7 @@ onBeforeUnmount(() => {
         只读
       </n-tag>
 
-      <div class="toolbar-right">
+      <div class="toolbar-center">
         <label
           v-if="controller || isAdmin"
           class="viewers-switch"
@@ -758,7 +810,7 @@ onBeforeUnmount(() => {
           <n-switch
             size="small"
             :value="allowViewers"
-            :disabled="isIos"
+            :disabled="!controller || isIos"
             @update:value="toggleViewers"
           />
           <span>允许他人查看</span>
@@ -775,6 +827,9 @@ onBeforeUnmount(() => {
           ]"
           @update:value="onQualityChange"
         />
+      </div>
+
+      <div class="toolbar-right">
         <n-button
           v-if="device && device.status !== 'online'"
           size="tiny"
@@ -792,7 +847,7 @@ onBeforeUnmount(() => {
           size="tiny"
           type="error"
           ghost
-          :disabled="isIos"
+          :disabled="!controller || isIos"
           :title="isIos ? iosTip : undefined"
           @click="stopControl"
         >
@@ -838,13 +893,23 @@ onBeforeUnmount(() => {
             </template>
           </n-button>
         </n-dropdown>
-        <div class="toolbar-user">
-          <span class="toolbar-user-name">
-            {{ user?.displayName || user?.username || '未登录' }}
-          </span>
-          <n-tag size="tiny" :bordered="false">{{ roleLabel }}</n-tag>
-          <n-button text size="tiny" @click="handleLogout">退出</n-button>
-        </div>
+        <n-dropdown
+          trigger="click"
+          placement="bottom-end"
+          :options="userMenu"
+          @select="onUserMenu"
+        >
+          <div class="toolbar-user" role="button" tabindex="0">
+            <n-icon class="toolbar-user-icon" :size="16">
+              <PersonCircleOutline />
+            </n-icon>
+            <span class="toolbar-user-name">
+              {{ user?.displayName || user?.username || '未登录' }}
+            </span>
+            <n-tag size="tiny" :bordered="false">{{ roleLabel }}</n-tag>
+            <span class="toolbar-caret">▾</span>
+          </div>
+        </n-dropdown>
       </div>
     </header>
 
@@ -1046,6 +1111,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <div v-if="isFullscreen && !controller" class="readonly-float">只读</div>
+
         <div v-if="recording" class="rec-badge">
           <span class="rec-dot" />
           <span>录制中</span>
@@ -1077,15 +1144,15 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">导航</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
                 <n-icon :size="13"><ArrowBackOutline /></n-icon>
                 返回
               </button>
-              <button type="button" class="bar-btn" @click="sendKey('home')">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('home')">
                 <n-icon :size="13"><HomeOutline /></n-icon>
                 主页
               </button>
-              <button type="button" class="bar-btn" @click="sendKey('recent')">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('recent')">
                 <n-icon :size="13"><AlbumsOutline /></n-icon>
                 任务
               </button>
@@ -1095,15 +1162,15 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">音量</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" @click="sendKey('volumeDown')">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('volumeDown')">
                 <n-icon :size="13"><VolumeLowOutline /></n-icon>
                 音量−
               </button>
-              <button type="button" class="bar-btn" @click="sendKey('volumeUp')">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('volumeUp')">
                 <n-icon :size="13"><VolumeHighOutline /></n-icon>
                 音量+
               </button>
-              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
                 <n-icon :size="13"><VolumeMuteOutline /></n-icon>
                 静音
               </button>
@@ -1113,15 +1180,15 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">屏幕</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
                 <n-icon :size="13"><PowerOutline /></n-icon>
                 电源
               </button>
-              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
                 <n-icon :size="13"><MoonOutline /></n-icon>
                 息屏
               </button>
-              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
                 <n-icon :size="13"><SunnyOutline /></n-icon>
                 亮屏
               </button>
@@ -1131,11 +1198,11 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">抓取</div>
             <div class="fs-grid cols-2">
-              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="copyScreenshot">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="copyScreenshot">
                 <n-icon :size="13"><CopyOutline /></n-icon>
                 复制截图
               </button>
-              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="takeScreenshot">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="takeScreenshot">
                 <n-icon :size="13"><CameraOutline /></n-icon>
                 截图保存
               </button>
@@ -1143,7 +1210,7 @@ onBeforeUnmount(() => {
                 type="button"
                 class="bar-btn span-2"
                 :class="{ recording }"
-                :disabled="isIos"
+                :disabled="!controller || isIos"
                 :title="isIos ? iosTip : undefined"
                 @click="toggleRecording"
               >
@@ -1180,19 +1247,19 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">导航</div>
           <div class="grid-3">
-            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
+            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
               <template #icon>
                 <n-icon><ArrowBackOutline /></n-icon>
               </template>
               返回
             </n-button>
-            <n-button size="small" @click="sendKey('home')">
+            <n-button size="small" :disabled="!controller" @click="sendKey('home')">
               <template #icon>
                 <n-icon><HomeOutline /></n-icon>
               </template>
               主页
             </n-button>
-            <n-button size="small" @click="sendKey('recent')">
+            <n-button size="small" :disabled="!controller" @click="sendKey('recent')">
               <template #icon>
                 <n-icon><AlbumsOutline /></n-icon>
               </template>
@@ -1204,19 +1271,19 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">音量</div>
           <div class="grid-3">
-            <n-button size="small" @click="sendKey('volumeDown')">
+            <n-button size="small" :disabled="!controller" @click="sendKey('volumeDown')">
               <template #icon>
                 <n-icon><VolumeLowOutline /></n-icon>
               </template>
               音量−
             </n-button>
-            <n-button size="small" @click="sendKey('volumeUp')">
+            <n-button size="small" :disabled="!controller" @click="sendKey('volumeUp')">
               <template #icon>
                 <n-icon><VolumeHighOutline /></n-icon>
               </template>
               音量+
             </n-button>
-            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
+            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
               <template #icon>
                 <n-icon><VolumeMuteOutline /></n-icon>
               </template>
@@ -1228,19 +1295,19 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">设备</div>
           <div class="grid-3">
-            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
+            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
               <template #icon>
                 <n-icon><PowerOutline /></n-icon>
               </template>
               电源
             </n-button>
-            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
+            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
               <template #icon>
                 <n-icon><MoonOutline /></n-icon>
               </template>
               息屏
             </n-button>
-            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
+            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
               <template #icon>
                 <n-icon><SunnyOutline /></n-icon>
               </template>
@@ -1248,13 +1315,13 @@ onBeforeUnmount(() => {
             </n-button>
           </div>
           <div class="grid-2">
-            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="fileShow = true">
+            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="fileShow = true">
               <template #icon>
                 <n-icon><FolderOpenOutline /></n-icon>
               </template>
               文件管理
             </n-button>
-            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="openNotification">
+            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="openNotification">
               <template #icon>
                 <n-icon><NotificationsOutline /></n-icon>
               </template>
@@ -1268,7 +1335,7 @@ onBeforeUnmount(() => {
           <div class="grid-2">
             <n-button
               size="small"
-              :disabled="isIos"
+              :disabled="!controller || isIos"
               :title="isIos ? iosTip : '截图到剪贴板'"
               @click="copyScreenshot"
             >
@@ -1279,7 +1346,7 @@ onBeforeUnmount(() => {
             </n-button>
             <n-button
               size="small"
-              :disabled="isIos"
+              :disabled="!controller || isIos"
               :title="isIos ? iosTip : undefined"
               @click="takeScreenshot"
             >
@@ -1294,7 +1361,7 @@ onBeforeUnmount(() => {
             block
             class="record-btn"
             :class="{ recording }"
-            :disabled="isIos"
+            :disabled="!controller || isIos"
             :title="isIos ? iosTip : undefined"
             @click="toggleRecording"
           >
@@ -1439,8 +1506,15 @@ onBeforeUnmount(() => {
   flex: none;
 }
 
-.toolbar-right {
+.toolbar-center {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-left: auto;
+  margin-right: auto;
+}
+
+.toolbar-right {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1453,6 +1527,16 @@ onBeforeUnmount(() => {
   margin-left: 6px;
   padding-left: 14px;
   border-left: 1px solid var(--border);
+  cursor: pointer;
+}
+
+/* 整块都能触发下拉，点 tag / 名字都算 */
+.toolbar-user > * {
+  pointer-events: none;
+}
+
+.toolbar-user-icon {
+  color: var(--text-dim);
 }
 
 .toolbar-user-name {
@@ -1769,6 +1853,20 @@ onBeforeUnmount(() => {
   border-color: #dc2626 !important;
   color: #ffffff !important;
   animation: rec-pulse 1.1s ease-in-out infinite;
+}
+
+/* 全屏只读提示 */
+.readonly-float {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 12;
+  transform: translateX(-50%);
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #ffffff;
+  font-size: 12px;
 }
 
 /* 左上角录制指示 */

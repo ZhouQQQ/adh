@@ -21,6 +21,7 @@ import {
   ArrowBackOutline,
   DocumentTextOutline,
   PeopleOutline,
+  PersonCircleOutline,
   PhonePortraitOutline,
   ReaderOutline,
   ServerOutline,
@@ -312,6 +313,9 @@ const onlineDevices = computed(
             @select="onUserMenu"
           >
             <div class="user-chip" role="button" tabindex="0">
+              <n-icon class="user-chip-icon" :size="16">
+                <PersonCircleOutline />
+              </n-icon>
               <span class="user-name">
                 {{ user?.displayName || user?.username || '未登录' }}
               </span>
@@ -457,6 +461,15 @@ const onlineDevices = computed(
 .user-caret {
   font-size: 10px;
   color: var(--text-faint);
+}
+
+.user-chip-icon {
+  color: var(--text-dim);
+}
+
+/* 整块都能触发下拉，点名字或角色标签都算 */
+.user-chip > * {
+  pointer-events: none;
 }
 
 .pwd-form {
