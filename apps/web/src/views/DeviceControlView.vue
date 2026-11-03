@@ -73,14 +73,17 @@ const installShow = ref(false);
 const stageRef = ref<HTMLElement | null>(null);
 const pageRef = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
+const isWebFullscreen = ref(false);
 const recording = ref(false);
 
 async function toggleFullscreen(): Promise<void> {
-  // 整页全屏：工具栏、用户信息与普通页面保持一致
-  const element = pageRef.value;
+  // 浏览器原生全屏：只放大画面，操作使用全屏专用操作列
+  const element = stageRef.value;
   if (!element) return;
   try {
     if (!document.fullscreenElement) {
+      // 两种全屏互斥，避免布局叠加
+      isWebFullscreen.value = false;
       await element.requestFullscreen();
     } else {
       await document.exitFullscreen();
@@ -90,8 +93,13 @@ async function toggleFullscreen(): Promise<void> {
   }
 }
 
+/** 网页全屏：页面内铺满，保留顶部工具栏和右侧原始操作列。 */
+function toggleWebFullscreen(): void {
+  isWebFullscreen.value = !isWebFullscreen.value;
+}
+
 function onFullscreenChange(): void {
-  isFullscreen.value = document.fullscreenElement === pageRef.value;
+  isFullscreen.value = document.fullscreenElement === stageRef.value;
 }
 
 const deviceId = computed(() => String(route.params.id ?? ''));
@@ -552,6 +560,12 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
 
+  // 网页全屏下按 Esc 先退出全屏，不直接离开页面
+  if (isWebFullscreen.value) {
+    isWebFullscreen.value = false;
+    return;
+  }
+
   void goBack();
 }
 
@@ -639,7 +653,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   if (clockTimer) window.clearInterval(clockTimer);
   document.title = 'ADH · 设备农场';
-  if (document.fullscreenElement === pageRef.value) {
+  if (document.fullscreenElement === stageRef.value) {
     void document.exitFullscreen();
   }
   // 主画面销毁后镜像流就失效了，同步关掉画中画
@@ -649,7 +663,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="pageRef" class="control-page">
+  <div
+    ref="pageRef"
+    class="control-page"
+    :class="{ 'web-fullscreen': isWebFullscreen }"
+  >
     <header class="toolbar">
       <n-button
         quaternary
@@ -981,6 +999,9 @@ onBeforeUnmount(() => {
           <button type="button" class="overlay-btn" @click="togglePip">
             {{ pipActive ? '收回画中画' : '画中画' }}
           </button>
+          <button type="button" class="overlay-btn" @click="toggleWebFullscreen">
+            {{ isWebFullscreen ? '退出网页全屏' : '网页全屏' }}
+          </button>
           <button type="button" class="overlay-btn" @click="toggleFullscreen">
             {{ isFullscreen ? '退出全屏' : '全屏' }}
           </button>
@@ -1045,6 +1066,16 @@ onBeforeUnmount(() => {
                 @click="toggleRecording"
               >
                 {{ recording ? '停止录屏' : '录屏' }}
+              </button>
+              <button
+                v-if="!isIos"
+                type="button"
+                class="bar-btn span-2"
+                :class="{ on: safeKeyboard }"
+                :disabled="!controller"
+                @click="toggleSafeKeyboard"
+              >
+                {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
               </button>
             </div>
           </div>
@@ -1197,6 +1228,17 @@ onBeforeUnmount(() => {
   flex-direction: column;
   background: var(--bg);
   overflow: hidden;
+}
+
+/* 网页全屏：页面内铺满，保留顶部工具栏与右侧原始操作列 */
+.control-page.web-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.control-page.web-fullscreen .info-col {
+  display: none;
 }
 
 .toolbar {
@@ -1515,6 +1557,12 @@ onBeforeUnmount(() => {
   border-color: #dc2626;
   color: #ffffff;
   animation: rec-pulse 1.1s ease-in-out infinite;
+}
+
+.bar-btn.on {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
 }
 
 .bar-btn.recording:hover {
