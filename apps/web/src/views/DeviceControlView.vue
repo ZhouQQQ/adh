@@ -820,13 +820,13 @@ onBeforeUnmount(() => {
           class="viewers-switch"
           title="关闭后其他人无法查看"
         >
+          <span>允许他人查看</span>
           <n-switch
             size="small"
             :value="allowViewers"
             :disabled="!controller"
             @update:value="toggleViewers"
           />
-          <span>允许他人查看</span>
         </label>
         <n-select
           v-model:value="quality"
@@ -1569,12 +1569,25 @@ onBeforeUnmount(() => {
 }
 
 .viewers-switch {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
   font-size: 12px;
   color: var(--text-dim);
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.viewers-switch:hover {
+  border-color: var(--border-strong);
+}
+
+.viewers-switch span {
+  color: var(--text-muted);
 }
 
 .meta {
