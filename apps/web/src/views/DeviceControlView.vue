@@ -250,6 +250,8 @@ const reloadNonce = ref(0);
 const safeKeyboard = ref(false);
 const readonlyBannerClosed = ref(false);
 const releasedBy = ref('');
+/** iOS 自己主动断开后，显示「重新连接」而不是「接管」。 */
+const selfLeft = ref(false);
 
 function onControlReleased(username: string): void {
   // 自己主动断开：页面保持只读，不弹接管提示
@@ -458,7 +460,8 @@ async function stopControl(): Promise<void> {
     }
     controller.value = false;
     readonlyBannerClosed.value = false;
-    releasedBy.value = user.value?.username ?? '控制者';
+    selfLeft.value = true;
+    releasedBy.value = '';
     message.success('已断开控制，当前页面保持只读');
     await refresh();
     return;
@@ -472,6 +475,31 @@ async function stopControl(): Promise<void> {
   }
   // 断开后停留在当前页面，转为只读观看
   await refresh();
+}
+
+/** iOS 自己断开后重新申请控制权。 */
+async function resumeIosControl(): Promise<void> {
+  if (!isIos.value || !device.value) return;
+  try {
+    const result = await api.claimIosControl(device.value.id);
+    if (!result.granted) {
+      selfLeft.value = false;
+      releasedBy.value = result.control?.username ?? '其他用户';
+      readonlyBannerClosed.value = false;
+      message.warning(`${releasedBy.value} 正在控制，当前只能查看`);
+      await refresh();
+      return;
+    }
+    selfLeft.value = false;
+    controller.value = true;
+    startIosHeartbeat();
+    message.success('已重新获得控制权');
+    await refresh();
+  } catch (error) {
+    message.warning(
+      error instanceof Error ? error.message : '无法获取控制权',
+    );
+  }
 }
 
 watch(controller, (value, previous) => {
@@ -495,7 +523,8 @@ watch(
     stopIosHeartbeat();
     selfReleased = true;
     controller.value = false;
-    releasedBy.value = name ?? '管理员';
+    selfLeft.value = false;
+    releasedBy.value = name ?? '控制者';
     readonlyBannerClosed.value = false;
     message.warning(
       name
@@ -1204,6 +1233,24 @@ onBeforeUnmount(() => {
         >
           <n-spin :size="20" />
           <span>正在连接设备…</span>
+        </div>
+
+        <div
+          v-if="selfLeft && !controller"
+          class="readonly-banner released"
+        >
+          <span>已断开控制，当前为只读</span>
+          <n-button size="tiny" type="primary" @click="resumeIosControl">
+            重新连接
+          </n-button>
+          <button
+            type="button"
+            class="banner-close"
+            title="关闭提示"
+            @click="selfLeft = false"
+          >
+            ×
+          </button>
         </div>
 
         <div
