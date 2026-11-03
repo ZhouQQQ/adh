@@ -21,7 +21,7 @@ const DEVICE_COLUMNS = `
   id, agent_id AS agentId, udid, platform, name, model,
   market_name AS marketName, brand, os_version AS osVersion, sdk,
   cpu, cpu_vendor AS cpuVendor, cpu_model AS cpuModel, cpu_cores AS cpuCores,
-  memory_mb AS memoryMb, resolution, status, capabilities, tags,
+  memory_mb AS memoryMb, rooted, resolution, status, capabilities, tags,
   last_seen AS lastSeen, thumbnail_at AS thumbnailAt,
   thumbnail_source AS thumbnailSource, published_at AS publishedAt
 `;
@@ -104,6 +104,7 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
   if (row.cpuModel) summary.cpuModel = row.cpuModel;
   if (row.cpuCores != null) summary.cpuCores = Number(row.cpuCores);
   if (row.memoryMb != null) summary.memoryMb = Number(row.memoryMb);
+  if (row.rooted != null) summary.rooted = Boolean(row.rooted);
   const resolution = parseResolution(row.resolution);
   if (resolution) summary.resolution = resolution;
   return summary;
@@ -337,6 +338,7 @@ export function createQueries(db: SqlDriver) {
         cpuModel: info.cpuModel ?? null,
         cpuCores: info.cpuCores ?? null,
         memoryMb: info.memoryMb ?? null,
+        rooted: info.rooted === undefined ? null : info.rooted ? 1 : 0,
         resolution: info.resolution ? JSON.stringify(info.resolution) : null,
         status: info.status,
         capabilities: JSON.stringify(info.capabilities),
@@ -349,7 +351,7 @@ export function createQueries(db: SqlDriver) {
           `UPDATE adh_devices SET
              platform = ?, name = ?, model = ?, market_name = ?, brand = ?,
              os_version = ?, sdk = ?, cpu = ?, cpu_vendor = ?, cpu_model = ?,
-             cpu_cores = ?, memory_mb = ?, resolution = ?, status = ?,
+             cpu_cores = ?, memory_mb = ?, rooted = ?, resolution = ?, status = ?,
              capabilities = ?, tags = ?, last_seen = ?
            WHERE id = ?`,
           [
@@ -365,6 +367,7 @@ export function createQueries(db: SqlDriver) {
             values.cpuModel,
             values.cpuCores,
             values.memoryMb,
+            values.rooted,
             values.resolution,
             values.status,
             values.capabilities,
@@ -387,9 +390,9 @@ export function createQueries(db: SqlDriver) {
         `INSERT INTO adh_devices
           (id, agent_id, udid, platform, name, model, market_name, brand,
            os_version, sdk, cpu, cpu_vendor, cpu_model, cpu_cores, memory_mb,
-           resolution, status, capabilities, tags, last_seen, thumbnail_at,
+           rooted, resolution, status, capabilities, tags, last_seen, thumbnail_at,
            thumbnail_source, published_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.id,
           row.agentId,
@@ -406,6 +409,7 @@ export function createQueries(db: SqlDriver) {
           row.cpuModel,
           row.cpuCores,
           row.memoryMb,
+          row.rooted,
           row.resolution,
           row.status,
           row.capabilities,
@@ -447,6 +451,7 @@ export function createQueries(db: SqlDriver) {
       if (patch.cpuModel !== undefined) set('cpu_model', patch.cpuModel ?? null);
       if (patch.cpuCores !== undefined) set('cpu_cores', patch.cpuCores ?? null);
       if (patch.memoryMb !== undefined) set('memory_mb', patch.memoryMb ?? null);
+      if (patch.rooted !== undefined) set('rooted', patch.rooted ? 1 : 0);
       if (patch.status !== undefined) set('status', patch.status);
       if (patch.capabilities !== undefined)
         set('capabilities', JSON.stringify(patch.capabilities));

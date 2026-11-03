@@ -44,6 +44,8 @@ export const DeviceInfoSchema = z.object({
   cpuCores: z.number().int().optional(),
   /** 物理内存总量（MB）。 */
   memoryMb: z.number().int().optional(),
+  /** 是否已 root / 越狱。检测不到时为 undefined。 */
+  rooted: z.boolean().optional(),
   resolution: ResolutionSchema.optional(),
   status: DeviceStatusSchema.default('online'),
   /** 该设备当前可用的能力，如 scrcpy / wda / shell。 */

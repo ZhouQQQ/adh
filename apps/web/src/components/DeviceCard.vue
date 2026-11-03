@@ -5,6 +5,7 @@ import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import {
   FingerPrintOutline,
   HardwareChipOutline,
+  LockOpenOutline,
   PhonePortraitOutline,
   SpeedometerOutline,
   WifiOutline,
@@ -53,6 +54,11 @@ const osText = computed(() => {
 });
 
 const memoryText = computed(() => formatMemory(props.device.memoryMb));
+
+const rootedText = computed(() => {
+  if (props.device.rooted === undefined) return '—';
+  return props.device.rooted ? '已 Root' : '未 Root';
+});
 
 /** Android 在线即可控制；iOS 需要 WDA 已就绪。 */
 const canControl = computed(
@@ -167,11 +173,21 @@ const cpuText = computed(() => {
           </n-icon>
           <span class="v">{{ memoryText }}</span>
         </div>
-        <div class="kv">
+        <div class="kv span-2">
           <n-icon class="k" :size="12" title="CPU">
             <HardwareChipOutline />
           </n-icon>
           <span class="v" :title="cpuText">{{ cpuText }}</span>
+        </div>
+        <div class="kv">
+          <n-icon
+            class="k"
+            :size="12"
+            :title="device.rooted === undefined ? 'Root 状态未知' : '是否 Root'"
+          >
+            <LockOpenOutline />
+          </n-icon>
+          <span class="v">{{ rootedText }}</span>
         </div>
         <div class="kv">
           <n-icon class="k" :size="12" title="IP 地址">

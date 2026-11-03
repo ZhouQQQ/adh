@@ -13,6 +13,7 @@ interface AndroidDetail {
   cpuModel?: string;
   cpuCores?: number;
   memoryMb?: number;
+  rooted?: boolean;
   resolution?: Resolution;
 }
 
@@ -106,13 +107,39 @@ function parseMemoryMb(memInfo: string): number | undefined {
   return Number.isFinite(kb) ? Math.round(kb / 1024) : undefined;
 }
 
+/**
+ * 判断 Android 是否已 root：
+ *   - adb shell 的 uid 是 0（adbd 以 root 运行）
+ *   - 系统里存在 su（Magisk / SuperSU 等）
+ * 隐藏 su 的 Magisk 可能检测不到，此时按未 root 处理。
+ */
+function parseRooted(raw: string): boolean {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.some((line) => line === '0')) return true;
+  return lines.some((line) => /(^|\/)su$/.test(line));
+}
+
 async function queryDetails(udid: string): Promise<AndroidDetail> {
-  const [propsResult, sizeResult, memResult, cpuResult] = await Promise.all([
-    runCommand('adb', ['-s', udid, 'shell', 'getprop'], 8_000),
-    runCommand('adb', ['-s', udid, 'shell', 'wm', 'size'], 6_000),
-    runCommand('adb', ['-s', udid, 'shell', 'cat', '/proc/meminfo'], 6_000),
-    runCommand('adb', ['-s', udid, 'shell', 'cat', '/proc/cpuinfo'], 6_000),
-  ]);
+  const [propsResult, sizeResult, memResult, cpuResult, rootResult] =
+    await Promise.all([
+      runCommand('adb', ['-s', udid, 'shell', 'getprop'], 8_000),
+      runCommand('adb', ['-s', udid, 'shell', 'wm', 'size'], 6_000),
+      runCommand('adb', ['-s', udid, 'shell', 'cat', '/proc/meminfo'], 6_000),
+      runCommand('adb', ['-s', udid, 'shell', 'cat', '/proc/cpuinfo'], 6_000),
+      runCommand(
+        'adb',
+        [
+          '-s',
+          udid,
+          'shell',
+          'id -u; command -v su 2>/dev/null; ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null',
+        ],
+        6_000,
+      ),
+    ]);
 
   const props = parseGetprop(propsResult.stdout);
   const detail: AndroidDetail = {};
@@ -141,6 +168,8 @@ async function queryDetails(udid: string): Promise<AndroidDetail> {
 
   const resolution = parseWmSize(sizeResult.stdout);
   if (resolution) detail.resolution = resolution;
+
+  detail.rooted = parseRooted(rootResult.stdout);
 
   return detail;
 }
@@ -205,6 +234,7 @@ export async function discoverAndroid(): Promise<AndroidScanResult> {
     if (detail.cpuModel) info.cpuModel = detail.cpuModel;
     if (detail.cpuCores) info.cpuCores = detail.cpuCores;
     if (detail.memoryMb) info.memoryMb = detail.memoryMb;
+    if (detail.rooted !== undefined) info.rooted = detail.rooted;
     if (detail.resolution) info.resolution = detail.resolution;
     devices.push(info);
   }

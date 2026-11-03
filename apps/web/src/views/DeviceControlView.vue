@@ -94,6 +94,12 @@ const osText = computed(() => {
 
 const memoryText = computed(() => formatMemory(device.value?.memoryMb));
 
+const rootedText = computed(() => {
+  const rooted = device.value?.rooted;
+  if (rooted === undefined) return '—';
+  return rooted ? '已 Root' : '未 Root';
+});
+
 const cpuText = computed(() => {
   const current = device.value;
   if (!current?.cpu) return '—';
@@ -439,6 +445,10 @@ onBeforeUnmount(() => {
         <div class="info-row">
           <span>内存</span>
           <CopyValue :value="memoryText" />
+        </div>
+        <div class="info-row">
+          <span>Root</span>
+          <CopyValue :value="rootedText" />
         </div>
         <div class="info-row">
           <span>分辨率</span>

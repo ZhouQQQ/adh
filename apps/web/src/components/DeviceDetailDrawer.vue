@@ -91,6 +91,12 @@ const coresLabel = computed(() => {
   return cores ? `${cores} 核` : undefined;
 });
 
+const rootedLabel = computed(() => {
+  const rooted = props.device?.rooted;
+  if (rooted === undefined) return '—';
+  return rooted ? '已 Root' : '未 Root';
+});
+
 const title = computed(() =>
   props.device ? `设备详情 · ${props.device.name}` : '设备详情',
 );
@@ -236,6 +242,9 @@ async function onImageSelected(event: Event): Promise<void> {
           </n-descriptions-item>
           <n-descriptions-item label="内存">
             <CopyValue :value="formatMemory(device.memoryMb)" />
+          </n-descriptions-item>
+          <n-descriptions-item label="Root">
+            <CopyValue :value="rootedLabel" />
           </n-descriptions-item>
           <n-descriptions-item label="分辨率">
             <CopyValue :value="formatResolution(device.resolution)" />

@@ -38,6 +38,7 @@ function sameDevice(a: DeviceInfo, b: DeviceInfo): boolean {
     a.name === b.name &&
     a.model === b.model &&
     a.osVersion === b.osVersion &&
+    a.rooted === b.rooted &&
     a.status === b.status &&
     a.resolution?.width === b.resolution?.width &&
     a.resolution?.height === b.resolution?.height &&
