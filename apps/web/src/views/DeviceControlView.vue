@@ -620,7 +620,7 @@ onBeforeUnmount(() => {
         <label
           v-if="controller || isAdmin"
           class="viewers-switch"
-          title="关闭后其他人无法查看，管理员不受限制"
+          title="关闭后其他人无法查看"
         >
           <n-switch
             size="small"
@@ -795,7 +795,6 @@ onBeforeUnmount(() => {
         >
           <span>
             {{ controlName }} {{ controlSinceText }} 开始控制，你当前只能查看。
-            <template v-if="isAdmin">可以点右上角「接管」继续操作。</template>
           </span>
           <button
             type="button"
