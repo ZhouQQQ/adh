@@ -12,11 +12,12 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui';
-import { api, type PackageRecord } from '../api';
+import { api, type PackageKind, type PackageRecord } from '../api';
 
 interface DeviceRef {
   id: string;
   name: string;
+  platform: 'android' | 'ios';
 }
 
 interface InstallResult {
@@ -48,25 +49,55 @@ const loading = ref(false);
 const installing = ref(false);
 const step = ref('');
 const progress = ref(0);
+const totalTargets = ref(0);
 const results = ref<InstallResult[]>([]);
 
-const installable = computed(() =>
-  packages.value.filter((item) => item.kind === 'apk'),
+const androidCount = computed(
+  () => props.devices.filter((item) => item.platform === 'android').length,
+);
+const iosCount = computed(
+  () => props.devices.filter((item) => item.platform === 'ios').length,
+);
+
+const localKind = computed<PackageKind | null>(() => {
+  const name = localFile.value?.name.toLowerCase() ?? '';
+  if (!name) return null;
+  return name.endsWith('.ipa') ? 'ipa' : 'apk';
+});
+
+const localTargetCount = computed(() =>
+  localKind.value ? targetCount(localKind.value) : 0,
 );
 
 const filtered = computed(() => {
   const text = keyword.value.trim().toLowerCase();
-  if (!text) return installable.value;
-  return installable.value.filter((item) =>
+  if (!text) return packages.value;
+  return packages.value.filter((item) =>
     item.name.toLowerCase().includes(text),
   );
 });
 
 const selected = computed(
-  () => installable.value.find((item) => item.id === selectedId.value) ?? null,
+  () => packages.value.find((item) => item.id === selectedId.value) ?? null,
+);
+
+const selectedTargetCount = computed(() =>
+  selected.value ? targetCount(selected.value.kind) : 0,
 );
 
 const succeeded = computed(() => results.value.filter((item) => item.ok).length);
+
+function targetCount(kind: PackageKind): number {
+  return kind === 'ipa' ? iosCount.value : androidCount.value;
+}
+
+function targetHint(kind: PackageKind): string {
+  const count = targetCount(kind);
+  const label = kind === 'ipa' ? 'iOS' : 'Android';
+  return count > 0
+    ? `只会安装到 ${count} 台 ${label} 设备`
+    : `没有可安装的 ${label} 设备`;
+}
 
 watch(
   () => props.show,
@@ -77,6 +108,7 @@ watch(
     keyword.value = '';
     results.value = [];
     progress.value = 0;
+    totalTargets.value = 0;
     step.value = '';
     void loadPackages();
   },
@@ -115,13 +147,27 @@ function onFileSelected(event: Event): void {
   localFile.value = file;
 }
 
-async function installToAll(packageId: string, label: string): Promise<void> {
+/** 只对与安装包类型匹配的设备安装：APK → Android，IPA → iOS。 */
+async function installToAll(
+  packageId: string,
+  label: string,
+  kind: PackageKind,
+): Promise<void> {
+  const targets = props.devices.filter((device) =>
+    kind === 'ipa' ? device.platform === 'ios' : device.platform === 'android',
+  );
+  if (targets.length === 0) {
+    message.warning(targetHint(kind));
+    return;
+  }
+
   installing.value = true;
   results.value = [];
   progress.value = 0;
+  totalTargets.value = targets.length;
   step.value = `正在安装 ${label}`;
 
-  for (const device of props.devices) {
+  for (const device of targets) {
     try {
       await api.installPackage(device.id, packageId);
       results.value = [...results.value, { id: device.id, name: device.name, ok: true }];
@@ -141,18 +187,18 @@ async function installToAll(packageId: string, label: string): Promise<void> {
 
   installing.value = false;
   step.value = '';
-  const total = props.devices.length;
-  if (succeeded.value === total) {
-    message.success(`已在 ${total} 台设备上安装 ${label}`);
+  if (succeeded.value === targets.length) {
+    message.success(`已在 ${targets.length} 台设备上安装 ${label}`);
   } else {
-    message.warning(`安装完成：成功 ${succeeded.value} / ${total}`);
+    message.warning(`安装完成：成功 ${succeeded.value} / ${targets.length}`);
   }
   emit('installed');
 }
 
 async function installLocal(): Promise<void> {
   const file = localFile.value;
-  if (!file) {
+  const kind = localKind.value;
+  if (!file || !kind) {
     message.warning('请先选择安装包');
     return;
   }
@@ -162,13 +208,17 @@ async function installLocal(): Promise<void> {
   progress.value = 0;
   try {
     const uploaded = await api.uploadPackage(file);
-    if (uploaded.kind === 'ipa') {
+    if (targetCount(uploaded.kind) === 0) {
       installing.value = false;
       step.value = '';
-      message.warning(`${file.name} 已保存到应用管理，IPA 无法安装到 Android`);
+      message.warning(
+        `${file.name} 已保存到应用管理，但没有可安装的 ${
+          uploaded.kind === 'ipa' ? 'iOS' : 'Android'
+        } 设备`,
+      );
       return;
     }
-    await installToAll(uploaded.id, file.name);
+    await installToAll(uploaded.id, file.name, uploaded.kind);
   } catch (error) {
     installing.value = false;
     step.value = '';
@@ -181,7 +231,7 @@ function installSelected(): void {
     message.warning('请选择要安装的安装包');
     return;
   }
-  void installToAll(selected.value.id, selected.value.name);
+  void installToAll(selected.value.id, selected.value.name, selected.value.kind);
 }
 </script>
 
@@ -215,13 +265,19 @@ function installSelected(): void {
             size="small"
             type="primary"
             :loading="installing && tab === 'local'"
-            :disabled="!localFile || installing"
+            :disabled="!localFile || localTargetCount === 0 || installing"
             @click="installLocal"
           >
-            安装到全部
+            安装到 {{ localTargetCount }} 台
           </n-button>
         </div>
-        <p class="tip">本地文件会先保存到应用管理；IPA 仅留存，不能安装到 Android。</p>
+        <p
+          v-if="localKind"
+          class="tip"
+          :class="{ warn: localTargetCount === 0 }"
+        >
+          {{ localKind.toUpperCase() }} · {{ targetHint(localKind) }}
+        </p>
       </n-tab-pane>
 
       <n-tab-pane name="server" tab="已上传">
@@ -236,7 +292,7 @@ function installSelected(): void {
           <div class="list">
             <n-empty
               v-if="filtered.length === 0 && !loading"
-              description="没有可安装的 APK"
+              description="暂无安装包"
               class="empty"
             />
             <button
@@ -247,6 +303,9 @@ function installSelected(): void {
               :class="{ active: selectedId === item.id }"
               @click="selectedId = item.id"
             >
+              <n-tag size="tiny" :bordered="false">
+                {{ item.kind.toUpperCase() }}
+              </n-tag>
               <span class="row-name" :title="item.name">{{ item.name }}</span>
               <span class="row-size">{{ formatSize(item.size) }}</span>
               <n-tag v-if="selectedId === item.id" size="tiny" :bordered="false">
@@ -257,25 +316,30 @@ function installSelected(): void {
         </n-spin>
 
         <div class="server-foot">
-          <span class="tip">{{ devices.length }} 台设备将依次安装</span>
+          <span
+            class="tip"
+            :class="{ warn: selected && selectedTargetCount === 0 }"
+          >
+            {{ selected ? targetHint(selected.kind) : '选择安装包后按类型安装' }}
+          </span>
           <n-button
             size="small"
             type="primary"
             :loading="installing && tab === 'server'"
-            :disabled="!selected || installing"
+            :disabled="!selected || selectedTargetCount === 0 || installing"
             @click="installSelected"
           >
-            安装到全部
+            安装到 {{ selectedTargetCount }} 台
           </n-button>
         </div>
       </n-tab-pane>
     </n-tabs>
 
     <div v-if="step" class="step">
-      <span>{{ step }} （{{ progress }} / {{ devices.length }}）</span>
+      <span>{{ step }} （{{ progress }} / {{ totalTargets }}）</span>
       <n-progress
         type="line"
-        :percentage="devices.length ? Math.round((progress / devices.length) * 100) : 0"
+        :percentage="totalTargets ? Math.round((progress / totalTargets) * 100) : 0"
         :show-indicator="false"
         :height="4"
       />
@@ -322,6 +386,10 @@ function installSelected(): void {
   margin: 10px 0 0;
   font-size: 11px;
   color: var(--text-faint);
+}
+
+.tip.warn {
+  color: #d97706;
 }
 
 .list {

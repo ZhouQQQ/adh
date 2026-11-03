@@ -125,11 +125,13 @@ const selectedDevices = computed(() =>
     .filter((device): device is NonNullable<typeof device> => Boolean(device)),
 );
 
-/** 批量安装只支持 Android。 */
+/** 批量安装弹窗展示所有选中设备，具体装哪些由 APK / IPA 类型决定。 */
 const installTargets = computed(() =>
-  selectedDevices.value
-    .filter((device) => device.platform === 'android')
-    .map((device) => ({ id: device.id, name: device.name })),
+  selectedDevices.value.map((device) => ({
+    id: device.id,
+    name: device.name,
+    platform: device.platform,
+  })),
 );
 
 /** 卡片按设备分辨率取宽高比，画面刚好填满，避免四周大片黑边。 */
@@ -332,7 +334,7 @@ function onControllerChange(deviceId: string, value: boolean): void {
 .batch-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 340px));
-  justify-content: center;
+  justify-content: start;
   align-items: start;
   gap: 10px;
 }
