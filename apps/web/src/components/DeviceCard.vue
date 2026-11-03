@@ -415,7 +415,7 @@ const wifiTitle = computed(() => {
 
 .thumb {
   position: relative;
-  height: 128px;
+  height: 150px;
   background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
   display: grid;
   place-items: center;
@@ -555,14 +555,14 @@ const wifiTitle = computed(() => {
 }
 
 .body {
-  padding: 12px 14px 13px;
+  padding: 15px 17px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;

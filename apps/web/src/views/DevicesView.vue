@@ -470,10 +470,10 @@ function openControl(device: DeviceSummary): void {
   if (current) {
     const limit =
       current.role === 'superadmin'
-        ? superadminDeviceLimit.value
+        ? (superadminDeviceLimit?.value ?? 0)
         : current.role === 'admin'
-          ? adminDeviceLimit.value
-          : operatorDeviceLimit.value;
+          ? (adminDeviceLimit?.value ?? 0)
+          : (operatorDeviceLimit?.value ?? 2);
     const alreadyMine = device.control?.userId === current.id;
     // 只读查看不占名额：只有空闲设备（会变成控制者）才校验
     const willControl = !device.control;
@@ -989,8 +989,8 @@ function resetFilters(): void {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
 }
 
 .empty {
