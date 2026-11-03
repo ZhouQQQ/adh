@@ -1723,7 +1723,8 @@ export async function registerHttpRoutes(
           payload.duration ?? 0.3,
         );
       } else if (payload.type === 'pinch') {
-        await wdaPinch(payload.scale, (payload.duration ?? 0.4) * 1000);
+        // duration 是期望耗时（秒），换算成 WDA 的每秒缩放倍率
+        await wdaPinch(payload.scale, 1 / (payload.duration ?? 0.4));
       } else if (payload.type === 'button') {
         await wdaPressButton(payload.name);
       } else if (payload.type === 'appSwitcher') {

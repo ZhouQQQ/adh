@@ -211,50 +211,17 @@ export async function wdaSwipe(
 }
 
 /**
- * 双指缩放：用 W3C Actions 同时驱动两根手指，不依赖元素。
- * scale > 1 放大，< 1 缩小。
+ * 双指缩放：使用 WDA 原生 pinch。
+ * scale > 1 放大，< 1 缩小；velocity 为每秒缩放倍率。
  */
-export async function wdaPinch(
-  scale: number,
-  durationMs = 400,
-): Promise<void> {
-  const size = await wdaWindow();
-  const cx = Math.round(size.width / 2);
-  const cy = Math.round(size.height / 2);
-  const shortSide = Math.min(size.width, size.height);
-  const startRadius = Math.max(30, Math.round(shortSide / 8));
-  const maxRadius = Math.max(40, Math.round(shortSide / 2 - 20));
-  const endRadius = Math.min(
-    maxRadius,
-    Math.max(20, Math.round(startRadius * scale)),
-  );
-
-  const finger = (direction: 1 | -1, id: string) => ({
-    type: 'pointer',
-    id,
-    parameters: { pointerType: 'touch' },
-    actions: [
-      {
-        type: 'pointerMove',
-        duration: 0,
-        x: cx + direction * startRadius,
-        y: cy,
-      },
-      { type: 'pointerDown', button: 0 },
-      {
-        type: 'pointerMove',
-        duration: Math.min(2000, Math.max(100, durationMs)),
-        x: cx + direction * endRadius,
-        y: cy,
-      },
-      { type: 'pointerUp', button: 0 },
-    ],
-  });
-
+export async function wdaPinch(scale: number, velocity = 1): Promise<void> {
   await withSession((id) =>
-    request(`/session/${id}/actions`, {
+    request(`/session/${id}/wda/pinch`, {
       method: 'POST',
-      body: { actions: [finger(1, 'finger1'), finger(-1, 'finger2')] },
+      body: {
+        scale: Math.min(10, Math.max(0.1, scale)),
+        velocity: Math.min(10, Math.max(0.1, velocity)),
+      },
       timeoutMs: 20_000,
     }),
   );
