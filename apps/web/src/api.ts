@@ -53,6 +53,50 @@ export interface DeviceRuntime {
   uptimeSeconds: number | null;
 }
 
+export interface DashboardData {
+  users: { total: number; admins: number; enabled: number };
+  devices: {
+    total: number;
+    online: number;
+    offline: number;
+    unauthorized: number;
+    locked: number;
+    inUse: number;
+    /** 已填写发布时间的设备平均已发布天数。 */
+    avgAgeDays: number | null;
+    publishedCount: number;
+  };
+  agents: { total: number; online: number };
+  packages: { total: number; apk: number; ipa: number; totalSize: number };
+  usage: {
+    windowDays: number;
+    sessions: number;
+    seconds: number;
+    todaySessions: number;
+    todaySeconds: number;
+    todayUsers: number;
+  };
+  deviceRanking: Array<{
+    deviceId: string;
+    deviceName: string;
+    sessions: number;
+    seconds: number;
+  }>;
+  userRanking: Array<{
+    username: string;
+    displayName: string | null;
+    sessions: number;
+    seconds: number;
+  }>;
+  daily: Array<{ date: string; sessions: number; seconds: number }>;
+  recent: Array<{
+    deviceName: string | null;
+    username: string | null;
+    action: string;
+    createdAt: number;
+  }>;
+}
+
 export interface ServerInfo {
   version: string;
   port: number;
@@ -444,6 +488,10 @@ export const api = {
 
   listPackages(): Promise<{ packages: PackageRecord[] }> {
     return request('/api/packages');
+  },
+
+  getDashboard(): Promise<DashboardData> {
+    return request('/api/dashboard');
   },
 
   renamePackage(

@@ -21,6 +21,7 @@ import {
   PhonePortraitOutline,
   ReaderOutline,
   ServerOutline,
+  SpeedometerOutline,
 } from '@vicons/ionicons5';
 import { startFleet, stopFleet, useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
@@ -88,6 +89,11 @@ const menuOptions = computed<MenuOption[]>(() => {
       label: '设备',
       key: 'group-devices',
       children: [
+        {
+          label: () => h(RouterLink, { to: '/dashboard' }, { default: () => '仪表盘' }),
+          key: '/dashboard',
+          icon: () => h(NIcon, null, { default: () => h(SpeedometerOutline) }),
+        },
         {
           label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
           key: '/devices',

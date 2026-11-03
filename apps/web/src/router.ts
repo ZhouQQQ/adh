@@ -3,6 +3,7 @@ import AgentsView from './views/AgentsView.vue';
 import AppsView from './views/AppsView.vue';
 import AuditView from './views/AuditView.vue';
 import BatchControlView from './views/BatchControlView.vue';
+import DashboardView from './views/DashboardView.vue';
 import DeviceControlView from './views/DeviceControlView.vue';
 import DeviceLogsView from './views/DeviceLogsView.vue';
 import DevicesView from './views/DevicesView.vue';
@@ -24,6 +25,12 @@ export const router = createRouter({
       name: 'devices',
       component: DevicesView,
       meta: { title: '设备管理' },
+    },
+    {
+      path: '/dashboard',
+      name: 'dashboard',
+      component: DashboardView,
+      meta: { title: '仪表盘' },
     },
     {
       path: '/devices/batch',

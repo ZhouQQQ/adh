@@ -26,6 +26,7 @@ import { StreamManager } from './stream/manager.js';
 import { registerAgentChannel } from './ws/agent.js';
 import { registerStreamChannel } from './ws/stream.js';
 import { WebHub } from './ws/web-hub.js';
+import { loadDashboard } from './stats/dashboard.js';
 
 /** ADH_SERVE_WEB=0 时只提供 API，前端页面走 Vite 开发服务器。 */
 async function main(): Promise<void> {
@@ -190,6 +191,11 @@ async function main(): Promise<void> {
     deviceLogs,
     port: config.port,
   });
+
+  /** 仪表盘统计：用户、设备、使用时长与排行。 */
+  app.get('/api/dashboard', async () =>
+    loadDashboard({ db: driver, queries, packages, streams, registry }),
+  );
 
   // 静态资源与 SPA 回退：Vite 构建产物输出到 apps/server/public
   // ADH_SERVE_WEB=0 时只提供 API，页面统一走 Vite 开发服务器
