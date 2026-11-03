@@ -7,6 +7,7 @@ export interface DeviceLogRow {
   deviceName: string | null;
   userId: string | null;
   username: string | null;
+  displayName: string | null;
   action: string;
   detail: string | null;
   ip: string | null;
@@ -62,31 +63,34 @@ export class DeviceLogService {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.deviceId) {
-      where.push('device_id = ?');
+      where.push('l.device_id = ?');
       params.push(options.deviceId);
     }
     if (options.username) {
-      where.push('username = ?');
+      where.push('l.username = ?');
       params.push(options.username);
     }
     if (options.action) {
-      where.push('action = ?');
+      where.push('l.action = ?');
       params.push(options.action);
     }
     const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
     const [count] = await this.db.query<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM adh_device_logs ${clause}`,
+      `SELECT COUNT(*) AS total FROM adh_device_logs l ${clause}`,
       params,
     );
 
     const logs = await this.db.query<DeviceLogRow>(
-      `SELECT id, device_id AS deviceId, device_name AS deviceName,
-              user_id AS userId, username, action, detail, ip,
-              created_at AS createdAt
-       FROM adh_device_logs
+      `SELECT l.id, l.device_id AS deviceId, l.device_name AS deviceName,
+              l.user_id AS userId, l.username,
+              u.display_name AS displayName,
+              l.action, l.detail, l.ip,
+              l.created_at AS createdAt
+       FROM adh_device_logs l
+       LEFT JOIN adh_users u ON u.username = l.username
        ${clause}
-       ORDER BY created_at DESC
+       ORDER BY l.created_at DESC
        LIMIT ${Math.max(1, Math.min(200, options.limit))}
        OFFSET ${Math.max(0, options.offset)}`,
       params,

@@ -30,7 +30,16 @@ const actionOptions = [
   { label: '创建用户', value: 'user.create' },
   { label: '更新用户', value: 'user.update' },
   { label: '删除用户', value: 'user.delete' },
-  { label: '其他操作', value: 'http' },
+  { label: '创建节点', value: 'agent.create' },
+  { label: '重命名节点', value: 'agent.update' },
+  { label: '删除节点', value: 'agent.delete' },
+  { label: '重置节点 Key', value: 'agent.rotate' },
+  { label: '修改设备', value: 'device.update' },
+  { label: '删除设备', value: 'device.delete' },
+  { label: '上传设备图片', value: 'device.thumbnail' },
+  { label: '上传安装包', value: 'package.upload' },
+  { label: '重命名安装包', value: 'package.rename' },
+  { label: '删除安装包', value: 'package.delete' },
 ];
 
 const actionLabel: Record<string, string> = {
@@ -40,7 +49,22 @@ const actionLabel: Record<string, string> = {
   'user.create': '创建用户',
   'user.update': '更新用户',
   'user.delete': '删除用户',
+  'agent.create': '创建节点',
+  'agent.update': '重命名节点',
+  'agent.delete': '删除节点',
+  'agent.rotate': '重置节点 Key',
+  'device.update': '修改设备',
+  'device.delete': '删除设备',
+  'device.thumbnail': '上传设备图片',
+  'package.upload': '上传安装包',
+  'package.rename': '重命名安装包',
+  'package.delete': '删除安装包',
   http: '操作',
+};
+
+const roleLabel: Record<string, string> = {
+  admin: '管理员',
+  operator: '操作员',
 };
 
 function formatTime(ts: number): string {
@@ -49,6 +73,11 @@ function formatTime(ts: number): string {
 
 function actionText(action: string): string {
   return actionLabel[action] ?? action;
+}
+
+function userText(row: AuditRecord): string {
+  if (!row.username) return '—';
+  return row.displayName ? `${row.username}（${row.displayName}）` : row.username;
 }
 
 async function load(): Promise<void> {
@@ -101,13 +130,19 @@ const columns: DataTableColumns<AuditRecord> = [
   {
     title: '用户',
     key: 'username',
-    width: 120,
-    render: (row) => row.username || '—',
+    width: 160,
+    render: (row) => userText(row),
+  },
+  {
+    title: '角色',
+    key: 'role',
+    width: 80,
+    render: (row) => roleLabel[row.role ?? ''] ?? '—',
   },
   {
     title: '动作',
     key: 'action',
-    width: 110,
+    width: 120,
     render: (row) =>
       h(
         NTag,
@@ -120,37 +155,14 @@ const columns: DataTableColumns<AuditRecord> = [
       ),
   },
   {
-    title: '方法',
-    key: 'method',
-    width: 70,
-    render: (row) => row.method || '—',
-  },
-  {
-    title: '路径 / 目标',
-    key: 'path',
-    render: (row) => row.target || row.path || '—',
-  },
-  {
-    title: '状态',
-    key: 'status',
-    width: 70,
-    render: (row) =>
-      row.status == null
-        ? '—'
-        : h(
-            NTag,
-            {
-              size: 'tiny',
-              bordered: false,
-              type: row.status >= 400 ? 'error' : 'success',
-            },
-            { default: () => String(row.status) },
-          ),
+    title: '详情',
+    key: 'detail',
+    render: (row) => row.detail || row.target || row.path || '—',
   },
   {
     title: 'IP',
     key: 'ip',
-    width: 130,
+    width: 120,
     render: (row) => row.ip || '—',
   },
 ];

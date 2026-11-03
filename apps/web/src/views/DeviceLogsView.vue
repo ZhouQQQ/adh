@@ -59,6 +59,11 @@ function actionText(value: string): string {
   return actionLabel[value] ?? value;
 }
 
+function userText(row: DeviceLogRecord): string {
+  if (!row.username) return '—';
+  return row.displayName ? `${row.username}（${row.displayName}）` : row.username;
+}
+
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleString('zh-CN', { hour12: false });
 }
@@ -120,8 +125,8 @@ const columns: DataTableColumns<DeviceLogRecord> = [
   {
     title: '用户',
     key: 'username',
-    width: 110,
-    render: (row) => row.username || '—',
+    width: 160,
+    render: (row) => userText(row),
   },
   {
     title: '动作',

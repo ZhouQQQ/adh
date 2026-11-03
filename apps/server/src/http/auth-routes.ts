@@ -92,7 +92,7 @@ export async function registerAuthRoutes(
       target: user.username,
       status: 201,
       ip: request.ip,
-      detail: `role=${user.role}`,
+      detail: `角色=${user.role === 'admin' ? '管理员' : '操作员'}`,
     });
     return reply.code(201).send({ user });
   });
@@ -122,6 +122,16 @@ export async function registerAuthRoutes(
     const user = await deps.auth.updateUser(id, parsed.data);
     if (!user) return reply.code(404).send({ error: '用户不存在' });
 
+    const changes: string[] = [];
+    if (parsed.data.role !== undefined) {
+      changes.push(`角色=${parsed.data.role === 'admin' ? '管理员' : '操作员'}`);
+    }
+    if (parsed.data.enabled !== undefined) {
+      changes.push(parsed.data.enabled ? '启用账号' : '禁用账号');
+    }
+    if (parsed.data.displayName !== undefined) changes.push('修改显示名');
+    if (parsed.data.password !== undefined) changes.push('重置密码');
+
     await deps.auth.writeAudit({
       userId: request.user?.id,
       username: request.user?.username,
@@ -130,11 +140,7 @@ export async function registerAuthRoutes(
       target: user.username,
       status: 200,
       ip: request.ip,
-      detail: JSON.stringify({
-        role: user.role,
-        enabled: user.enabled,
-        password: parsed.data.password !== undefined,
-      }),
+      detail: changes.join('，') || '更新资料',
     });
     return { user };
   });
@@ -163,6 +169,7 @@ export async function registerAuthRoutes(
       target: target.username,
       status: 204,
       ip: request.ip,
+      detail: '删除用户',
     });
     return reply.code(204).send();
   });

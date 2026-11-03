@@ -68,6 +68,7 @@ export interface AuditRecord {
   id: string;
   userId: string | null;
   username: string | null;
+  displayName: string | null;
   role: string | null;
   action: string;
   target: string | null;
@@ -85,6 +86,7 @@ export interface DeviceLogRecord {
   deviceName: string | null;
   userId: string | null;
   username: string | null;
+  displayName: string | null;
   action: string;
   detail: string | null;
   ip: string | null;

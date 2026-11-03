@@ -22,6 +22,7 @@ export interface AuditRow {
   id: string;
   userId: string | null;
   username: string | null;
+  displayName: string | null;
   role: string | null;
   action: string;
   target: string | null;
@@ -133,6 +134,7 @@ export class AuthService {
       action: 'login',
       status: 200,
       ip,
+      detail: '登录成功',
     });
 
     return { token, user: toUser(row) };
@@ -177,6 +179,7 @@ export class AuthService {
         username: row.username,
         role: row.role,
         action: 'logout',
+        detail: '退出登录',
       });
     }
   }
@@ -332,26 +335,29 @@ export class AuthService {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.username) {
-      where.push('username = ?');
+      where.push('l.username = ?');
       params.push(options.username);
     }
     if (options.action) {
-      where.push('action = ?');
+      where.push('l.action = ?');
       params.push(options.action);
     }
     const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
     const [count] = await this.db.query<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM adh_audit_logs ${clause}`,
+      `SELECT COUNT(*) AS total FROM adh_audit_logs l ${clause}`,
       params,
     );
 
     const rows = await this.db.query<AuditRow>(
-      `SELECT id, user_id AS userId, username, role, action, target, method,
-              path, status, ip, detail, created_at AS createdAt
-       FROM adh_audit_logs
+      `SELECT l.id, l.user_id AS userId, l.username,
+              u.display_name AS displayName,
+              l.role, l.action, l.target, l.method, l.path, l.status, l.ip, l.detail,
+              l.created_at AS createdAt
+       FROM adh_audit_logs l
+       LEFT JOIN adh_users u ON u.username = l.username
        ${clause}
-       ORDER BY created_at DESC
+       ORDER BY l.created_at DESC
        LIMIT ${Math.max(1, Math.min(200, options.limit))}
        OFFSET ${Math.max(0, options.offset)}`,
       params,

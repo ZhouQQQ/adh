@@ -6,6 +6,7 @@ import path from 'node:path';
 import { WS_PATHS, BUILTIN_AGENT_ID } from '@adh/protocol';
 import { AuthService } from './auth/service.js';
 import { bearerToken } from './auth/token.js';
+import { describeAudit } from './auth/audit-describe.js';
 import { loadConfig, SERVER_VERSION } from './config.js';
 import { CommandBus } from './command-bus.js';
 import { openDatabase } from './db/index.js';
@@ -89,7 +90,7 @@ async function main(): Promise<void> {
     }
   });
 
-  // 写操作自动记审计日志，读操作不记
+  // 写操作自动记审计日志，只记业务动作，不记接口路径
   app.addHook('onResponse', async (request, reply) => {
     const user = request.user;
     if (!user) return;
@@ -97,13 +98,20 @@ async function main(): Promise<void> {
     if (!path.startsWith('/api')) return;
     if (request.method === 'GET' || request.method === 'HEAD') return;
 
+    const info = describeAudit({
+      method: request.method,
+      path,
+      body: request.body,
+      headers: request.headers as Record<string, unknown>,
+    });
+    if (!info) return;
+
     await auth.writeAudit({
       userId: user.id,
       username: user.username,
       role: user.role,
-      action: 'http',
-      method: request.method,
-      path,
+      action: info.action,
+      detail: info.detail,
       status: reply.statusCode,
       ip: request.ip,
     });

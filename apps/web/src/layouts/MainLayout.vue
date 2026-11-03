@@ -11,6 +11,7 @@ import {
   NMenu,
   NTag,
   type DropdownOption,
+  type MenuOption,
 } from 'naive-ui';
 import {
   AppsOutline,
@@ -80,18 +81,8 @@ watch([user, () => route.meta.admin], () => {
   }
 });
 
-const menuOptions = computed(() => {
-  const items = [
-    {
-      label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
-      key: '/devices',
-      icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
-    },
-    {
-      label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
-      key: '/apps',
-      icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
-    },
+const menuOptions = computed<MenuOption[]>(() => {
+  const systemChildren: MenuOption[] = [
     {
       label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
       key: '/agents',
@@ -105,7 +96,7 @@ const menuOptions = computed(() => {
   ];
 
   if (isAdmin.value) {
-    items.push(
+    systemChildren.push(
       {
         label: () => h(RouterLink, { to: '/users' }, { default: () => '用户管理' }),
         key: '/users',
@@ -119,7 +110,31 @@ const menuOptions = computed(() => {
     );
   }
 
-  return items;
+  return [
+    {
+      type: 'group',
+      label: '设备',
+      key: 'group-devices',
+      children: [
+        {
+          label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
+          key: '/devices',
+          icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
+        },
+        {
+          label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
+          key: '/apps',
+          icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
+        },
+      ],
+    },
+    {
+      type: 'group',
+      label: '系统',
+      key: 'group-system',
+      children: systemChildren,
+    },
+  ];
 });
 
 const activeKey = computed(() => route.path);
@@ -260,6 +275,12 @@ const connectionMeta = computed(() => {
 
 .menu-wrap {
   padding: 10px 8px;
+}
+
+.menu-wrap :deep(.n-menu-item-group-title) {
+  padding: 10px 18px 4px;
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
 .user-chip {
