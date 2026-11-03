@@ -243,8 +243,9 @@ function connect(): void {
     if (typeof event.data === 'string') handleText(event.data);
     else handleBinary(event.data);
   });
-  ws.addEventListener('close', () => {
+  ws.addEventListener('close', (event: CloseEvent) => {
     connected.value = false;
+    if (event.reason) emit('error', event.reason);
     if (!unmounted) emit('closed');
   });
   ws.addEventListener('error', () => ws.close());

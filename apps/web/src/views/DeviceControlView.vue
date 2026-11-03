@@ -774,7 +774,12 @@ onBeforeUnmount(() => {
           <div v-else-if="viewerClosed" class="placeholder-desc">
             控制者关闭了查看权限，暂时无法继续观看。
           </div>
-          <button type="button" class="placeholder-btn" @click="createSession">
+          <button
+            v-if="!viewerClosed"
+            type="button"
+            class="placeholder-btn"
+            @click="createSession"
+          >
             重新连接
           </button>
         </div>

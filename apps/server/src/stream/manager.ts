@@ -155,7 +155,7 @@ export class StreamManager {
           t: 'error',
           message: '控制者已关闭其他人查看',
         });
-        viewer.close();
+        viewer.close(4004, '控制者已关闭其他人查看');
       }
     }
 
@@ -448,8 +448,12 @@ export class StreamManager {
 
     for (const viewer of session.viewers) {
       if (viewer.readyState === 1) {
-        if (reason) sendJson(viewer, { t: 'error', message: reason });
+        if (reason) {
+        sendJson(viewer, { t: 'error', message: reason });
+        viewer.close(4005, reason.slice(0, 40));
+      } else {
         viewer.close();
+      }
       }
     }
     session.viewers.clear();
