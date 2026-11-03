@@ -288,25 +288,31 @@ const wifiTitle = computed(() => {
           <span class="v">{{ osText }}</span>
         </div>
         <div class="kv">
-          <n-icon class="k" :size="12" title="内存">
-            <SpeedometerOutline />
-          </n-icon>
-          <span class="v">{{ memoryText }}</span>
-        </div>
-        <div class="kv span-2">
-          <n-icon class="k" :size="12" title="CPU">
-            <HardwareChipOutline />
-          </n-icon>
-          <span class="v" :title="cpuText">{{ cpuText }}</span>
-        </div>
-        <div class="kv">
           <n-icon class="k" :size="12" title="分辨率">
             <ResizeOutline />
           </n-icon>
           <span class="v">{{ resolutionText }}</span>
         </div>
         <div class="kv">
-          <n-icon class="k" :size="12" title="WiFi">
+          <n-icon class="k" :size="12" title="CPU">
+            <HardwareChipOutline />
+          </n-icon>
+          <span class="v" :title="cpuText">{{ cpuText }}</span>
+        </div>
+        <div class="kv">
+          <n-icon class="k" :size="12" title="内存">
+            <SpeedometerOutline />
+          </n-icon>
+          <span class="v">{{ memoryText }}</span>
+        </div>
+        <div class="kv">
+          <n-icon class="k" :size="12" title="IP 地址">
+            <WifiOutline />
+          </n-icon>
+          <span class="v mono">{{ network?.ip ?? '—' }}</span>
+        </div>
+        <div class="kv">
+          <n-icon class="k" :size="12" title="WiFi 名称">
             <WifiOutline />
           </n-icon>
           <span class="v" :title="wifiTitle">{{ wifiText }}</span>
