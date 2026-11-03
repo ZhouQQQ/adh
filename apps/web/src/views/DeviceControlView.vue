@@ -1171,7 +1171,7 @@ onBeforeUnmount(() => {
                 <n-icon :size="13"><VolumeHighOutline /></n-icon>
                 音量+
               </button>
-              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('mute')">
                 <n-icon :size="13"><VolumeMuteOutline /></n-icon>
                 静音
               </button>
@@ -1181,7 +1181,7 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">屏幕</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('power')">
                 <n-icon :size="13"><PowerOutline /></n-icon>
                 电源
               </button>
@@ -1199,11 +1199,11 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">抓取</div>
             <div class="fs-grid cols-2">
-              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="copyScreenshot">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="copyScreenshot">
                 <n-icon :size="13"><CopyOutline /></n-icon>
                 复制截图
               </button>
-              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="takeScreenshot">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="takeScreenshot">
                 <n-icon :size="13"><CameraOutline /></n-icon>
                 截图保存
               </button>
@@ -1211,8 +1211,7 @@ onBeforeUnmount(() => {
                 type="button"
                 class="bar-btn span-2"
                 :class="{ recording }"
-                :disabled="!controller || isIos"
-                :title="isIos ? iosTip : undefined"
+                :disabled="!controller"
                 @click="toggleRecording"
               >
                 <n-icon :size="13">
@@ -1284,7 +1283,7 @@ onBeforeUnmount(() => {
               </template>
               音量+
             </n-button>
-            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
+            <n-button size="small" :disabled="!controller" @click="sendKey('mute')">
               <template #icon>
                 <n-icon><VolumeMuteOutline /></n-icon>
               </template>
@@ -1296,7 +1295,7 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">设备</div>
           <div class="grid-3">
-            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
+            <n-button size="small" :disabled="!controller" @click="sendKey('power')">
               <template #icon>
                 <n-icon><PowerOutline /></n-icon>
               </template>
@@ -1336,8 +1335,8 @@ onBeforeUnmount(() => {
           <div class="grid-2">
             <n-button
               size="small"
-              :disabled="!controller || isIos"
-              :title="isIos ? iosTip : '截图到剪贴板'"
+              :disabled="!controller"
+              title="截图到剪贴板"
               @click="copyScreenshot"
             >
               <template #icon>
@@ -1347,8 +1346,7 @@ onBeforeUnmount(() => {
             </n-button>
             <n-button
               size="small"
-              :disabled="!controller || isIos"
-              :title="isIos ? iosTip : undefined"
+              :disabled="!controller"
               @click="takeScreenshot"
             >
               <template #icon>
@@ -1362,8 +1360,7 @@ onBeforeUnmount(() => {
             block
             class="record-btn"
             :class="{ recording }"
-            :disabled="!controller || isIos"
-            :title="isIos ? iosTip : undefined"
+            :disabled="!controller"
             @click="toggleRecording"
           >
             <template #icon>
