@@ -753,11 +753,12 @@ onBeforeUnmount(() => {
         <label
           v-if="controller || isAdmin"
           class="viewers-switch"
-          title="关闭后其他人无法查看"
+          :title="isIos ? iosTip : '关闭后其他人无法查看'"
         >
           <n-switch
             size="small"
             :value="allowViewers"
+            :disabled="isIos"
             @update:value="toggleViewers"
           />
           <span>允许他人查看</span>
@@ -787,10 +788,12 @@ onBeforeUnmount(() => {
           重新连接
         </n-button>
         <n-button
-          v-if="controller && !isIos"
+          v-if="controller"
           size="tiny"
           type="error"
           ghost
+          :disabled="isIos"
+          :title="isIos ? iosTip : undefined"
           @click="stopControl"
         >
           <template #icon>
@@ -1074,7 +1077,7 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">导航</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('back')">
+              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
                 <n-icon :size="13"><ArrowBackOutline /></n-icon>
                 返回
               </button>
@@ -1100,7 +1103,7 @@ onBeforeUnmount(() => {
                 <n-icon :size="13"><VolumeHighOutline /></n-icon>
                 音量+
               </button>
-              <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('mute')">
+              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
                 <n-icon :size="13"><VolumeMuteOutline /></n-icon>
                 静音
               </button>
@@ -1110,15 +1113,15 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">屏幕</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" :disabled="isIos" @click="sendKey('power')">
+              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
                 <n-icon :size="13"><PowerOutline /></n-icon>
                 电源
               </button>
-              <button type="button" class="bar-btn" :disabled="isIos" @click="setScreen(false)">
+              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
                 <n-icon :size="13"><MoonOutline /></n-icon>
                 息屏
               </button>
-              <button type="button" class="bar-btn" :disabled="isIos" @click="setScreen(true)">
+              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
                 <n-icon :size="13"><SunnyOutline /></n-icon>
                 亮屏
               </button>
@@ -1128,11 +1131,11 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">抓取</div>
             <div class="fs-grid cols-2">
-              <button type="button" class="bar-btn" @click="copyScreenshot">
+              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="copyScreenshot">
                 <n-icon :size="13"><CopyOutline /></n-icon>
                 复制截图
               </button>
-              <button type="button" class="bar-btn" @click="takeScreenshot">
+              <button type="button" class="bar-btn" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="takeScreenshot">
                 <n-icon :size="13"><CameraOutline /></n-icon>
                 截图保存
               </button>
@@ -1140,6 +1143,8 @@ onBeforeUnmount(() => {
                 type="button"
                 class="bar-btn span-2"
                 :class="{ recording }"
+                :disabled="isIos"
+                :title="isIos ? iosTip : undefined"
                 @click="toggleRecording"
               >
                 <n-icon :size="13">
@@ -1149,11 +1154,11 @@ onBeforeUnmount(() => {
                 {{ recording ? '停止录屏' : '录屏' }}
               </button>
               <button
-                v-if="!isIos"
                 type="button"
                 class="bar-btn span-2"
                 :class="{ on: safeKeyboard }"
-                :disabled="!controller"
+                :disabled="!controller || isIos"
+                :title="isIos ? iosTip : undefined"
                 @click="toggleSafeKeyboard"
               >
                 <n-icon :size="13"><KeypadOutline /></n-icon>
