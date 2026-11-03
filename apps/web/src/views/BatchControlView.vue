@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
-import { NButton, NEmpty, NIcon, NSwitch, NTag, useMessage } from 'naive-ui';
-import { AddOutline } from '@vicons/ionicons5';
+import { useRoute, useRouter } from 'vue-router';
+import { NButton, NEmpty, NIcon, NSelect, NSwitch, NTag, useMessage } from 'naive-ui';
+import { AddOutline, CloseOutline, ReorderTwoOutline } from '@vicons/ionicons5';
 import type { DeviceSummary, ViewerToStreamMessage } from '@adh/protocol';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import BulkInstallModal from '../components/BulkInstallModal.vue';
@@ -11,6 +11,7 @@ import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 
 const route = useRoute();
+const router = useRouter();
 const message = useMessage();
 const { devices } = useFleet();
 
@@ -28,10 +29,15 @@ const controllers = ref<Record<string, boolean>>({});
 const connecting = ref<Record<string, boolean>>({});
 const installShow = ref(false);
 const addShow = ref(false);
+/** 所有设备统一画质，默认中。 */
+const quality = ref<'low' | 'medium' | 'high'>('medium');
+const switchingQuality = ref(false);
 /** 联动：一台设备的输入同步到其余设备。 */
 const linkEnabled = ref(false);
 /** 按住 Alt 时临时解除联动。 */
 const linkPaused = ref(false);
+/** 正在拖动的设备 id，用于排序。 */
+const draggingId = ref<string | null>(null);
 
 const playerRefs = new Map<string, InstanceType<typeof DevicePlayer>>();
 /** 最近一次正在进行的触摸，临时解除联动时用它补一个 ended，避免其他设备卡住。 */
@@ -157,7 +163,7 @@ async function syncSessions(): Promise<void> {
 
     connecting.value = { ...connecting.value, [id]: true };
     try {
-      const { sessionId } = await api.createStream(id);
+      const { sessionId } = await api.createStream(id, quality.value);
       sessions.value = { ...sessions.value, [id]: sessionId };
     } catch (error) {
       const name = device.name ?? id;
@@ -184,8 +190,69 @@ function removeDevice(id: string): void {
   selectedIds.value = selectedIds.value.filter((item) => item !== id);
 }
 
+function onDragStart(id: string, event: DragEvent): void {
+  draggingId.value = id;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', id);
+  }
+}
+
+function onDragEnd(): void {
+  draggingId.value = null;
+}
+
+/** 把拖动的设备插到目标设备的位置。 */
+function onDrop(targetId: string): void {
+  const sourceId = draggingId.value;
+  draggingId.value = null;
+  if (!sourceId || sourceId === targetId) return;
+
+  const next = [...selectedIds.value];
+  const from = next.indexOf(sourceId);
+  const to = next.indexOf(targetId);
+  if (from < 0 || to < 0) return;
+
+  next.splice(from, 1);
+  next.splice(to, 0, sourceId);
+  selectedIds.value = next;
+}
+
+// 顺序写回 URL，刷新后保持
+watch(selectedIds, (ids) => {
+  void router.replace({ query: { ...route.query, ids: ids.join(',') } });
+});
+
 function onControllerChange(deviceId: string, value: boolean): void {
   controllers.value = { ...controllers.value, [deviceId]: value };
+}
+
+async function onQualityChange(
+  value: 'low' | 'medium' | 'high',
+): Promise<void> {
+  quality.value = value;
+
+  // Android 会话需要按新画质重建；iOS 由 DevicePlayer 重新挂载后拉流
+  const androidIds = selectedDevices.value
+    .filter((device) => device.platform === 'android' && sessions.value[device.id])
+    .map((device) => device.id);
+  if (androidIds.length === 0) return;
+
+  switchingQuality.value = true;
+  try {
+    const next = { ...sessions.value };
+    await Promise.all(
+      androidIds.map(async (id) => {
+        const result = await api.restartStream(id, value);
+        next[id] = result.sessionId;
+      }),
+    );
+    sessions.value = next;
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '切换画质失败');
+  } finally {
+    switchingQuality.value = false;
+  }
 }
 </script>
 
@@ -213,6 +280,18 @@ function onControllerChange(deviceId: string, value: boolean): void {
       >
         批量安装
       </n-button>
+      <n-select
+        v-model:value="quality"
+        size="tiny"
+        class="quality-select"
+        :options="[
+          { label: '低画质', value: 'low' },
+          { label: '中画质', value: 'medium' },
+          { label: '高画质', value: 'high' },
+        ]"
+        :disabled="switchingQuality"
+        @update:value="onQualityChange"
+      />
     </header>
 
     <div v-if="selectedDevices.length > 0" class="batch-grid">
@@ -220,9 +299,21 @@ function onControllerChange(deviceId: string, value: boolean): void {
         v-for="device in selectedDevices"
         :key="device.id"
         class="tile"
+        :class="{ dragging: draggingId === device.id }"
         :style="{ '--tile-ratio': tileRatio(device) }"
+        @dragover.prevent
+        @drop.prevent="onDrop(device.id)"
       >
         <div class="tile-header">
+          <span
+            class="tile-drag"
+            draggable="true"
+            title="拖动排序"
+            @dragstart="onDragStart(device.id, $event)"
+            @dragend="onDragEnd"
+          >
+            <n-icon :size="14"><ReorderTwoOutline /></n-icon>
+          </span>
           <span class="tile-name" :title="device.name">{{ device.name }}</span>
           <n-tag
             v-if="linkEnabled"
@@ -244,17 +335,24 @@ function onControllerChange(deviceId: string, value: boolean): void {
             {{ device.platform === 'ios' ? 'iOS' : 'Android' }}
             {{ device.osVersion ?? '' }}
           </span>
-          <button type="button" class="tile-remove" @click="removeDevice(device.id)">
-            移除
+          <button
+            type="button"
+            class="tile-remove"
+            title="移除"
+            @click="removeDevice(device.id)"
+          >
+            <n-icon :size="14"><CloseOutline /></n-icon>
           </button>
         </div>
         <div class="tile-stage">
           <DevicePlayer
             v-if="sessions[device.id] || device.platform === 'ios'"
+            :key="`${device.id}-${sessions[device.id] ?? 'ios'}-${quality}`"
             :ref="(el) => setPlayerRef(device.id, el)"
             :session-id="sessions[device.id] ?? ''"
             :platform="device.platform"
             :device-id="device.id"
+            :quality="quality"
             flush
             @controller-change="onControllerChange(device.id, $event)"
             @input="onInput(device.id, $event)"
@@ -348,6 +446,26 @@ function onControllerChange(deviceId: string, value: boolean): void {
   background: var(--surface);
 }
 
+.tile.dragging {
+  opacity: 0.45;
+}
+
+.tile-drag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  cursor: grab;
+}
+
+.tile-drag:active {
+  cursor: grabbing;
+}
+
+.tile-drag:hover {
+  color: var(--text);
+}
+
 .tile-header {
   display: flex;
   align-items: center;
@@ -373,12 +491,16 @@ function onControllerChange(deviceId: string, value: boolean): void {
 
 .tile-remove {
   flex: none;
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: none;
   border-radius: 4px;
   background: transparent;
   color: var(--text-faint);
-  font-size: 11px;
   cursor: pointer;
 }
 
