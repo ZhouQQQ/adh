@@ -11,7 +11,7 @@ import {
   useDialog,
   useMessage,
 } from 'naive-ui';
-import { api, type PackageRecord, type ServerInfo } from '../api';
+import { api, type PackageRecord } from '../api';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -27,13 +27,6 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const renameTarget = ref<PackageRecord | null>(null);
 const renameName = ref('');
 const renaming = ref(false);
-const storage = ref<ServerInfo['storage']>();
-
-const storageText = computed(() =>
-  storage.value?.driver === 'oss'
-    ? `OSS · ${storage.value.bucket}/${storage.value.prefix}/packages`
-    : '本地 .data/packages',
-);
 
 const counts = computed(() => ({
   apk: packages.value.filter((item) => item.kind === 'apk').length,
@@ -74,12 +67,8 @@ function download(record: PackageRecord): void {
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    const [result, info] = await Promise.all([
-      api.listPackages(),
-      api.serverInfo().catch(() => null),
-    ]);
+    const result = await api.listPackages();
     packages.value = result.packages;
-    if (info?.storage) storage.value = info.storage;
   } catch (error) {
     message.error(error instanceof Error ? error.message : '读取安装包失败');
   } finally {
@@ -211,7 +200,6 @@ void load();
       <span class="stats">
         {{ packages.length }} 个 · APK {{ counts.apk }} · IPA {{ counts.ipa }}
       </span>
-      <span class="storage" :title="storageText">{{ storageText }}</span>
       <span v-if="uploading" class="uploading">
         正在上传 {{ uploadingName }} …
       </span>
@@ -314,18 +302,6 @@ void load();
   font-size: 11px;
   color: var(--text-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.storage {
-  font-size: 10px;
-  color: var(--text-faint);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 8px;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .uploading {
