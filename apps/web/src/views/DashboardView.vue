@@ -4,7 +4,6 @@ import { NIcon, NSpin, NTag, useMessage } from 'naive-ui';
 import {
   ArchiveOutline,
   CalendarOutline,
-  FlashOutline,
   PeopleOutline,
   PhonePortraitOutline,
   PulseOutline,
@@ -102,9 +101,9 @@ const cards = computed(() => {
   return [
     {
       key: 'users',
-      label: '用户',
+      label: '总用户',
       value: String(d.users.total),
-      hint: `管理员 ${d.users.admins} · 启用 ${d.users.enabled}`,
+      hint: '',
       icon: PeopleOutline,
       tone: 'blue',
     },
@@ -118,9 +117,9 @@ const cards = computed(() => {
     },
     {
       key: 'today',
-      label: '今日使用',
+      label: '今日',
       value: compactDuration(d.usage.todaySeconds),
-      hint: `${d.usage.todaySessions} 次控制 · ${d.usage.todayUsers} 人参与`,
+      hint: `${d.usage.todaySessions} 次控制 · ${d.usage.todayUsers} 人`,
       icon: TimeOutline,
       tone: 'amber',
     },
@@ -155,14 +154,6 @@ const cards = computed(() => {
       hint: `依据 ${d.devices.publishedCount} 台已填发布时间的设备`,
       icon: CalendarOutline,
       tone: 'orange',
-    },
-    {
-      key: 'active',
-      label: '今日活跃用户',
-      value: String(d.usage.todayUsers),
-      hint: '按控制次数去重',
-      icon: FlashOutline,
-      tone: 'indigo',
     },
   ];
 });
@@ -218,7 +209,7 @@ function userText(item: DashboardData['recent'][number]): string {
             <div class="card-body">
               <div class="card-label">{{ card.label }}</div>
               <div class="card-value">{{ card.value }}</div>
-              <div class="card-hint">{{ card.hint }}</div>
+              <div class="card-hint" v-if="card.hint">{{ card.hint }}</div>
             </div>
           </div>
         </div>
