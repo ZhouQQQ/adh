@@ -47,6 +47,8 @@ let timestamp = 0;
 let waitingKey = true;
 let pressing = false;
 let recorder: MediaRecorder | null = null;
+let iosRecordTimer: ReturnType<typeof setInterval> | null = null;
+let iosRecordCanvas: HTMLCanvasElement | null = null;
 let recordedChunks: Blob[] = [];
 let captureTrack: CanvasCaptureMediaStreamTrack | null = null;
 let recorderMime = 'video/webm';
@@ -696,7 +698,67 @@ function startRecording(): boolean {
   }
 }
 
+/** iOS 录屏：定时拉截图绘制到离屏 canvas 再录制，约 5fps。 */
+function startIosRecording(): boolean {
+  if (recorder) return false;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 540;
+    canvas.height = 1170;
+    iosRecordCanvas = canvas;
+
+    const stream = canvas.captureStream(5);
+    const candidates = [
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ];
+    recorderMime =
+      candidates.find((item) => MediaRecorder.isTypeSupported(item)) ??
+      'video/webm';
+
+    recorder = new MediaRecorder(stream, {
+      mimeType: recorderMime,
+      videoBitsPerSecond: 3_000_000,
+    });
+    recordedChunks = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) recordedChunks.push(event.data);
+    };
+    recorder.start(1000);
+
+    const draw = async (): Promise<void> => {
+      const blob = await fetchIosFrame();
+      const target = iosRecordCanvas;
+      if (!blob || !target) return;
+      try {
+        const bitmap = await createImageBitmap(blob);
+        if (target.width !== bitmap.width) target.width = bitmap.width;
+        if (target.height !== bitmap.height) target.height = bitmap.height;
+        target.getContext('2d')?.drawImage(bitmap, 0, 0);
+        bitmap.close();
+      } catch {
+        /* 单帧失败跳过 */
+      }
+    };
+    void draw();
+    iosRecordTimer = setInterval(() => void draw(), 200);
+    return true;
+  } catch {
+    recorder = null;
+    iosRecordCanvas = null;
+    return false;
+  }
+}
+
 function stopRecording(): Promise<Blob | null> {
+  if (iosRecordTimer) {
+    clearInterval(iosRecordTimer);
+    iosRecordTimer = null;
+  }
+  iosRecordCanvas = null;
+
   const current = recorder;
   if (!current) return Promise.resolve(null);
   return new Promise((resolve) => {
