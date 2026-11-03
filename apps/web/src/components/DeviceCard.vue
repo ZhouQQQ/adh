@@ -447,15 +447,35 @@ const cpuText = computed(() => {
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   max-width: 190px;
   padding: 3px 9px;
   border-radius: 999px;
-  background: rgba(10, 10, 11, 0.72);
-  color: #e4e4e7;
-  font-size: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e4e4e7;
+  color: #27272a;
+  font-size: 11px;
+  line-height: 1.25;
   white-space: nowrap;
-  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 6px rgba(9, 9, 11, 0.12);
+}
+
+/* 左侧圆点表示状态：蓝=我在用，黄=别人在用 */
+.control-tag::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a1a1aa;
+}
+
+.control-tag.mine::before {
+  background: #3b82f6;
+}
+
+.control-tag.busy::before {
+  background: #f59e0b;
 }
 
 /* 有勾选框时让开一点，贴着勾选框显示 */
@@ -479,7 +499,7 @@ const cpuText = computed(() => {
 }
 
 .control-time {
-  color: #a1a1aa;
+  color: #71717a;
   white-space: nowrap;
 }
 
