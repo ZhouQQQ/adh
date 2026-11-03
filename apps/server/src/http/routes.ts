@@ -1658,6 +1658,35 @@ export async function registerHttpRoutes(
       .send(jpeg);
   });
 
+  /** iOS 切换画质：直接调整 WDA MJPEG 参数，不重建连接。 */
+  app.post('/api/devices/:id/ios/quality', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+
+    const body = z
+      .object({ quality: z.enum(['low', 'medium', 'high', 'ultra']) })
+      .safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: '参数不合法' });
+    }
+
+    const quality = body.data.quality;
+    await wdaApplyMjpegSettings(
+      quality === 'low'
+        ? { framerate: 30, quality: 25, scaling: 25 }
+        : quality === 'medium'
+          ? { framerate: 24, quality: 45, scaling: 50 }
+          : quality === 'high'
+            ? { framerate: 30, quality: 75, scaling: 100 }
+            : { framerate: 30, quality: 95, scaling: 100 },
+    );
+    return { ok: true };
+  });
+
   app.post('/api/devices/:id/ios/input', async (request, reply) => {
     const { id } = request.params as { id: string };
     const device = await requireLocalDevice(id, reply);

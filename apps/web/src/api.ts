@@ -617,6 +617,17 @@ export const api = {
     return `/api/packages/${id}/file${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
 
+  /** iOS 切换画质：直接调整 WDA MJPEG 参数，不重建连接。 */
+  setIosQuality(
+    deviceId: string,
+    quality: 'low' | 'medium' | 'high' | 'ultra',
+  ): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/ios/quality`, {
+      method: 'POST',
+      body: JSON.stringify({ quality }),
+    });
+  },
+
   /** 安装包图标；后台会从 apk / ipa 里解析并缓存。 */
   packageIconUrl(id: string): string {
     const token = localStorage.getItem('adh.token');

@@ -439,8 +439,19 @@ async function onQualityChange(
 ): Promise<void> {
   quality.value = value;
 
-  // iOS 由 DevicePlayer 重新挂载后按新档位拉流
-  if (isIos.value || !device.value) return;
+  // iOS 直接改 WDA 的 MJPEG 参数，不断流，下一次请求就按新画质输出
+  if (isIos.value) {
+    if (device.value) {
+      try {
+        await api.setIosQuality(device.value.id, value);
+      } catch {
+        /* 旧版 WDA 不支持时保持原画质 */
+      }
+    }
+    return;
+  }
+
+  if (!device.value) return;
 
   loading.value = true;
   errorText.value = null;
@@ -991,7 +1002,7 @@ onBeforeUnmount(() => {
         >
           <DevicePlayer
             ref="playerRef"
-            :key="`${sessionId ?? ''}-${quality}-${reloadNonce}`"
+            :key="isIos ? `ios-${reloadNonce}` : `${sessionId ?? ''}-${quality}-${reloadNonce}`"
             :session-id="sessionId ?? ''"
             :platform="device?.platform"
             :device-id="device?.id"
