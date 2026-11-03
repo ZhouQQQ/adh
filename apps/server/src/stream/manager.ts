@@ -146,21 +146,16 @@ export class StreamManager {
 
     session.allowViewers = allow;
 
-    if (!allow) {
-      for (const viewer of [...session.viewers]) {
-        if (viewer === session.controller) continue;
-        const meta = viewerMeta.get(viewer);
-        if (meta?.user?.role === 'admin') continue;
-        sendJson(viewer, {
-          t: 'error',
-          message: '控制者已关闭其他人查看',
-        });
-        viewer.close(4004, '控制者已关闭其他人查看');
-      }
-    }
-
     for (const viewer of session.viewers) {
       sendJson(viewer, { t: 'viewers', allow });
+    }
+
+    // 重新开启时补一个关键帧，观看者画面可以立即恢复
+    if (allow && session.lastKeyFrame) {
+      for (const viewer of session.viewers) {
+        if (viewer === session.controller) continue;
+        if (viewer.readyState === 1) viewer.send(session.lastKeyFrame);
+      }
     }
     return true;
   }
@@ -301,17 +296,6 @@ export class StreamManager {
     const session = this.sessions.get(sessionId);
     if (!session) {
       sendJson(socket, { t: 'error', message: '会话不存在或已结束' });
-      socket.close();
-      return;
-    }
-
-    // 控制者关闭查看后，普通用户不能加入；管理员不受限制
-    const isAdmin = user?.role === 'admin';
-    const isOwnController = Boolean(
-      user && session.controllerUserId === user.id,
-    );
-    if (!session.allowViewers && !isAdmin && !isOwnController) {
-      sendJson(socket, { t: 'error', message: '控制者已关闭其他人查看' });
       socket.close();
       return;
     }
@@ -656,6 +640,11 @@ export class StreamManager {
     if (_key) session.lastKeyFrame = payload;
     for (const viewer of session.viewers) {
       if (viewer.readyState !== 1) continue;
+      // 控制者关闭查看时，普通观看者不再收到视频帧（管理员不受限制）
+      if (!session.allowViewers && viewer !== session.controller) {
+        const meta = viewerMeta.get(viewer);
+        if (meta?.user?.role !== 'admin') continue;
+      }
       // 解码跟不上时丢弃该帧，避免延迟雪崩
       if (viewer.bufferedAmount > MAX_BUFFERED_BYTES) continue;
       viewer.send(payload);

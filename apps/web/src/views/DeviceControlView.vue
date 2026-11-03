@@ -819,6 +819,16 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <div
+          v-if="sessionId && !allowViewers && !controller && !isAdmin"
+          class="viewers-closed-overlay"
+        >
+          <div class="offline-title">控制者已关闭其他人查看</div>
+          <div class="offline-desc">
+            等待控制者重新开启后，画面会自动恢复。
+          </div>
+        </div>
+
         <div v-if="device && device.status !== 'online'" class="offline-overlay">
           <div class="offline-title">设备已离线</div>
           <div class="offline-desc">
@@ -1446,6 +1456,21 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 24px;
   background: rgba(9, 9, 11, 0.78);
+  color: #e4e4e7;
+  text-align: center;
+}
+
+.viewers-closed-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  background: rgba(9, 9, 11, 0.92);
   color: #e4e4e7;
   text-align: center;
 }
