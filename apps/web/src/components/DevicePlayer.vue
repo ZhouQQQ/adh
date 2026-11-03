@@ -55,8 +55,6 @@ const PINCH_POINTER_ID = -1001;
 /** iOS 双指手势的起始 / 当前两指距离（归一化）。 */
 let iosPinchStart: number | null = null;
 let iosPinchLast = 0;
-/** 触控板捏合（Ctrl + wheel）的累计量，攒够再触发一次手势。 */
-let wheelPinchAccum = 0;
 /** 触控板缩放正在进行的双指手势状态。 */
 let pinchActive = false;
 let pinchRadius = 0.15;
@@ -501,7 +499,6 @@ function resetPointers(): void {
   }
   pinchActive = false;
   pinchRadius = 0.15;
-  wheelPinchAccum = 0;
 }
 
 /** 两根手指之间的归一化距离，用于 iOS 计算 pinch 比例。 */
@@ -639,23 +636,13 @@ function onWheel(event: WheelEvent): void {
   // 触控板双指捏合会被浏览器映射成 Ctrl + wheel
   if (event.ctrlKey) {
     if (dy === 0) return;
-    // 触控板每帧只给几像素，攒够一段再发，避免刷爆控制流
-    wheelPinchAccum += dy;
-    if (Math.abs(wheelPinchAccum) < 30) return;
-    const step = wheelPinchAccum;
-    wheelPinchAccum = 0;
-    // 两指张开（step > 0）放大，收拢（step < 0）缩小
-    // 个别触控板 / 系统滚动设置方向相反，可用 localStorage 的 adh.pinchInvert=1 翻转
-    const invert = localStorage.getItem('adh.pinchInvert') === '1';
-    // 触控板一次捏合会产生很多事件，Android 连续手势会累乘
-    const divisor = isIos.value ? 180 : 400;
-    const scale = Math.min(
-      2,
-      Math.max(0.5, Math.exp((invert ? -step : step) / divisor)),
-    );
+    // 直接按本次事件的 deltaY 缩放，不再累计：
+    // 累计器跨方向时会残留旧值，导致同一次张开有时算成正、有时算成负
+    const divisor = isIos.value ? 120 : 150;
+    const scale = Math.min(2, Math.max(0.5, Math.exp(-dy / divisor)));
 
     if (import.meta.env.DEV) {
-      console.info('[adh pinch]', { step, scale });
+      console.info('[adh pinch]', { dy, scale });
     }
 
     if (isIos.value) {
@@ -669,8 +656,6 @@ function onWheel(event: WheelEvent): void {
     }
     return;
   }
-
-  wheelPinchAccum = 0;
 
   if (isIos.value) {
     if (dy === 0) return;
