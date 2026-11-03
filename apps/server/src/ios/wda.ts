@@ -98,6 +98,20 @@ async function withSession<T>(task: (id: string) => Promise<T>): Promise<T> {
   }
 }
 
+/** 锁屏（模拟电源键）。 */
+export async function wdaLock(): Promise<void> {
+  await withSession((id) =>
+    request(`/session/${id}/wda/lock`, { method: 'POST', timeoutMs: 5_000 }),
+  );
+}
+
+/** 唤醒屏幕。 */
+export async function wdaUnlock(): Promise<void> {
+  await withSession((id) =>
+    request(`/session/${id}/wda/unlock`, { method: 'POST', timeoutMs: 5_000 }),
+  );
+}
+
 export function wdaConfigured(): boolean {
   return Boolean(WDA_BASE);
 }

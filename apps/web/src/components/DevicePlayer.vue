@@ -557,6 +557,8 @@ function sendKey(
   if (isIos.value) {
     if (key === 'home') void iosInput({ type: 'button', name: 'home' });
     else if (key === 'recent') void iosInput({ type: 'appSwitcher' });
+    else if (key === 'power') void iosInput({ type: 'screenToggle' });
+    else if (key === 'mute') void iosInput({ type: 'mute' });
     else if (key === 'volumeUp') void iosInput({ type: 'button', name: 'volumeUp' });
     else if (key === 'volumeDown') void iosInput({ type: 'button', name: 'volumeDown' });
     return;
@@ -597,12 +599,16 @@ function expandNotification(): void {
 
 /** 关闭 / 点亮屏幕（不锁屏）。 */
 function setScreen(on: boolean): void {
+  // 只有 Android 支持「仅关闭屏幕背光」：scrcpy 关屏后设备仍在运行，
+  // web 仍可继续投屏和控制。iOS 没有该能力（lock 会锁屏），因此界面禁用。
+  if (isIos.value) return;
   if (!controller.value) return;
   sendLocal({ t: 'screen', on });
 }
 
 /** 把当前画面导出成 PNG。 */
 function screenshot(): Promise<Blob | null> {
+  if (isIos.value) return iosScreenshotPng();
   return new Promise((resolve) => {
     const canvas = canvasRef.value;
     if (!canvas || canvas.width === 0) {
@@ -613,7 +619,41 @@ function screenshot(): Promise<Blob | null> {
   });
 }
 
+/** iOS 没有 canvas，直接向 WDA 要一帧并转成 PNG。 */
+async function iosScreenshotPng(): Promise<Blob | null> {
+  const jpeg = await fetchIosFrame();
+  if (!jpeg) return null;
+  try {
+    const bitmap = await createImageBitmap(jpeg);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return await new Promise((resolve) =>
+      canvas.toBlob((blob) => resolve(blob), 'image/png'),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** 拉取一帧 iOS 截图（JPEG）。 */
+async function fetchIosFrame(): Promise<Blob | null> {
+  try {
+    const response = await fetch(
+      `/api/devices/${props.deviceId}/ios/screenshot?quality=ultra`,
+      { cache: 'no-store', headers: authHeaders() },
+    );
+    if (!response.ok) return null;
+    return await response.blob();
+  } catch {
+    return null;
+  }
+}
+
 function startRecording(): boolean {
+  if (isIos.value) return startIosRecording();
   const canvas = canvasRef.value;
   if (!canvas || recorder || canvas.width === 0) return false;
   try {

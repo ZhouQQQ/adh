@@ -32,12 +32,14 @@ import sharp from 'sharp';
 import {
   wdaAppSwitcher,
   wdaApplyMjpegSettings,
+  wdaLock,
   wdaPressButton,
   wdaScreenshot,
   wdaStatus,
   wdaSwipe,
   wdaTap,
   wdaTypeText,
+  wdaUnlock,
   wdaWindow,
 } from '../ios/wda.js';
 import { ensureMjpegPort } from '../ios/mjpeg.js';
@@ -94,6 +96,11 @@ const IosInputBody = z.discriminatedUnion('type', [
     name: z.enum(['home', 'volumeUp', 'volumeDown']),
   }),
   z.object({ type: z.literal('appSwitcher') }),
+  /** 锁屏 / 唤醒：模拟电源键。 */
+  z.object({ type: z.literal('screen'), on: z.boolean() }),
+  z.object({ type: z.literal('screenToggle') }),
+  /** 静音：把音量连续降到 0。 */
+  z.object({ type: z.literal('mute') }),
   z.object({
     type: z.literal('text'),
     text: z.string().min(1).max(2000),
@@ -285,6 +292,8 @@ interface RuntimeStats {
 
 /** iOS 触摸日志节流：设备 id → 上次记录时间。 */
 const lastIosTouchAt = new Map<string, number>();
+/** iOS 屏幕亮灭状态，用于电源键切换。 */
+const iosScreenUnlocked = new Map<string, boolean>();
 
 /** go-ios 的命令名兼容 ios / go-ios。 */
 let iosCliCache: { at: number; command: string | null } | null = null;
@@ -1683,6 +1692,32 @@ export async function registerHttpRoutes(
         await wdaPressButton(payload.name);
       } else if (payload.type === 'appSwitcher') {
         await wdaAppSwitcher();
+      } else if (payload.type === 'screen') {
+        if (payload.on) await wdaUnlock();
+        else await wdaLock();
+        logDevice(
+          request,
+          device,
+          'input.screen',
+          payload.on ? '亮屏' : '息屏',
+        );
+      } else if (payload.type === 'screenToggle') {
+        const unlocked = iosScreenUnlocked.get(device.id) ?? true;
+        if (unlocked) await wdaLock();
+        else await wdaUnlock();
+        iosScreenUnlocked.set(device.id, !unlocked);
+        logDevice(
+          request,
+          device,
+          'input.screen',
+          unlocked ? '息屏' : '亮屏',
+        );
+      } else if (payload.type === 'mute') {
+        // iOS 没有静音接口，连续按音量减到 0
+        for (let i = 0; i < 10; i += 1) {
+          await wdaPressButton('volumeDown');
+        }
+        logDevice(request, device, 'input.key', '静音');
       } else {
         await wdaTypeText(payload.text);
       }
