@@ -29,7 +29,7 @@ import FloatingPreviews from '../components/FloatingPreviews.vue';
 
 const route = useRoute();
 const router = useRouter();
-const { agents, devices, connection } = useFleet();
+const { agents, devices } = useFleet();
 const { previews, closeAllPreviews, focusPreview } = usePreviews();
 const { user, isAdmin, loadMe, logout } = useAuth();
 
@@ -82,35 +82,7 @@ watch([user, () => route.meta.admin], () => {
 });
 
 const menuOptions = computed<MenuOption[]>(() => {
-  const systemChildren: MenuOption[] = [
-    {
-      label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
-      key: '/agents',
-      icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
-    },
-    {
-      label: () => h(RouterLink, { to: '/device-logs' }, { default: () => '设备日志' }),
-      key: '/device-logs',
-      icon: () => h(NIcon, null, { default: () => h(ReaderOutline) }),
-    },
-  ];
-
-  if (isAdmin.value) {
-    systemChildren.push(
-      {
-        label: () => h(RouterLink, { to: '/users' }, { default: () => '用户管理' }),
-        key: '/users',
-        icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }),
-      },
-      {
-        label: () => h(RouterLink, { to: '/audit' }, { default: () => '审计日志' }),
-        key: '/audit',
-        icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
-      },
-    );
-  }
-
-  return [
+  const groups: MenuOption[] = [
     {
       type: 'group',
       label: '设备',
@@ -128,13 +100,49 @@ const menuOptions = computed<MenuOption[]>(() => {
         },
       ],
     },
+  ];
+
+  // 操作员只看设备相关菜单
+  if (!isAdmin.value) return groups;
+
+  groups.push(
+    {
+      type: 'group',
+      label: '日志',
+      key: 'group-logs',
+      children: [
+        {
+          label: () => h(RouterLink, { to: '/audit' }, { default: () => '审计日志' }),
+          key: '/audit',
+          icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
+        },
+        {
+          label: () => h(RouterLink, { to: '/device-logs' }, { default: () => '设备日志' }),
+          key: '/device-logs',
+          icon: () => h(NIcon, null, { default: () => h(ReaderOutline) }),
+        },
+      ],
+    },
     {
       type: 'group',
       label: '系统',
       key: 'group-system',
-      children: systemChildren,
+      children: [
+        {
+          label: () => h(RouterLink, { to: '/users' }, { default: () => '用户管理' }),
+          key: '/users',
+          icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }),
+        },
+        {
+          label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
+          key: '/agents',
+          icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
+        },
+      ],
     },
-  ];
+  );
+
+  return groups;
 });
 
 const activeKey = computed(() => route.path);
@@ -144,17 +152,6 @@ const onlineAgents = computed(
 const onlineDevices = computed(
   () => devices.value.filter((device) => device.status === 'online').length,
 );
-
-const connectionMeta = computed(() => {
-  switch (connection.value) {
-    case 'online':
-      return { type: 'success' as const, text: '实时' };
-    case 'connecting':
-      return { type: 'warning' as const, text: '连接中' };
-    default:
-      return { type: 'error' as const, text: '已断开' };
-  }
-});
 </script>
 
 <template>
@@ -204,9 +201,6 @@ const connectionMeta = computed(() => {
           >
             <n-button size="tiny" quaternary>画中画 {{ previews.length }}</n-button>
           </n-dropdown>
-          <n-tag :type="connectionMeta.type" size="small" :bordered="false" round>
-            {{ connectionMeta.text }}
-          </n-tag>
           <div class="user-chip">
             <span class="user-name">
               {{ user?.displayName || user?.username || '未登录' }}

@@ -63,7 +63,7 @@ async function submit(): Promise<void> {
         </n-button>
       </form>
 
-      <p class="login-hint">默认管理员：root / rootxiaoan</p>
+      <p class="login-hint">默认管理员：admin / admin</p>
     </div>
   </div>
 </template>

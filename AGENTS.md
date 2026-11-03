@@ -50,7 +50,7 @@ pnpm migrate:data
 - **设备名优先取厂商市场名称**：`ro.vivo.market.name` → `ro.product.marketname` → OPPO / `ro.config.marketing_name` 等，取不到才回退到 `ro.product.model`。型号代码单独存在 `model` 字段。
 - **`builtin-local` 是 server 内置 Agent**（进程内直连本机 adb），删除 / 重置 Key 接口返回 400，前端不展示这些按钮。
 - 前端 `api.ts` 的 `request()` **只在有 body 时设置 `content-type`**。否则 DELETE 会被 Fastify 判为 400 `Body cannot be empty`。
-- Web 端需要登录，角色 `admin`（含用户管理、审计）和 `operator`；默认管理员 `root / rootxiaoan`。Agent 仍用 `adh_` 前缀的 key 鉴权。
+- Web 端需要登录，角色 `admin`（含用户管理、审计）和 `operator`；默认管理员 `admin / admin`。Agent 仍用 `adh_` 前缀的 key 鉴权。
 
 ## scrcpy 投屏
 

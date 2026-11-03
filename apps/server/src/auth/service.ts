@@ -81,15 +81,29 @@ export class AuthService {
     const [row] = await this.db.query<{ total: number }>(
       'SELECT COUNT(*) AS total FROM adh_users',
     );
-    if (Number(row?.total ?? 0) > 0) return;
+    if (Number(row?.total ?? 0) === 0) {
+      await this.createUser({
+        username: 'admin',
+        password: 'admin',
+        role: 'admin',
+        displayName: '超级管理员',
+      });
+      console.log('[auth] created default admin: admin');
+      return;
+    }
 
-    await this.createUser({
-      username: 'root',
-      password: 'rootxiaoan',
-      role: 'admin',
-      displayName: '超级管理员',
-    });
-    console.log('[auth] created default admin: root');
+    // 旧库默认账号是 root，平滑改成 admin
+    const root = await this.getByUsername('root');
+    const admin = await this.getByUsername('admin');
+    if (root && !admin) {
+      await this.db.execute(
+        `UPDATE adh_users
+         SET username = 'admin', password_hash = ?, display_name = '超级管理员'
+         WHERE id = ?`,
+        [hashPassword('admin'), root.id],
+      );
+      console.log('[auth] migrated default admin: root -> admin');
+    }
   }
 
   async login(
