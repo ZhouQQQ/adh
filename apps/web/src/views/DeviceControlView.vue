@@ -136,6 +136,31 @@ const pipActive = ref(false);
 let docPip: Window | null = null;
 const safeKeyboard = ref(false);
 const readonlyBannerClosed = ref(false);
+const releasedBy = ref('');
+
+function onControlReleased(username: string): void {
+  releasedBy.value = username || '控制者';
+  readonlyBannerClosed.value = false;
+}
+
+const allowViewers = ref(true);
+
+function onViewersAllow(value: boolean): void {
+  allowViewers.value = value;
+}
+
+async function toggleViewers(value: boolean): Promise<void> {
+  const current = device.value;
+  if (!current) return;
+  try {
+    await api.setStreamViewers(current.id, value);
+    allowViewers.value = value;
+    message.success(value ? '已允许他人查看' : '已关闭他人查看');
+  } catch (error) {
+    allowViewers.value = !value;
+    message.error(error instanceof Error ? error.message : '设置失败');
+  }
+}
 
 const now = ref(Date.now());
 let clockTimer: number | null = null;
@@ -161,7 +186,12 @@ const canKick = computed(
     Boolean(device.value?.control) &&
     device.value?.control?.userId !== user.value?.id,
 );
-const canTakeover = canKick;
+const canTakeover = computed(() => {
+  if (!sessionId.value || controller.value) return false;
+  // 控制者主动释放后，任何观看者都能接管；其余情况只有管理员能抢
+  if (releasedBy.value) return true;
+  return isAdmin.value;
+});
 
 async function takeoverControl(): Promise<void> {
   const current = device.value;
@@ -169,9 +199,14 @@ async function takeoverControl(): Promise<void> {
   try {
     await api.takeoverDeviceStream(current.id);
     message.success('已接管控制权');
+    releasedBy.value = '';
     await refresh();
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '接管失败');
+    message.warning(
+      error instanceof Error ? error.message : '控制权已被其他人接管',
+    );
+    releasedBy.value = '';
+    await refresh();
   }
 }
 
@@ -389,7 +424,10 @@ async function toggleRecording(): Promise<void> {
 
 function onPlayerClosed(): void {
   sessionId.value = null;
-  errorText.value = '画面连接已断开，点击重试';
+  if (!errorText.value) {
+    errorText.value = '画面连接已断开，点击重试';
+  }
+  releasedBy.value = '';
 }
 
 async function goBack(): Promise<void> {
@@ -525,6 +563,14 @@ onBeforeUnmount(() => {
         </template>
       </n-button>
       <div class="title">{{ device?.name ?? '设备控制' }}</div>
+      <label v-if="controller" class="viewers-switch">
+        <n-switch
+          size="small"
+          :value="allowViewers"
+          @update:value="toggleViewers"
+        />
+        <span>允许他人查看</span>
+      </label>
       <n-select
         v-model:value="quality"
         size="tiny"
@@ -658,6 +704,8 @@ onBeforeUnmount(() => {
             :quality="quality"
             @controller-change="controller = $event"
             @error="errorText = $event"
+            @control-released="onControlReleased"
+            @viewers-allow="onViewersAllow"
             @closed="onPlayerClosed"
           />
         </div>
@@ -676,7 +724,25 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="sessionId && !controller && !readonlyBannerClosed"
+          v-if="releasedBy && !controller"
+          class="readonly-banner released"
+        >
+          <span>{{ releasedBy }} 已断开，是否接管控制？</span>
+          <n-button size="tiny" type="primary" @click="takeoverControl">
+            接管
+          </n-button>
+          <button
+            type="button"
+            class="banner-close"
+            title="关闭提示"
+            @click="releasedBy = ''"
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          v-if="sessionId && !controller && !readonlyBannerClosed && !releasedBy"
           class="readonly-banner"
         >
           <span>
@@ -932,6 +998,15 @@ onBeforeUnmount(() => {
 
 .quality-select {
   width: 96px;
+}
+
+.viewers-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .meta {
@@ -1263,6 +1338,10 @@ onBeforeUnmount(() => {
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+}
+
+.readonly-banner.released {
+  background: rgba(37, 99, 235, 0.94);
 }
 
 .banner-close:hover {

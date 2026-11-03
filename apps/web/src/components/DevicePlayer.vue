@@ -24,6 +24,8 @@ const emit = defineEmits<{
   closed: [];
   /** 本地产生的输入（触摸/按键/文本/屏幕），用于批量联动的镜像转发。 */
   input: [message: ViewerToStreamMessage];
+  'control-released': [username: string];
+  'viewers-allow': [allow: boolean];
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -201,6 +203,16 @@ function handleText(raw: string): void {
   if (message.t === 'role') {
     controller.value = Boolean(message.controller);
     emit('controller-change', controller.value);
+    return;
+  }
+  if (message.t === 'control.released') {
+    controller.value = false;
+    emit('controller-change', false);
+    emit('control-released', String(message.username ?? ''));
+    return;
+  }
+  if (message.t === 'viewers') {
+    emit('viewers-allow', Boolean(message.allow));
     return;
   }
   if (message.t === 'error') {

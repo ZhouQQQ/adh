@@ -741,35 +741,63 @@ export async function registerHttpRoutes(
     return { ok: kicked };
   });
 
-  /** 管理员接管他人正在控制的设备。 */
+  /** 接管他人正在控制的设备；控制权空出来时任何人都能接管。 */
   app.post('/api/devices/:id/stream/takeover', async (request, reply) => {
-    if (request.user?.role !== 'admin') {
-      return reply.code(403).send({ error: '需要管理员权限' });
-    }
     const { id } = request.params as { id: string };
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (!request.user) return reply.code(401).send({ error: '请先登录' });
 
     const ok = deps.streams.takeover(id, request.user);
     if (!ok) {
-      return reply.code(400).send({ error: '当前没有可接管的会话' });
+      return reply.code(400).send({ error: '控制权已被占用或会话不存在' });
     }
-    logDevice(request, device, 'control.takeover', '管理员接管控制权');
+    logDevice(
+      request,
+      device,
+      'control.takeover',
+      request.user.role === 'admin' ? '管理员接管控制权' : '接管控制权',
+    );
     return { ok: true };
   });
 
-  /** 控制者主动断开投屏。 */
+  /** 控制者开关「允许其他人查看」。 */
+  app.post('/api/devices/:id/stream/viewers', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (!request.user) return reply.code(401).send({ error: '请先登录' });
+
+    const body = request.body as { allow?: boolean } | undefined;
+    if (typeof body?.allow !== 'boolean') {
+      return reply.code(400).send({ error: '缺少 allow 参数' });
+    }
+
+    const ok = deps.streams.setAllowViewers(id, request.user, body.allow);
+    if (!ok) {
+      return reply.code(403).send({ error: '只有控制者或管理员可以修改' });
+    }
+    logDevice(
+      request,
+      device,
+      'control.viewers',
+      body.allow ? '允许他人查看' : '关闭他人查看',
+    );
+    return { ok: true };
+  });
+
+  /** 控制者主动释放控制权；管理员也可以断开任意会话。 */
   app.post('/api/devices/:id/stream/stop', async (request, reply) => {
     const { id } = request.params as { id: string };
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: '设备不存在' });
     if (!request.user) return reply.code(401).send({ error: '请先登录' });
 
-    const ok = deps.streams.stopDevice(id, request.user);
+    const ok = deps.streams.releaseControl(id, request.user);
     if (!ok) {
       return reply.code(403).send({ error: '只有控制者或管理员可以断开' });
     }
-    logDevice(request, device, 'control.stop', '主动断开投屏');
+    logDevice(request, device, 'control.stop', '释放控制权');
     return { ok: true };
   });
 

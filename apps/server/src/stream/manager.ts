@@ -45,6 +45,8 @@ interface StreamSession {
   controllerUserId: string | null;
   /** 控制者断开的时间 */
   controllerLeftAt: number;
+  /** 是否允许其他人查看（默认允许，管理员不受限制） */
+  allowViewers: boolean;
   agentSocket: WebSocket | null;
   local: LocalStream | null;
   meta: StreamReady | null;
@@ -126,15 +128,72 @@ export class StreamManager {
     return true;
   }
 
-  /** 控制者主动断开；管理员也可以断开任意会话。 */
-  stopDevice(deviceId: string, user: AuthUser): boolean {
+  /** 控制者开关「允许其他人查看」，管理员不受限制。 */
+  setAllowViewers(
+    deviceId: string,
+    user: AuthUser,
+    allow: boolean,
+  ): boolean {
     const session = this.findSessionByDevice(deviceId);
     if (!session) return false;
-    const meta = session.controller
-      ? viewerMeta.get(session.controller)
-      : undefined;
+
+    if (user.role !== 'admin') {
+      const meta = session.controller
+        ? viewerMeta.get(session.controller)
+        : undefined;
+      if (meta?.user?.id !== user.id) return false;
+    }
+
+    session.allowViewers = allow;
+
+    if (!allow) {
+      for (const viewer of [...session.viewers]) {
+        if (viewer === session.controller) continue;
+        const meta = viewerMeta.get(viewer);
+        if (meta?.user?.role === 'admin') continue;
+        sendJson(viewer, {
+          t: 'error',
+          message: '控制者已关闭其他人查看',
+        });
+        viewer.close();
+      }
+    }
+
+    for (const viewer of session.viewers) {
+      sendJson(viewer, { t: 'viewers', allow });
+    }
+    return true;
+  }
+
+  /** 控制者主动释放控制权；管理员也可以强制释放。 */
+  releaseControl(deviceId: string, user: AuthUser): boolean {
+    const session = this.findSessionByDevice(deviceId);
+    if (!session) return false;
+
+    const controller = session.controller;
+    const meta = controller ? viewerMeta.get(controller) : undefined;
     if (user.role !== 'admin' && meta?.user?.id !== user.id) return false;
-    this.destroy(session.id, '用户主动断开');
+
+    session.controller = null;
+    session.controllerUserId = null;
+    session.controllerLeftAt = Date.now();
+    if (session.activityTimer) {
+      clearTimeout(session.activityTimer);
+      session.activityTimer = null;
+    }
+
+    const payload = {
+      t: 'control.released' as const,
+      username: meta?.user?.username ?? user.username,
+      displayName: meta?.user?.displayName ?? undefined,
+    };
+    for (const viewer of session.viewers) {
+      if (viewer !== controller) sendJson(viewer, payload);
+    }
+
+    // 一直没人接管时按闲置回收
+    this.scheduleIdleStop(session);
+    this.notifyDevice(deviceId);
     return true;
   }
 
@@ -142,6 +201,12 @@ export class StreamManager {
   takeover(deviceId: string, user: AuthUser): boolean {
     const session = this.findSessionByDevice(deviceId);
     if (!session) return false;
+
+    // 有人正在控制，或原控制者刚离开还没释放，只有管理员能抢
+    if (session.controller && user.role !== 'admin') return false;
+    if (!session.controller && session.controllerUserId && user.role !== 'admin') {
+      return false;
+    }
 
     const target = [...session.viewers].find(
       (viewer) => viewerMeta.get(viewer)?.user?.id === user.id,
@@ -195,6 +260,7 @@ export class StreamManager {
       controllerSince: 0,
       controllerUserId: null,
       controllerLeftAt: 0,
+      allowViewers: true,
       agentSocket: null,
       local: null,
       meta: null,
@@ -239,6 +305,17 @@ export class StreamManager {
       return;
     }
 
+    // 控制者关闭查看后，普通用户不能加入；管理员不受限制
+    const isAdmin = user?.role === 'admin';
+    const isOwnController = Boolean(
+      user && session.controllerUserId === user.id,
+    );
+    if (!session.allowViewers && !isAdmin && !isOwnController) {
+      sendJson(socket, { t: 'error', message: '控制者已关闭其他人查看' });
+      socket.close();
+      return;
+    }
+
     const previousController = session.controller;
     // 已有人控制时，只有原控制者本人重连才能恢复，其他人保持只读
     const sameUser = Boolean(user && session.controllerUserId === user.id);
@@ -279,6 +356,7 @@ export class StreamManager {
       t: 'role',
       controller: session.controller === socket,
     });
+    sendJson(socket, { t: 'viewers', allow: session.allowViewers });
 
     socket.on('message', (raw: Buffer, isBinary: boolean) => {
       if (isBinary) return;

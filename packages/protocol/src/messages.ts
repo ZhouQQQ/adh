@@ -294,11 +294,26 @@ export const StreamRoleSchema = z.object({
   controller: z.boolean(),
 });
 
+/** 控制者主动断开，其他观看者可以选择接管。 */
+export const StreamControlReleasedSchema = z.object({
+  t: z.literal('control.released'),
+  username: z.string(),
+  displayName: z.string().optional(),
+});
+
+/** 控制者是否允许其他人查看投屏。 */
+export const StreamViewersSchema = z.object({
+  t: z.literal('viewers'),
+  allow: z.boolean(),
+});
+
 export const StreamAgentToViewerMessageSchema = z.discriminatedUnion('t', [
   StreamReadySchema,
   StreamRotatedSchema,
   StreamErrorSchema,
   StreamRoleSchema,
+  StreamControlReleasedSchema,
+  StreamViewersSchema,
 ]);
 export type StreamAgentToViewerMessage = z.infer<
   typeof StreamAgentToViewerMessageSchema

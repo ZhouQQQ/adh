@@ -409,6 +409,17 @@ export const api = {
     return request(`/api/devices/${deviceId}/stream/stop`, { method: 'POST' });
   },
 
+  /** 控制者开关是否允许其他人查看。 */
+  setStreamViewers(
+    deviceId: string,
+    allow: boolean,
+  ): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/stream/viewers`, {
+      method: 'POST',
+      body: JSON.stringify({ allow }),
+    });
+  },
+
   /** 在指定设备上安装已上传的 APK / IPA。 */
   installPackage(deviceId: string, packageId: string): Promise<{ ok: boolean }> {
     return request(`/api/devices/${deviceId}/install`, {
