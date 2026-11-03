@@ -3,6 +3,7 @@ import {
   TOUCH_ACTION,
   SCRCPY_KEYCODE,
   injectKeycode,
+  injectScroll,
   injectTouch,
   expandPanel,
   rotateDevice,
@@ -31,6 +32,19 @@ export class ScrcpyControlTranslator {
       case 'clipboard':
         // 只写剪贴板，不自动粘贴
         return [setClipboard(message.text, false)];
+      case 'scroll': {
+        const { width, height } = this.size();
+        return [
+          injectScroll(
+            message.x * width,
+            message.y * height,
+            width,
+            height,
+            message.dx,
+            -message.dy,
+          ),
+        ];
+      }
       case 'rotate':
         return [rotateDevice()];
       case 'screen':

@@ -21,6 +21,7 @@ export const TOUCH_ACTION = { down: 0, up: 1, move: 2 } as const;
 const MSG_INJECT_KEYCODE = 0;
 const MSG_INJECT_TEXT = 1;
 const MSG_INJECT_TOUCH_EVENT = 2;
+const MSG_INJECT_SCROLL_EVENT = 3;
 const MSG_BACK_OR_SCREEN_ON = 4;
 const MSG_EXPAND_NOTIFICATION_PANEL = 5;
 const MSG_EXPAND_SETTINGS_PANEL = 6;
@@ -72,6 +73,35 @@ export function setClipboard(text: string, paste = true): Buffer {
   buf.writeUInt32BE(body.length, offset);
   offset += 4;
   body.copy(buf, offset);
+  return buf;
+}
+
+/** 鼠标滚轮事件（scrcpy INJECT_SCROLL_EVENT）。 */
+export function injectScroll(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  hscroll: number,
+  vscroll: number,
+): Buffer {
+  const clamp = (value: number): number =>
+    Math.max(-32768, Math.min(32767, Math.round(value)));
+  const buf = Buffer.alloc(1 + 4 + 4 + 2 + 2 + 2 + 2);
+  let offset = 0;
+  buf.writeUInt8(MSG_INJECT_SCROLL_EVENT, offset);
+  offset += 1;
+  buf.writeInt32BE(Math.round(x), offset);
+  offset += 4;
+  buf.writeInt32BE(Math.round(y), offset);
+  offset += 4;
+  buf.writeUInt16BE(Math.max(0, Math.min(65535, Math.round(width))), offset);
+  offset += 2;
+  buf.writeUInt16BE(Math.max(0, Math.min(65535, Math.round(height))), offset);
+  offset += 2;
+  buf.writeInt16BE(clamp(hscroll), offset);
+  offset += 2;
+  buf.writeInt16BE(clamp(vscroll), offset);
   return buf;
 }
 

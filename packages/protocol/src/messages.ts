@@ -368,6 +368,15 @@ export const ViewerClipboardSchema = z.object({
   text: z.string(),
 });
 
+/** 鼠标滚轮：x/y 为 0..1 归一化坐标，dx/dy 为滚动量。 */
+export const ViewerScrollSchema = z.object({
+  t: z.literal('scroll'),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  dx: z.number().default(0),
+  dy: z.number(),
+});
+
 export const ViewerRotateSchema = z.object({
   t: z.literal('rotate'),
 });
@@ -394,6 +403,7 @@ export const ViewerToStreamMessageSchema = z.discriminatedUnion('t', [
   ViewerKeySchema,
   ViewerTextSchema,
   ViewerClipboardSchema,
+  ViewerScrollSchema,
   ViewerRotateSchema,
   ViewerScreenSchema,
   ViewerPanelSchema,

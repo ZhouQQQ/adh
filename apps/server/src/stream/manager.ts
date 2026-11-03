@@ -719,6 +719,10 @@ export class StreamManager {
         action = 'input.clipboard';
         detail = `复制 ${message.text.length} 个字符到剪贴板`;
         break;
+      case 'scroll':
+        action = 'input.scroll';
+        detail = `滚动 ${Math.round(message.dy)}`;
+        break;
       case 'rotate':
         action = 'input.rotate';
         detail = '旋转屏幕';

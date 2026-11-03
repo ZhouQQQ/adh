@@ -498,6 +498,34 @@ function onPointerDown(event: PointerEvent): void {
   sendLocal({ t: 'touch', phase: 'began', x, y, pointerId: 0, pressure: 1 });
 }
 
+/** 鼠标滚轮：Android 发 scroll 控制；iOS 用短滑动模拟。 */
+function onWheel(event: WheelEvent): void {
+  if (!controller.value) return;
+  const position = pointerPosition(event);
+
+  if (isIos.value) {
+    const delta = event.deltaY > 0 ? -0.18 : 0.18;
+    const toY = Math.min(1, Math.max(0, position.y + delta));
+    void iosInput({
+      type: 'swipe',
+      fromX: position.x,
+      fromY: position.y,
+      toX: position.x,
+      toY,
+      duration: 0.2,
+    });
+    return;
+  }
+
+  sendLocal({
+    t: 'scroll',
+    x: position.x,
+    y: position.y,
+    dx: event.deltaX,
+    dy: event.deltaY,
+  });
+}
+
 /** 右键 = 系统返回键。 */
 function onContextMenu(event: MouseEvent): void {
   event.preventDefault();
@@ -961,6 +989,7 @@ defineExpose({
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
+      @wheel.prevent="onWheel"
       @contextmenu="onContextMenu"
       @auxclick="onAuxClick"
     />

@@ -46,6 +46,7 @@ const actionOptions = [
   { label: '按键', value: 'input.key' },
   { label: '文本输入', value: 'input.text' },
   { label: '复制到剪贴板', value: 'input.clipboard' },
+  { label: '滚动', value: 'input.scroll' },
   { label: '旋转屏幕', value: 'input.rotate' },
   { label: '亮屏 / 息屏', value: 'input.screen' },
   { label: '通知栏', value: 'input.panel' },

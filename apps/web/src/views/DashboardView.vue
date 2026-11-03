@@ -180,6 +180,7 @@ const actionLabels: Record<string, string> = {
   'input.key': '按键',
   'input.text': '文本输入',
   'input.clipboard': '复制到剪贴板',
+  'input.scroll': '滚动',
   'input.rotate': '旋转屏幕',
   'input.screen': '亮屏 / 息屏',
   'input.panel': '通知栏',
