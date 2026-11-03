@@ -601,15 +601,6 @@ onBeforeUnmount(() => {
         {{ controlName }} {{ controlSinceText }} 起控制 · 已
         {{ controlDuration }}
       </n-tag>
-      <n-button
-        v-if="canKick"
-        size="tiny"
-        type="error"
-        ghost
-        @click="kickControl"
-      >
-        强制断开
-      </n-button>
       <n-tag
         v-if="sessionId && !controller"
         size="small"
@@ -663,13 +654,22 @@ onBeforeUnmount(() => {
           断开
         </n-button>
         <n-button
+          v-if="canKick"
+          size="tiny"
+          type="error"
+          ghost
+          @click="kickControl"
+        >
+          断开
+        </n-button>
+        <n-button
           v-if="canTakeover"
           size="tiny"
           type="primary"
           ghost
           @click="takeoverControl"
         >
-          接管
+          强制接管
         </n-button>
         <div class="toolbar-user">
           <span class="toolbar-user-name">
