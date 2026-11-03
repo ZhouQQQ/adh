@@ -68,6 +68,25 @@ async function request<T>(
   return ((parsed as WdaResponse<T>)?.value ?? null) as T;
 }
 
+/**
+ * XCUITest 默认把设备当成连着硬件键盘，iOS 因此不弹软键盘，
+ * 画面上只能看到输入辅助栏（截图底部那条「完成」）。
+ */
+async function applyKeyboardSettings(): Promise<void> {
+  try {
+    await fetch(`${WDA_BASE}/appium/settings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: { connectHardwareKeyboard: false },
+      }),
+      signal: AbortSignal.timeout(3_000),
+    });
+  } catch {
+    /* 旧版 WDA 不支持该设置时忽略 */
+  }
+}
+
 async function createSession(): Promise<string> {
   const value = await request<{ sessionId?: string }>('/session', {
     method: 'POST',
@@ -78,6 +97,7 @@ async function createSession(): Promise<string> {
   if (!id) throw new Error('WDA 会话创建失败');
   sessionId = id;
   sessionAt = Date.now();
+  await applyKeyboardSettings();
   return id;
 }
 
