@@ -319,6 +319,27 @@ async function goBack(): Promise<void> {
   void router.push('/devices');
 }
 
+/** ESC 返回设备列表；输入框或有弹窗/抽屉时交给它们自己处理。 */
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || event.defaultPrevented) return;
+
+  const target = event.target as HTMLElement | null;
+  if (
+    target &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable)
+  ) {
+    return;
+  }
+
+  if (document.querySelector('.n-modal-mask, .n-drawer-mask, .n-drawer')) {
+    return;
+  }
+
+  void goBack();
+}
+
 /** 打开画中画：优先用 Document PiP（可拖到浏览器外），不支持时用页面内浮窗。 */
 async function openSmallWindow(): Promise<void> {
   const current = device.value;
@@ -390,12 +411,14 @@ function togglePip(): void {
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', onFullscreenChange);
+  window.addEventListener('keydown', onKeydown);
   if (devices.value.length === 0) await refresh();
   await createSession();
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange);
+  window.removeEventListener('keydown', onKeydown);
   document.title = 'ADH · 设备农场';
   if (document.fullscreenElement === stageRef.value) {
     void document.exitFullscreen();
