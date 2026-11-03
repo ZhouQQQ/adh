@@ -2,7 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NButton, NEmpty, NIcon, NSelect, NSwitch, NTag, useMessage } from 'naive-ui';
-import { AddOutline, CloseOutline, ReorderTwoOutline } from '@vicons/ionicons5';
+import {
+  AddOutline,
+  CloseOutline,
+  CloudDownloadOutline,
+  ReorderTwoOutline,
+} from '@vicons/ionicons5';
 import type { DeviceSummary, ViewerToStreamMessage } from '@adh/protocol';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import BulkInstallModal from '../components/BulkInstallModal.vue';
@@ -38,6 +43,8 @@ const linkEnabled = ref(false);
 const linkPaused = ref(false);
 /** 正在拖动的设备 id，用于排序。 */
 const draggingId = ref<string | null>(null);
+/** 拖动经过的目标卡片，用于高亮。 */
+const dragOverId = ref<string | null>(null);
 
 const playerRefs = new Map<string, InstanceType<typeof DevicePlayer>>();
 /** 最近一次正在进行的触摸，临时解除联动时用它补一个 ended，避免其他设备卡住。 */
@@ -152,39 +159,55 @@ function addDevices(ids: string[]): void {
   selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
 }
 
+let syncing = false;
+
 async function syncSessions(): Promise<void> {
+  if (syncing) return;
+  syncing = true;
+
   const ids = selectedIds.value;
+  try {
+    for (const id of ids) {
+      const device = devices.value.find((item) => item.id === id);
+      // iOS 走 WDA，不需要 scrcpy 会话
+      if (!device || device.platform === 'ios') continue;
+      if (sessions.value[id] || connecting.value[id]) continue;
 
-  for (const id of ids) {
-    const device = devices.value.find((item) => item.id === id);
-    // iOS 走 WDA，不需要 scrcpy 会话
-    if (!device || device.platform === 'ios') continue;
-    if (sessions.value[id]) continue;
-
-    connecting.value = { ...connecting.value, [id]: true };
-    try {
-      const { sessionId } = await api.createStream(id, quality.value);
-      sessions.value = { ...sessions.value, [id]: sessionId };
-    } catch (error) {
-      const name = device.name ?? id;
-      message.error(
-        `${name}: ${error instanceof Error ? error.message : '连接失败'}`,
-      );
-    } finally {
-      const next = { ...connecting.value };
-      delete next[id];
-      connecting.value = next;
+      connecting.value = { ...connecting.value, [id]: true };
+      try {
+        const { sessionId } = await api.createStream(id, quality.value);
+        sessions.value = { ...sessions.value, [id]: sessionId };
+      } catch (error) {
+        const name = device.name ?? id;
+        message.error(
+          `${name}: ${error instanceof Error ? error.message : '连接失败'}`,
+        );
+      } finally {
+        const next = { ...connecting.value };
+        delete next[id];
+        connecting.value = next;
+      }
     }
-  }
 
-  const nextSessions = { ...sessions.value };
-  for (const id of Object.keys(nextSessions)) {
-    if (!ids.includes(id)) delete nextSessions[id];
+    const nextSessions = { ...sessions.value };
+    for (const id of Object.keys(nextSessions)) {
+      if (!ids.includes(id)) delete nextSessions[id];
+    }
+    sessions.value = nextSessions;
+  } finally {
+    syncing = false;
   }
-  sessions.value = nextSessions;
 }
 
-watch([selectedIds, devices], () => void syncSessions(), { immediate: true });
+// 只跟随选中项和在线状态变化，避免电量等设备更新反复触建会话
+watch(
+  [
+    selectedIds,
+    () => selectedDevices.value.map((item) => `${item.id}:${item.status}`).join('|'),
+  ],
+  () => void syncSessions(),
+  { immediate: true },
+);
 
 function removeDevice(id: string): void {
   selectedIds.value = selectedIds.value.filter((item) => item !== id);
@@ -192,6 +215,7 @@ function removeDevice(id: string): void {
 
 function onDragStart(id: string, event: DragEvent): void {
   draggingId.value = id;
+  dragOverId.value = null;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', id);
@@ -200,12 +224,21 @@ function onDragStart(id: string, event: DragEvent): void {
 
 function onDragEnd(): void {
   draggingId.value = null;
+  dragOverId.value = null;
+}
+
+function onDragLeave(id: string, event: DragEvent): void {
+  const current = event.currentTarget as HTMLElement;
+  const next = event.relatedTarget as Node | null;
+  if (next && current.contains(next)) return;
+  if (dragOverId.value === id) dragOverId.value = null;
 }
 
 /** 把拖动的设备插到目标设备的位置。 */
 function onDrop(targetId: string): void {
   const sourceId = draggingId.value;
   draggingId.value = null;
+  dragOverId.value = null;
   if (!sourceId || sourceId === targetId) return;
 
   const next = [...selectedIds.value];
@@ -259,49 +292,71 @@ async function onQualityChange(
 <template>
   <div class="batch-page">
     <header class="batch-toolbar">
-      <n-button size="small" @click="addShow = true">
-        <template #icon>
-          <n-icon :component="AddOutline" />
-        </template>
-        添加设备
-      </n-button>
-      <span class="batch-count">{{ selectedIds.length }} 台</span>
-      <label class="link-switch">
-        <n-switch v-model:value="linkEnabled" size="small" />
-        <span>联动</span>
-      </label>
-      <span v-if="linkEnabled" class="link-hint" :class="{ paused: linkPaused }">
-        {{ linkPaused ? '已临时解除，松开 Alt 恢复' : '按住 Alt 临时解除' }}
-      </span>
-      <n-button
-        size="small"
-        :disabled="installTargets.length === 0"
-        @click="installShow = true"
-      >
-        批量安装
-      </n-button>
-      <n-select
-        v-model:value="quality"
-        size="tiny"
-        class="quality-select"
-        :options="[
-          { label: '低画质', value: 'low' },
-          { label: '中画质', value: 'medium' },
-          { label: '高画质', value: 'high' },
-        ]"
-        :disabled="switchingQuality"
-        @update:value="onQualityChange"
-      />
+      <div class="tool-group">
+        <n-button size="small" @click="addShow = true">
+          <template #icon>
+            <n-icon :component="AddOutline" />
+          </template>
+          添加设备
+        </n-button>
+        <n-button
+          size="small"
+          :disabled="installTargets.length === 0"
+          @click="installShow = true"
+        >
+          <template #icon>
+            <n-icon :component="CloudDownloadOutline" />
+          </template>
+          批量安装
+        </n-button>
+        <span class="batch-count">{{ selectedIds.length }} 台</span>
+      </div>
+
+      <span class="tool-divider" />
+
+      <div class="tool-group">
+        <label class="link-switch">
+          <n-switch v-model:value="linkEnabled" size="small" />
+          <span>联动</span>
+        </label>
+        <span v-if="linkEnabled" class="link-hint" :class="{ paused: linkPaused }">
+          {{ linkPaused ? '已临时解除，松开 Alt 恢复' : '按住 Alt 临时解除' }}
+        </span>
+      </div>
+
+      <div class="tool-group right">
+        <n-select
+          v-model:value="quality"
+          size="tiny"
+          class="quality-select"
+          :options="[
+            { label: '低画质', value: 'low' },
+            { label: '中画质', value: 'medium' },
+            { label: '高画质', value: 'high' },
+          ]"
+          :disabled="switchingQuality"
+          @update:value="onQualityChange"
+        />
+      </div>
     </header>
 
-    <div v-if="selectedDevices.length > 0" class="batch-grid">
+    <TransitionGroup
+      v-if="selectedDevices.length > 0"
+      name="tile"
+      tag="div"
+      class="batch-grid"
+    >
       <section
         v-for="device in selectedDevices"
         :key="device.id"
         class="tile"
-        :class="{ dragging: draggingId === device.id }"
+        :class="{
+          dragging: draggingId === device.id,
+          'drag-over': dragOverId === device.id && draggingId !== device.id,
+        }"
         :style="{ '--tile-ratio': tileRatio(device) }"
-        @dragover.prevent
+        @dragover.prevent="dragOverId = device.id"
+        @dragleave="onDragLeave(device.id, $event)"
         @drop.prevent="onDrop(device.id)"
       >
         <div class="tile-header">
@@ -362,7 +417,7 @@ async function onQualityChange(
           </div>
         </div>
       </section>
-    </div>
+    </TransitionGroup>
 
     <n-empty
       v-else
@@ -396,27 +451,56 @@ async function onQualityChange(
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
 }
 
-.device-picker {
-  width: 360px;
-  max-width: 50vw;
+.tool-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-group.right {
+  margin-left: auto;
+}
+
+.tool-divider {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
 }
 
 .batch-count {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--text-dim);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
 }
 
 .link-switch {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
   font-size: 12px;
   color: var(--text-dim);
   cursor: pointer;
   white-space: nowrap;
+}
+
+.quality-select {
+  width: 104px;
+  flex: none;
 }
 
 .link-hint {
@@ -444,10 +528,32 @@ async function onQualityChange(
   border-radius: 10px;
   overflow: hidden;
   background: var(--surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.2s ease;
 }
 
 .tile.dragging {
   opacity: 0.45;
+}
+
+.tile.drag-over {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* 排序后卡片平滑移动到新位置 */
+.tile-move {
+  transition: transform 0.28s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.tile-enter-active,
+.tile-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.tile-enter-from,
+.tile-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
 }
 
 .tile-drag {
