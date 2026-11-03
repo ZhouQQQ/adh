@@ -16,6 +16,12 @@ import {
  * 坐标使用 0..1 归一化，避免旋转/分辨率变化后错位。
  */
 export class ScrcpyControlTranslator {
+  /** 滚轮增量累计值，触控板的小步长会累积到一格再发送。 */
+  private scrollRemainder = { h: 0, v: 0 };
+
+  /** 浏览器滚轮约 100px 一次，按 50px 换算成一格（一次滚轮滚动两格）。 */
+  private static readonly SCROLL_PIXELS_PER_CELL = 50;
+
   constructor(
     private readonly size: () => { width: number; height: number },
   ) {}
@@ -34,16 +40,31 @@ export class ScrcpyControlTranslator {
         return [setClipboard(message.text, false)];
       case 'scroll': {
         const { width, height } = this.size();
-        return [
-          injectScroll(
-            message.x * width,
-            message.y * height,
-            width,
-            height,
-            message.dx * 16,
-            -message.dy * 16,
-          ),
-        ];
+        const x = message.x * width;
+        const y = message.y * height;
+
+        // scrcpy 的滚动量只有 -1..1，一格发一条消息，多滚几格就多发几条
+        const perCell = ScrcpyControlTranslator.SCROLL_PIXELS_PER_CELL;
+        this.scrollRemainder.v += -message.dy / perCell;
+        this.scrollRemainder.h += message.dx / perCell;
+
+        const rawV = Math.trunc(this.scrollRemainder.v);
+        const rawH = Math.trunc(this.scrollRemainder.h);
+        const vSteps = Math.max(-8, Math.min(8, rawV));
+        const hSteps = Math.max(-8, Math.min(8, rawH));
+        this.scrollRemainder.v = Math.max(-1, Math.min(1, this.scrollRemainder.v - vSteps));
+        this.scrollRemainder.h = Math.max(-1, Math.min(1, this.scrollRemainder.h - hSteps));
+
+        const count = Math.max(Math.abs(vSteps), Math.abs(hSteps));
+        if (count === 0) return [];
+
+        const v = Math.sign(vSteps);
+        const h = Math.sign(hSteps);
+        const messages: Buffer[] = [];
+        for (let i = 0; i < count; i += 1) {
+          messages.push(injectScroll(x, y, width, height, h, v));
+        }
+        return messages;
       }
       case 'rotate':
         return [rotateDevice()];

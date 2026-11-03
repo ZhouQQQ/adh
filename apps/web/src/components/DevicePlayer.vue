@@ -504,8 +504,14 @@ function onWheel(event: WheelEvent): void {
   if (!controller.value) return;
   const position = pointerPosition(event);
 
+  // 不同浏览器 / 触控板的 deltaMode 不同（像素 / 行 / 页），统一换算成像素
+  const unit = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1;
+  const dx = event.deltaX * unit;
+  const dy = event.deltaY * unit;
+
   if (isIos.value) {
-    const delta = event.deltaY > 0 ? -0.18 : 0.18;
+    if (dy === 0) return;
+    const delta = dy > 0 ? -0.18 : 0.18;
     const toY = Math.min(1, Math.max(0, position.y + delta));
     void iosInput({
       type: 'swipe',
@@ -518,12 +524,13 @@ function onWheel(event: WheelEvent): void {
     return;
   }
 
+  if (dx === 0 && dy === 0) return;
   sendLocal({
     t: 'scroll',
     x: position.x,
     y: position.y,
-    dx: event.deltaX,
-    dy: event.deltaY,
+    dx,
+    dy,
   });
 }
 

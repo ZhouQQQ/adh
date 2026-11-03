@@ -76,7 +76,15 @@ export function setClipboard(text: string, paste = true): Buffer {
   return buf;
 }
 
-/** 鼠标滚轮事件（scrcpy INJECT_SCROLL_EVENT）。 */
+/**
+ * 鼠标滚轮事件（scrcpy INJECT_SCROLL_EVENT）。
+ *
+ * 结构必须与 scrcpy 2.4 完全一致，否则少一个字节都会让控制流错位：
+ * type(1) + x(4) + y(4) + w(2) + h(2) + hscroll(2) + vscroll(2) + buttons(4) = 21。
+ *
+ * hscroll / vscroll 是 16 位定点数，服务端按 value / 32768 还原，
+ * 所以合法的取值范围只有 -1..1，传 1 就表示滚一格。
+ */
 export function injectScroll(
   x: number,
   y: number,
@@ -85,9 +93,9 @@ export function injectScroll(
   hscroll: number,
   vscroll: number,
 ): Buffer {
-  const clamp = (value: number): number =>
-    Math.max(-32768, Math.min(32767, Math.round(value)));
-  const buf = Buffer.alloc(1 + 4 + 4 + 2 + 2 + 2 + 2);
+  const toFixedPoint = (value: number): number =>
+    Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
+  const buf = Buffer.alloc(21);
   let offset = 0;
   buf.writeUInt8(MSG_INJECT_SCROLL_EVENT, offset);
   offset += 1;
@@ -99,9 +107,12 @@ export function injectScroll(
   offset += 2;
   buf.writeUInt16BE(Math.max(0, Math.min(65535, Math.round(height))), offset);
   offset += 2;
-  buf.writeInt16BE(clamp(hscroll), offset);
+  buf.writeInt16BE(toFixedPoint(hscroll), offset);
   offset += 2;
-  buf.writeInt16BE(clamp(vscroll), offset);
+  buf.writeInt16BE(toFixedPoint(vscroll), offset);
+  offset += 2;
+  // buttons：scrcpy 2.4 新增字段，滚轮不带按键，固定 0
+  buf.writeUInt32BE(0, offset);
   return buf;
 }
 
