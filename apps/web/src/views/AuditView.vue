@@ -4,6 +4,7 @@ import {
   NButton,
   NDataTable,
   NInput,
+  NSelect,
   NTag,
   useMessage,
   type DataTableColumns,
@@ -18,7 +19,19 @@ const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
 const keyword = ref('');
+const action = ref('');
 const loading = ref(false);
+
+const actionOptions = [
+  { label: '全部动作', value: '' },
+  { label: '登录', value: 'login' },
+  { label: '登录失败', value: 'login.failed' },
+  { label: '退出', value: 'logout' },
+  { label: '创建用户', value: 'user.create' },
+  { label: '更新用户', value: 'user.update' },
+  { label: '删除用户', value: 'user.delete' },
+  { label: '其他操作', value: 'http' },
+];
 
 const actionLabel: Record<string, string> = {
   login: '登录',
@@ -45,6 +58,7 @@ async function load(): Promise<void> {
       limit: pageSize.value,
       offset: (page.value - 1) * pageSize.value,
       username: keyword.value.trim() || undefined,
+      action: action.value || undefined,
     });
     logs.value = result.logs;
     total.value = result.total;
@@ -152,8 +166,15 @@ onMounted(load);
         size="small"
         clearable
         placeholder="按用户名筛选"
-        style="width: 220px"
+        style="width: 180px"
         @keydown.enter="search"
+      />
+      <n-select
+        v-model:value="action"
+        size="small"
+        :options="actionOptions"
+        style="width: 140px"
+        @update:value="search"
       />
       <n-button size="small" @click="search">查询</n-button>
       <n-button size="small" :loading="loading" @click="load">刷新</n-button>
@@ -190,5 +211,17 @@ onMounted(load);
   font-size: 11px;
   color: var(--text-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 表格紧凑一点 */
+.page :deep(.n-data-table-th),
+.page :deep(.n-data-table-td) {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.page :deep(.n-data-table-th) {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 </style>

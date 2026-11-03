@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue';
+import { computed, h, onMounted, ref } from 'vue';
 import {
   NButton,
   NDataTable,
@@ -22,6 +22,7 @@ const { user: current } = useAuth();
 
 const users = ref<UserRecord[]>([]);
 const loading = ref(false);
+const keyword = ref('');
 
 const show = ref(false);
 const saving = ref(false);
@@ -53,6 +54,17 @@ function formatTime(ts: number): string {
   if (!ts) return '—';
   return new Date(ts).toLocaleString('zh-CN', { hour12: false });
 }
+
+const filteredUsers = computed(() => {
+  const text = keyword.value.trim().toLowerCase();
+  if (!text) return users.value;
+  return users.value.filter((user) => {
+    const haystack = `${user.username} ${user.displayName ?? ''} ${
+      roleLabel[user.role]
+    }`.toLowerCase();
+    return haystack.includes(text);
+  });
+});
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -217,13 +229,20 @@ onMounted(load);
 <template>
   <div class="page">
     <div class="toolbar">
+      <n-input
+        v-model:value="keyword"
+        size="small"
+        clearable
+        placeholder="搜索用户名 / 显示名"
+        style="width: 220px"
+      />
       <n-button size="small" type="primary" @click="openCreate">新建用户</n-button>
       <n-button size="small" :loading="loading" @click="load">刷新</n-button>
     </div>
 
     <n-data-table
       :columns="columns"
-      :data="users"
+      :data="filteredUsers"
       :loading="loading"
       :bordered="false"
       :single-line="false"

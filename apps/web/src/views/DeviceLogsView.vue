@@ -11,8 +11,10 @@ import {
   type PaginationProps,
 } from 'naive-ui';
 import { api, type DeviceLogRecord } from '../api';
+import { useFleet } from '../stores/fleet';
 
 const message = useMessage();
+const { devices } = useFleet();
 
 const logs = ref<DeviceLogRecord[]>([]);
 const total = ref(0);
@@ -20,7 +22,13 @@ const page = ref(1);
 const pageSize = ref(20);
 const username = ref('');
 const action = ref('');
+const deviceId = ref('');
 const loading = ref(false);
+
+const deviceOptions = computed(() => [
+  { label: '全部设备', value: '' },
+  ...devices.value.map((device) => ({ label: device.name, value: device.id })),
+]);
 
 const actionOptions = [
   { label: '全部动作', value: '' },
@@ -63,6 +71,7 @@ async function load(): Promise<void> {
       offset: (page.value - 1) * pageSize.value,
       username: username.value.trim() || undefined,
       action: action.value || undefined,
+      deviceId: deviceId.value || undefined,
     });
     logs.value = result.logs;
     total.value = result.total;
@@ -149,14 +158,22 @@ onMounted(load);
         size="small"
         clearable
         placeholder="按用户名筛选"
-        style="width: 180px"
+        style="width: 160px"
         @keydown.enter="search"
+      />
+      <n-select
+        v-model:value="deviceId"
+        size="small"
+        filterable
+        :options="deviceOptions"
+        style="width: 170px"
+        @update:value="search"
       />
       <n-select
         v-model:value="action"
         size="small"
         :options="actionOptions"
-        style="width: 150px"
+        style="width: 140px"
         @update:value="search"
       />
       <n-button size="small" @click="search">查询</n-button>
@@ -194,5 +211,17 @@ onMounted(load);
   font-size: 11px;
   color: var(--text-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 表格紧凑一点 */
+.page :deep(.n-data-table-th),
+.page :deep(.n-data-table-td) {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.page :deep(.n-data-table-th) {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 </style>
