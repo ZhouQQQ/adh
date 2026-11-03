@@ -458,7 +458,7 @@ function userText(item: DashboardData['recent'][number]): string {
   justify-content: center;
   padding-top: 4px;
   border-radius: 5px 5px 0 0;
-  background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+  background: #3b82f6;
   transition: height 0.3s ease;
 }
 
@@ -531,10 +531,6 @@ function userText(item: DashboardData['recent'][number]): string {
   height: 100%;
   border-radius: 2px;
   background: #3b82f6;
-}
-
-.rank-fill.user {
-  background: #8b5cf6;
 }
 
 .recent {
