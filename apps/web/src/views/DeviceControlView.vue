@@ -154,6 +154,13 @@ const readonlyBannerClosed = ref(false);
 const releasedBy = ref('');
 
 function onControlReleased(username: string): void {
+  // 自己主动断开：页面保持只读，不弹接管提示
+  if (username && username === user.value?.username) {
+    releasedBy.value = '';
+    readonlyBannerClosed.value = false;
+    message.success('已断开控制，当前页面保持只读');
+    return;
+  }
   releasedBy.value = username || '控制者';
   readonlyBannerClosed.value = false;
 }
@@ -230,10 +237,12 @@ async function stopControl(): Promise<void> {
   if (!current) return;
   try {
     await api.stopDeviceStream(current.id);
-  } catch {
+  } catch (error) {
     /* 会话可能已经结束 */
+    message.warning(error instanceof Error ? error.message : '断开失败');
   }
-  await goBack();
+  // 断开后停留在当前页面，转为只读观看
+  await refresh();
 }
 
 watch(controller, (value, previous) => {
@@ -803,7 +812,13 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="sessionId && !controller && !readonlyBannerClosed && !releasedBy"
+          v-if="
+            sessionId &&
+            !controller &&
+            !readonlyBannerClosed &&
+            !releasedBy &&
+            device?.control
+          "
           class="readonly-banner"
         >
           <span>

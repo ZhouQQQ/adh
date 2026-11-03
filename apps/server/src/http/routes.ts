@@ -361,12 +361,17 @@ function parseMemory(raw: string): RuntimeStats['memory'] {
 }
 
 function parseStorage(raw: string): RuntimeStats['storage'] {
-  const line = raw
+  const lines = raw
     .split(/\r?\n/)
-    .find((item) => /\s\/data\S*$/.test(item) && !item.startsWith('Filesystem'));
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('Filesystem'));
+
+  // 部分机型 /data 被 bind mount，df 的挂载点不是 /data（例如红米 K30 Pro
+  // 会输出 /apex/.../dex2oat64），此时退回第一行数据，`df -k /data` 只会返回目标文件系统的行。
+  const line = lines.find((item) => /\s\/data\S*$/.test(item)) ?? lines[0];
   if (!line) return null;
 
-  const parts = line.trim().split(/\s+/);
+  const parts = line.split(/\s+/);
   const totalKb = Number(parts[1]);
   const usedKb = Number(parts[2]);
   if (!Number.isFinite(totalKb) || !Number.isFinite(usedKb)) return null;

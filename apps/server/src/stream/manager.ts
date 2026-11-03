@@ -184,8 +184,9 @@ export class StreamManager {
       username: meta?.user?.username ?? user.username,
       displayName: meta?.user?.displayName ?? undefined,
     };
+    // 原控制者也要收到，前端据此把自己切回只读（页面不跳转）
     for (const viewer of session.viewers) {
-      if (viewer !== controller) sendJson(viewer, payload);
+      if (viewer.readyState === 1) sendJson(viewer, payload);
     }
 
     // 一直没人接管时按闲置回收
