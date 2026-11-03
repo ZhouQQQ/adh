@@ -440,7 +440,7 @@ function startIosHeartbeat(): void {
         readonlyBannerClosed.value = false;
       })
       .catch(() => undefined);
-  }, 20_000);
+  }, 10_000);
 }
 
 async function stopControl(): Promise<void> {
@@ -482,6 +482,28 @@ watch(controller, (value, previous) => {
   }
   selfReleased = false;
 });
+
+// iOS 没有 WebSocket 会话，通过 device.updated 推送感知被接管 / 被断开
+watch(
+  () => device.value?.control?.userId,
+  (userId) => {
+    if (!isIos.value || !controller.value) return;
+    if (userId && userId === user.value?.id) return;
+
+    const name =
+      device.value?.control?.displayName ?? device.value?.control?.username;
+    stopIosHeartbeat();
+    selfReleased = true;
+    controller.value = false;
+    releasedBy.value = name ?? '管理员';
+    readonlyBannerClosed.value = false;
+    message.warning(
+      name
+        ? `控制权已被 ${name} 接管，你现在是只读`
+        : '控制权已被释放，你现在是只读',
+    );
+  },
+);
 
 async function kickControl(): Promise<void> {
   const current = device.value;
