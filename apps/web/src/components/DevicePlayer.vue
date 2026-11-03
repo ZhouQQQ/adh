@@ -59,6 +59,9 @@ let iosPinchLast = 0;
 let pinchActive = false;
 let pinchRadius = 0.15;
 let pinchTimer: ReturnType<typeof setTimeout> | null = null;
+/** iOS 触控板捏合：合并所有 wheel 事件，停手后只发一次 WDA pinch。 */
+let iosWheelScale = 1;
+let iosWheelTimer: ReturnType<typeof setTimeout> | null = null;
 let recorder: MediaRecorder | null = null;
 let iosRecordTimer: ReturnType<typeof setInterval> | null = null;
 let iosRecordCanvas: HTMLCanvasElement | null = null;
@@ -639,21 +642,35 @@ function onWheel(event: WheelEvent): void {
     // 直接按本次事件的 deltaY 缩放，不再累计：
     // 累计器跨方向时会残留旧值，导致同一次张开有时算成正、有时算成负
     const divisor = isIos.value ? 120 : 150;
-    const scale = Math.min(2, Math.max(0.5, Math.exp(-dy / divisor)));
+    // iOS 的 WDA pinch 与 Android 双指手势方向相反，按平台取符号
+    const scale = Math.min(
+      2,
+      Math.max(0.5, Math.exp((isIos.value ? dy : -dy) / divisor)),
+    );
 
     if (import.meta.env.DEV) {
-      console.info('[adh pinch]', { dy, scale });
+      console.info('[adh pinch]', {
+        dy,
+        scale,
+        platform: isIos.value ? 'ios' : 'android',
+      });
     }
 
     if (isIos.value) {
-      void iosInput({
-        type: 'pinch',
-        scale,
-        duration: 0.2,
-      });
-    } else {
-      sendPinchGesture(scale);
+      // WDA 的 pinch 是一次性手势，一次捏合会有几十条 wheel 事件，
+      // 全部合并，停手 250ms 后按累计比例只执行一次
+      iosWheelScale = Math.min(10, Math.max(0.1, iosWheelScale * scale));
+      if (iosWheelTimer) clearTimeout(iosWheelTimer);
+      iosWheelTimer = setTimeout(() => {
+        const total = Math.min(10, Math.max(0.1, iosWheelScale));
+        iosWheelScale = 1;
+        iosWheelTimer = null;
+        void iosInput({ type: 'pinch', scale: total, duration: 0.4 });
+      }, 250);
+      return;
     }
+
+    sendPinchGesture(scale);
     return;
   }
 
@@ -1197,6 +1214,22 @@ onBeforeUnmount(() => {
   iosAbort = null;
 });
 
+/** 主动断开：停止 iOS 拉流 / 轮询，或关闭 Android 的 WebSocket。 */
+function stopStream(): void {
+  resetPointers();
+  iosAbort?.abort();
+  iosAbort = null;
+  if (iosTimer) {
+    clearTimeout(iosTimer);
+    iosTimer = null;
+  }
+  if (socket) {
+    socket.close();
+    socket = null;
+  }
+  connected.value = false;
+}
+
 defineExpose({
   sendKey,
   sendText,
@@ -1213,6 +1246,7 @@ defineExpose({
   mirrorTap,
   mirrorSwipe,
   togglePip,
+  stopStream,
   controller,
   connected,
 });

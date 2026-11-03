@@ -29,6 +29,8 @@ export const SafeKeyboardLayoutSchema = z.object({
   y: z.number(),
   height: z.number(),
   opacity: z.number(),
+  /** password = 六位密码数字键盘；full = 全键盘。 */
+  type: z.enum(['password', 'full']).default('password'),
 });
 export type SafeKeyboardLayout = z.infer<typeof SafeKeyboardLayoutSchema>;
 

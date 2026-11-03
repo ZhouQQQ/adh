@@ -66,6 +66,7 @@ function parseSafeKeyboard(
         y: value.y as number,
         height: value.height as number,
         opacity: value.opacity as number,
+        type: value.type === 'full' ? 'full' : 'password',
       };
     }
   } catch {

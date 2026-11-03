@@ -373,9 +373,23 @@ async function takeoverControl(): Promise<void> {
   }
 }
 
+/** 自己主动断开时置 true，watch 里不再提示「被接管」。 */
+let selfReleased = false;
+
 async function stopControl(): Promise<void> {
   const current = device.value;
   if (!current) return;
+
+  // iOS 没有服务端会话，断开就是停止拉流并回到只读
+  if (isIos.value) {
+    selfReleased = true;
+    playerRef.value?.stopStream();
+    controller.value = false;
+    readonlyBannerClosed.value = false;
+    message.success('已断开控制，当前页面保持只读');
+    return;
+  }
+
   try {
     await api.stopDeviceStream(current.id);
   } catch (error) {
@@ -389,10 +403,18 @@ async function stopControl(): Promise<void> {
 watch(controller, (value, previous) => {
   if (value) readonlyBannerClosed.value = false;
   if (!value) safeKeyboard.value = false;
-  if (previous === true && value === false) {
+  if (previous === true && value === false && !selfReleased) {
     message.warning('控制权已被接管，你现在是只读');
   }
+  selfReleased = false;
 });
+
+/** iOS 断开后重新接管：重挂播放器并恢复控制状态。 */
+function resumeIosControl(): void {
+  if (!isIos.value) return;
+  controller.value = true;
+  reloadNonce.value += 1;
+}
 
 async function kickControl(): Promise<void> {
   const current = device.value;
@@ -857,12 +879,23 @@ onBeforeUnmount(() => {
           重新连接
         </n-button>
         <n-button
+          v-if="isIos && !controller"
+          size="tiny"
+          type="primary"
+          ghost
+          @click="resumeIosControl"
+        >
+          <template #icon>
+            <n-icon><SwapHorizontalOutline /></n-icon>
+          </template>
+          重新接管
+        </n-button>
+        <n-button
           v-if="controller"
           size="tiny"
           type="error"
           ghost
-          :disabled="!controller || isIos"
-          :title="isIos ? iosTip : undefined"
+          :disabled="!controller"
           @click="stopControl"
         >
           <template #icon>

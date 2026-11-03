@@ -18,14 +18,22 @@ const props = defineProps<{
 
 const emit = defineEmits<{ change: [layout: SafeKeyboardLayout] }>();
 
-const STORAGE_PREFIX = 'adh.safe-keyboard.layout.v5';
+const STORAGE_PREFIX = 'adh.safe-keyboard.layout.v6';
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
+/** 全键盘布局：与 iOS 真机一致（10 / 9 / 9 / 3 键）。 */
+const FULL_ROWS = [
+  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+  ['⇧', 'z', 'x', 'c', 'v', 'b', 'n', 'm', '⌫'],
+  ['123', 'space', 'return'],
+];
 
 const DEFAULTS: SafeKeyboardLayout = {
   x: 0,
   y: 0,
   height: 35,
   opacity: 0.7,
+  type: 'password',
 };
 
 /** 每台设备单独记住位置 */
@@ -43,6 +51,7 @@ function readLocal(): SafeKeyboardLayout {
       y: Number(value.y ?? DEFAULTS.y),
       height: Number(value.height ?? DEFAULTS.height),
       opacity: Number(value.opacity ?? DEFAULTS.opacity),
+      type: value.type === 'full' ? 'full' : 'password',
     };
   } catch {
     return { ...DEFAULTS };
@@ -127,6 +136,7 @@ function scheduleSave(delay = 400): void {
       y: layout.y,
       height: layout.height,
       opacity: layout.opacity,
+      type: layout.type,
     });
   }, delay);
 }
@@ -221,6 +231,13 @@ function reset(): void {
   Object.assign(layout, DEFAULTS);
 }
 
+/** 数字密码键盘 / 全键盘切换，全键盘需要更高一点。 */
+function toggleType(): void {
+  layout.type = layout.type === 'full' ? 'password' : 'full';
+  layout.height = layout.type === 'full' ? 40 : 35;
+  scheduleSave(0);
+}
+
 onMounted(() => {
   measure();
   // 会话建立 / 旋转 / 全屏后 canvas 尺寸会变，定时对齐一次
@@ -240,6 +257,9 @@ onBeforeUnmount(() => {
       <button type="button" @click="toggleEdit">
         {{ editing ? '完成' : '调整位置' }}
       </button>
+      <button type="button" @click="toggleType">
+        {{ layout.type === 'full' ? '数字键盘' : '全键盘' }}
+      </button>
       <button type="button" @click="reset">重置</button>
       <label v-if="editing" class="opacity">
         透明度
@@ -255,19 +275,46 @@ onBeforeUnmount(() => {
 
     <div class="frame" :style="frameStyle">
       <div class="board" :style="boardStyle" @pointerdown="start('move', $event)">
-        <div class="password">
-          <span v-for="n in 6" :key="n" class="cell" />
-        </div>
-        <div class="spacer" />
-        <div class="keys">
-          <span
-            v-for="(key, index) in KEYS"
-            :key="index"
-            class="key"
-            :class="{ blank: !key }"
+        <template v-if="layout.type === 'password'">
+          <div class="password">
+            <span v-for="n in 6" :key="n" class="cell" />
+          </div>
+          <div class="spacer" />
+          <div class="keys">
+            <span
+              v-for="(key, index) in KEYS"
+              :key="index"
+              class="key"
+              :class="{ blank: !key }"
+            >
+              {{ key }}
+            </span>
+          </div>
+        </template>
+        <div v-else class="full-keys">
+          <div
+            v-for="(row, rowIndex) in FULL_ROWS"
+            :key="rowIndex"
+            class="full-row"
+            :class="{
+              indent: rowIndex === 1,
+              bottom: rowIndex === 3,
+            }"
           >
-            {{ key }}
-          </span>
+            <span
+              v-for="key in row"
+              :key="key"
+              class="full-key"
+              :class="{
+                'key-space': key === 'space',
+                'key-123': key === '123',
+                'key-return': key === 'return',
+                'key-func': key === '⇧' || key === '⌫',
+              }"
+            >
+              {{ key === 'space' ? 'space' : key }}
+            </span>
+          </div>
         </div>
         <div
           v-if="editing"
@@ -364,6 +411,70 @@ onBeforeUnmount(() => {
 
 .key.blank {
   background: transparent;
+}
+
+/* 全键盘：按 iOS 真机的 10 / 9 / 9 / 3 键比例 */
+.full-keys {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2%;
+  padding: 3% 2% 5%;
+  box-sizing: border-box;
+}
+
+.full-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 1%;
+}
+
+/* 第二行 a~l 两侧各缩进半个键宽 */
+.full-row.indent {
+  padding: 0 5%;
+}
+
+/* 底部 123 / space / return 左右留边 */
+.full-row.bottom {
+  padding: 0 2%;
+}
+
+.full-key {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(10px, 2.2vmin, 22px);
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.66);
+  border-radius: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.full-key.key-func {
+  flex: 1.35;
+  font-size: clamp(9px, 1.8vmin, 18px);
+  background: rgba(24, 24, 27, 0.22);
+}
+
+.full-key.key-123 {
+  flex: 1.5;
+  font-size: clamp(9px, 1.8vmin, 18px);
+  background: rgba(24, 24, 27, 0.22);
+}
+
+.full-key.key-space {
+  flex: 4.2;
+}
+
+.full-key.key-return {
+  flex: 2.2;
+  font-size: clamp(9px, 1.8vmin, 18px);
+  background: rgba(24, 24, 27, 0.22);
 }
 
 .safe-toolbar {
