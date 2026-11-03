@@ -69,8 +69,19 @@ function connect(): void {
       /* 忽略非法帧 */
     }
   });
-  ws.addEventListener('close', () => {
+  ws.addEventListener('close', (event: CloseEvent) => {
     connection.value = 'offline';
+    // 单点登录：账号在别处登录后不再自动重连，直接回登录页
+    if (event.reason && event.reason.includes('其他位置登录')) {
+      closed = true;
+      if (syncTimer !== undefined) {
+        window.clearInterval(syncTimer);
+        syncTimer = undefined;
+      }
+      localStorage.setItem('adh.kicked', '1');
+      window.dispatchEvent(new Event('adh:unauthorized'));
+      return;
+    }
     if (!closed) {
       retryTimer = window.setTimeout(connect, 3_000);
     }

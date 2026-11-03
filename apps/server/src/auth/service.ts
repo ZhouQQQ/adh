@@ -132,6 +132,8 @@ export class AuthService {
 
     const token = randomBytes(32).toString('hex');
     const now = Date.now();
+    // 单点登录：新登录直接作废旧会话，旧设备会被挤下线
+    await this.db.execute('DELETE FROM adh_sessions WHERE user_id = ?', [row.id]);
     await this.db.execute(
       `INSERT INTO adh_sessions (token_hash, user_id, created_at, expires_at)
        VALUES (?, ?, ?, ?)`,

@@ -246,6 +246,11 @@ function connect(): void {
   ws.addEventListener('close', (event: CloseEvent) => {
     connected.value = false;
     if (event.reason) emit('error', event.reason);
+    if (event.reason && event.reason.includes('其他位置登录')) {
+      localStorage.setItem('adh.kicked', '1');
+      window.dispatchEvent(new Event('adh:unauthorized'));
+      return;
+    }
     if (!unmounted) emit('closed');
   });
   ws.addEventListener('error', () => ws.close());

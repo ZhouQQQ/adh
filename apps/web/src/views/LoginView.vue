@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NButton, NInput, useMessage } from 'naive-ui';
 import { useAuth } from '../stores/auth';
@@ -11,6 +11,14 @@ const { login } = useAuth();
 const username = ref('admin');
 const password = ref('');
 const loading = ref(false);
+
+onMounted(() => {
+  // 被新登录挤下线时提示一次
+  if (localStorage.getItem('adh.kicked') === '1') {
+    localStorage.removeItem('adh.kicked');
+    message.warning('账号已在其他位置登录，你已被挤下线');
+  }
+});
 
 async function submit(): Promise<void> {
   if (!username.value.trim() || !password.value) {

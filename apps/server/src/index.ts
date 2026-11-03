@@ -159,14 +159,21 @@ async function main(): Promise<void> {
     logger,
   });
 
-  app.get(WS_PATHS.web, { websocket: true }, (socket) => {
-    hub.add(socket);
+  app.get(WS_PATHS.web, { websocket: true }, (socket, request) => {
+    hub.add(socket, request.user);
     socket.on('close', () => hub.remove(socket));
   });
 
   registerStreamChannel(app, streams);
 
-  await registerAuthRoutes(app, { auth });
+  await registerAuthRoutes(app, {
+    auth,
+    // 单点登录：新登录把同账号的旧连接挤下线
+    onLogin: (userId) => {
+      hub.kickUser(userId);
+      streams.kickUser(userId);
+    },
+  });
   await registerDeviceLogRoutes(app, { deviceLogs });
 
   await registerHttpRoutes(app, {

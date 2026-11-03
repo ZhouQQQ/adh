@@ -5,6 +5,8 @@ import { bearerToken } from '../auth/token.js';
 
 interface AuthRouteDeps {
   auth: AuthService;
+  /** 登录成功后的回调：把同账号的旧连接挤下线。 */
+  onLogin?: (userId: string) => void;
 }
 
 const LoginBody = z.object({
@@ -55,6 +57,8 @@ export async function registerAuthRoutes(
     if (!result) {
       return reply.code(401).send({ error: '用户名或密码错误' });
     }
+    // 踢掉该账号此前在别处的登录（WebSocket 也会立即断开）
+    deps.onLogin?.(result.user.id);
     return result;
   });
 

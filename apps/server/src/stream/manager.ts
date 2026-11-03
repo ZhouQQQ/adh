@@ -122,6 +122,27 @@ export class StreamManager {
     };
   }
 
+  /* ------------------------------------------------------------------ */
+/* 单点登录                                                            */
+/* ------------------------------------------------------------------ */
+
+  /** 同一账号在别处登录：断开该用户在所有投屏会话里的连接。 */
+  kickUser(userId: string): void {
+    for (const session of this.sessions.values()) {
+      for (const viewer of [...session.viewers]) {
+        if (viewerMeta.get(viewer)?.user?.id !== userId) continue;
+        sendJson(viewer, { t: 'error', message: '账号已在其他位置登录' });
+        viewer.close(4001, '账号已在其他位置登录');
+        session.viewers.delete(viewer);
+      }
+      if (session.controller && !session.viewers.has(session.controller)) {
+        session.controller = null;
+        session.controllerUserId = null;
+        session.controllerLeftAt = Date.now();
+      }
+    }
+  }
+
   /** 管理员强制断开某台设备的投屏会话。 */
   kickDevice(deviceId: string, reason = '管理员强制断开连接'): boolean {
     const session = this.findSessionByDevice(deviceId);
