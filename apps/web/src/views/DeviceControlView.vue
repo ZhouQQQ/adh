@@ -350,15 +350,45 @@ const canKick = computed(
     device.value?.control?.userId !== user.value?.id,
 );
 const canTakeover = computed(() => {
-  if (!sessionId.value || controller.value) return false;
+  if (controller.value) return false;
   // 控制者主动释放后，任何观看者都能接管；其余情况只有管理员能抢
   if (releasedBy.value) return true;
-  return isAdmin.value;
+  if (isIos.value) return isAdmin.value;
+  return Boolean(sessionId.value) && isAdmin.value;
 });
 
 async function takeoverControl(): Promise<void> {
   const current = device.value;
   if (!current) return;
+
+  // iOS 没有 WebSocket 会话：管理员先强制收回，再申请到自己名下
+  if (isIos.value) {
+    try {
+      if (!releasedBy.value) {
+        await api.takeoverDeviceStream(current.id);
+      }
+      const result = await api.claimIosControl(current.id);
+      if (!result.granted) {
+        message.warning(
+          `${result.control?.username ?? '其他用户'} 正在控制，无法接管`,
+        );
+        return;
+      }
+      controller.value = true;
+      releasedBy.value = '';
+      readonlyBannerClosed.value = false;
+      startIosHeartbeat();
+      message.success('已接管控制权');
+      await refresh();
+    } catch (error) {
+      message.warning(
+        error instanceof Error ? error.message : '控制权已被其他人接管',
+      );
+      await refresh();
+    }
+    return;
+  }
+
   try {
     await api.takeoverDeviceStream(current.id);
     message.success('已接管控制权');
@@ -402,7 +432,7 @@ function startIosHeartbeat(): void {
         readonlyBannerClosed.value = false;
       })
       .catch(() => undefined);
-  }, 30_000);
+  }, 20_000);
 }
 
 async function stopControl(): Promise<void> {
@@ -420,6 +450,7 @@ async function stopControl(): Promise<void> {
     }
     controller.value = false;
     readonlyBannerClosed.value = false;
+    releasedBy.value = user.value?.username ?? '控制者';
     message.success('已断开控制，当前页面保持只读');
     return;
   }
@@ -442,26 +473,6 @@ watch(controller, (value, previous) => {
   }
   selfReleased = false;
 });
-
-/** iOS 断开后重新申请控制权。 */
-async function resumeIosControl(): Promise<void> {
-  if (!isIos.value || !device.value) return;
-  try {
-    const result = await api.claimIosControl(device.value.id);
-    if (!result.granted) {
-      releasedBy.value = result.control?.username ?? '其他用户';
-      readonlyBannerClosed.value = false;
-      message.warning(`${releasedBy.value} 正在控制，当前只能查看`);
-      return;
-    }
-    controller.value = true;
-    startIosHeartbeat();
-  } catch (error) {
-    message.warning(
-      error instanceof Error ? error.message : '无法获取控制权',
-    );
-  }
-}
 
 async function kickControl(): Promise<void> {
   const current = device.value;
@@ -557,8 +568,9 @@ async function createSession(): Promise<void> {
       if (result.granted) {
         startIosHeartbeat();
       } else {
-        releasedBy.value = result.control?.username ?? '其他用户';
+        // 被其他人占用：刷新设备状态，让只读横幅显示当前控制者
         readonlyBannerClosed.value = false;
+        await refresh();
       }
     } catch (error) {
       controller.value = false;
@@ -945,18 +957,6 @@ onBeforeUnmount(() => {
           重新连接
         </n-button>
         <n-button
-          v-if="isIos && !controller"
-          size="tiny"
-          type="primary"
-          ghost
-          @click="resumeIosControl"
-        >
-          <template #icon>
-            <n-icon><SwapHorizontalOutline /></n-icon>
-          </template>
-          重新接管
-        </n-button>
-        <n-button
           v-if="controller"
           size="tiny"
           type="error"
@@ -991,7 +991,7 @@ onBeforeUnmount(() => {
           <template #icon>
             <n-icon><SwapHorizontalOutline /></n-icon>
           </template>
-          强制接管
+          {{ releasedBy ? '接管控制' : '强制接管' }}
         </n-button>
         <n-dropdown
           v-if="isAdmin"
@@ -1174,7 +1174,7 @@ onBeforeUnmount(() => {
 
         <div
           v-if="
-            sessionId &&
+            (sessionId || isIos) &&
             !controller &&
             !readonlyBannerClosed &&
             !releasedBy &&

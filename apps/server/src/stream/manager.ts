@@ -28,7 +28,7 @@ const IDLE_TIMEOUT_MS = 5 * 60_000;
 const AGENT_ATTACH_TIMEOUT_MS = 15_000;
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 /** iOS 没有 WebSocket 会话，用带心跳的控制权记录，超时自动释放。 */
-const IOS_CONTROL_TTL_MS = 90_000;
+const IOS_CONTROL_TTL_MS = 60_000;
 
 interface IosControl {
   userId: string;
