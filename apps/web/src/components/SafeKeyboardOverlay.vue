@@ -290,7 +290,7 @@ onBeforeUnmount(() => {
 
 .spacer {
   flex: none;
-  height: 10%;
+  height: 18%;
 }
 
 .cell {
