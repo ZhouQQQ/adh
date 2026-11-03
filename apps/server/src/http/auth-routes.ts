@@ -116,11 +116,12 @@ export async function registerAuthRoutes(
     const target = await deps.auth.getUser(id);
     if (!target) return reply.code(404).send({ error: '用户不存在' });
     if (request.user?.role !== 'superadmin') {
-      if (
-        target.role !== 'operator' ||
-        (parsed.data.role !== undefined && parsed.data.role !== 'operator')
-      ) {
-        return reply.code(403).send({ error: '管理员只能管理普通用户' });
+      if (target.role === 'superadmin') {
+        return reply.code(403).send({ error: '只有超级管理员可以管理超级管理员' });
+      }
+      // 管理员可以改管理员 / 普通用户的资料和密码，但不能调整角色
+      if (parsed.data.role !== undefined && parsed.data.role !== target.role) {
+        return reply.code(403).send({ error: '管理员不能修改用户角色' });
       }
     }
 
@@ -179,10 +180,7 @@ export async function registerAuthRoutes(
 
     const target = await deps.auth.getUser(id);
     if (!target) return reply.code(404).send({ error: '用户不存在' });
-    if (request.user?.role !== 'superadmin' && target.role !== 'operator') {
-      return reply.code(403).send({ error: '管理员只能删除普通用户' });
-    }
-    if (target.role === 'superadmin' && request.user?.role !== 'superadmin') {
+    if (request.user?.role !== 'superadmin' && target.role === 'superadmin') {
       return reply.code(403).send({ error: '只有超级管理员可以删除超级管理员' });
     }
 

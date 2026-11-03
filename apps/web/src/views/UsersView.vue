@@ -100,10 +100,25 @@ function roleType(role: Role): 'error' | 'warning' | 'success' {
   return role === 'admin' ? 'warning' : 'success';
 }
 
-function formatTime(ts: number): string {
+/** 时间 + 相对时间，用颜色区分，不加括号。 */
+function renderTime(ts: number) {
   if (!ts) return '—';
-  const date = new Date(ts).toLocaleString('zh-CN', { hour12: false });
-  return `${date}（${formatAgo(ts)}）`;
+  return h(
+    'div',
+    { style: 'display: flex; gap: 6px; align-items: baseline;' },
+    [
+      h(
+        'span',
+        {},
+        new Date(ts).toLocaleString('zh-CN', { hour12: false }),
+      ),
+      h(
+        'span',
+        { style: 'color: #a1a1aa; font-size: 11px;' },
+        formatAgo(ts),
+      ),
+    ],
+  );
 }
 
 const roleFilter = ref<'all' | Role>('all');
@@ -154,8 +169,8 @@ function openCreate(): void {
 }
 
 function openEdit(row: UserRecord): void {
-  if (!isSuper.value && row.role !== 'operator') {
-    message.warning('管理员只能管理普通用户');
+  if (!isSuper.value && row.role === 'superadmin') {
+    message.warning('只有超级管理员可以管理超级管理员');
     return;
   }
   editing.value = row;
@@ -263,19 +278,20 @@ const columns: DataTableColumns<UserRecord> = [
   {
     title: '添加时间',
     key: 'createdAt',
-    render: (row) => formatTime(row.createdAt),
+    render: (row) => renderTime(row.createdAt),
   },
   {
     title: '最后登录',
     key: 'lastLoginAt',
-    render: (row) => formatTime(row.lastLoginAt),
+    render: (row) => renderTime(row.lastLoginAt),
   },
   {
     title: '操作',
     key: 'actions',
     render: (row) => {
-      // 管理员只能管理普通用户，避免越权
-      const canManage = isSuper.value || row.role === 'operator';
+      // 超级管理员可以管理所有账号；管理员只能管理管理员和普通用户
+      const canManage =
+        isSuper.value || (row.role !== 'superadmin' && row.id !== current.value?.id);
       return h(NSpace, { size: 4 }, {
         default: () => [
           h(
@@ -367,7 +383,11 @@ onMounted(load);
         </label>
         <label>
           <span>角色</span>
-          <n-select v-model:value="form.role" :options="roleOptions" />
+          <n-select
+            v-model:value="form.role"
+            :options="roleOptions"
+            :disabled="Boolean(editing) && !isSuper"
+          />
         </label>
 
         <div class="perm">
