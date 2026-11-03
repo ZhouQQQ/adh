@@ -46,6 +46,15 @@ let timestamp = 0;
 /** 新接入的观看者要等第一个关键帧再解码 */
 let waitingKey = true;
 let pressing = false;
+/** Android 多指：pointerId → 归一化坐标。 */
+const activePointers = new Map<number, { x: number; y: number }>();
+/** iOS 多指：pointerId → 归一化坐标。 */
+const iosPointers = new Map<number, { x: number; y: number }>();
+/** 鼠标 Ctrl + 拖动时模拟的第二根手指，避免与浏览器 pointerId 冲突。 */
+const PINCH_POINTER_ID = -1001;
+/** iOS 双指手势的起始 / 当前两指距离（归一化）。 */
+let iosPinchStart: number | null = null;
+let iosPinchLast = 0;
 let recorder: MediaRecorder | null = null;
 let iosRecordTimer: ReturnType<typeof setInterval> | null = null;
 let iosRecordCanvas: HTMLCanvasElement | null = null;
@@ -261,6 +270,8 @@ function handleText(raw: string): void {
 }
 
 function connect(): void {
+  resetPointers();
+
   if (isIos.value) {
     controller.value = true;
     emit('controller-change', true);
@@ -470,6 +481,29 @@ function pointerPosition(event: PointerEvent): { x: number; y: number } {
   };
 }
 
+/** 重新连接 / 切换设备时清理多点触控状态，避免残留手指一直按着。 */
+function resetPointers(): void {
+  activePointers.clear();
+  iosPointers.clear();
+  iosPinchStart = null;
+  iosPinchLast = 0;
+  iosStart = null;
+  pressing = false;
+}
+
+/** 两根手指之间的归一化距离，用于 iOS 计算 pinch 比例。 */
+function pointerDistance(
+  pointers: Map<number, { x: number; y: number }>,
+): number {
+  const points = [...pointers.values()];
+  if (points.length < 2) return 0;
+  const [a, b] = points as [
+    { x: number; y: number },
+    { x: number; y: number },
+  ];
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
 function onPointerDown(event: PointerEvent): void {
   // 只处理左键 / 触摸，右键留给「返回」
   if (event.button !== 0) return;
@@ -477,26 +511,71 @@ function onPointerDown(event: PointerEvent): void {
   if (isIos.value) {
     (event.target as HTMLElement).setPointerCapture(event.pointerId);
     const position = pointerPosition(event);
-    iosStart = { ...position, at: Date.now() };
-    touchMarks.push({ x: position.x, y: position.y, at: Date.now() });
-    if (touchMarks.length > 24) touchMarks.shift();
-    pressing = true;
-    emit('input', {
-      t: 'touch',
-      phase: 'began',
-      x: position.x,
-      y: position.y,
-      pointerId: 0,
-      pressure: 1,
-    });
+    iosPointers.set(event.pointerId, position);
+
+    // Ctrl + 拖动：第二根手指放在画面中心对称点，触发一次 pinch
+    if (event.pointerType === 'mouse' && event.ctrlKey) {
+      iosPointers.set(PINCH_POINTER_ID, {
+        x: 1 - position.x,
+        y: 1 - position.y,
+      });
+      iosStart = null;
+      iosPinchStart = pointerDistance(iosPointers);
+      iosPinchLast = iosPinchStart;
+      pressing = true;
+      return;
+    }
+
+    if (iosPointers.size === 1) {
+      iosStart = { ...position, at: Date.now() };
+      iosPinchStart = null;
+      touchMarks.push({ x: position.x, y: position.y, at: Date.now() });
+      if (touchMarks.length > 24) touchMarks.shift();
+      pressing = true;
+      emit('input', {
+        t: 'touch',
+        phase: 'began',
+        x: position.x,
+        y: position.y,
+        pointerId: 0,
+        pressure: 1,
+      });
+    } else if (iosPointers.size === 2) {
+      // 第二根手指按下：进入双指模式，取消单指的 tap / swipe
+      iosStart = null;
+      iosPinchStart = pointerDistance(iosPointers);
+      iosPinchLast = iosPinchStart;
+    }
     return;
   }
 
   if (!controller.value) return;
   (event.target as HTMLElement).setPointerCapture(event.pointerId);
-  pressing = true;
   const { x, y } = pointerPosition(event);
-  sendLocal({ t: 'touch', phase: 'began', x, y, pointerId: 0, pressure: 1 });
+  activePointers.set(event.pointerId, { x, y });
+  pressing = true;
+  sendLocal({
+    t: 'touch',
+    phase: 'began',
+    x,
+    y,
+    pointerId: event.pointerId,
+    pressure: 1,
+  });
+
+  // 鼠标按住 Ctrl：额外生成一根以画面中心对称的手指，两指反向移动即缩放
+  if (event.pointerType === 'mouse' && event.ctrlKey) {
+    const mirror = { x: 1 - x, y: 1 - y };
+    activePointers.set(PINCH_POINTER_ID, mirror);
+    sendLocal({
+      t: 'touch',
+      phase: 'began',
+      x: mirror.x,
+      y: mirror.y,
+      pointerId: PINCH_POINTER_ID,
+      pressure: 1,
+    });
+  }
 }
 
 /** 鼠标滚轮：Android 发 scroll 控制；iOS 用短滑动模拟。 */
@@ -559,8 +638,19 @@ function onAuxClick(event: MouseEvent): void {
 
 function onPointerMove(event: PointerEvent): void {
   if (isIos.value) {
-    if (!iosStart) return;
+    if (!iosPointers.has(event.pointerId)) return;
     const { x, y } = pointerPosition(event);
+    iosPointers.set(event.pointerId, { x, y });
+
+    // Ctrl 拖动时虚拟手指始终与鼠标位置关于画面中心对称
+    if (iosPointers.has(PINCH_POINTER_ID)) {
+      iosPointers.set(PINCH_POINTER_ID, { x: 1 - x, y: 1 - y });
+    }
+    if (iosPinchStart !== null) {
+      iosPinchLast = pointerDistance(iosPointers);
+      return;
+    }
+    if (!iosStart) return;
     emit('input', {
       t: 'touch',
       phase: 'moved',
@@ -571,23 +661,71 @@ function onPointerMove(event: PointerEvent): void {
     });
     return;
   }
-  if (!pressing || !controller.value) return;
+
+  if (!controller.value) return;
+  if (!activePointers.has(event.pointerId)) return;
   const { x, y } = pointerPosition(event);
-  sendLocal({ t: 'touch', phase: 'moved', x, y, pointerId: 0, pressure: 1 });
+  activePointers.set(event.pointerId, { x, y });
+  sendLocal({
+    t: 'touch',
+    phase: 'moved',
+    x,
+    y,
+    pointerId: event.pointerId,
+    pressure: 1,
+  });
+
+  // Ctrl 缩放：虚拟手指同步镜像移动，两指距离变化驱动缩放
+  if (activePointers.has(PINCH_POINTER_ID)) {
+    const mirror = { x: 1 - x, y: 1 - y };
+    activePointers.set(PINCH_POINTER_ID, mirror);
+    sendLocal({
+      t: 'touch',
+      phase: 'moved',
+      x: mirror.x,
+      y: mirror.y,
+      pointerId: PINCH_POINTER_ID,
+      pressure: 1,
+    });
+  }
 }
 
 function onPointerUp(event: PointerEvent): void {
   if (isIos.value) {
-    if (!iosStart) return;
-    pressing = false;
-    const start = iosStart;
-    iosStart = null;
+    if (!iosPointers.has(event.pointerId)) return;
     const position = pointerPosition(event);
+    iosPointers.delete(event.pointerId);
     try {
       (event.target as HTMLElement).releasePointerCapture(event.pointerId);
     } catch {
       /* ignore */
     }
+
+    if (iosPointers.has(PINCH_POINTER_ID)) {
+      iosPointers.delete(PINCH_POINTER_ID);
+    }
+
+    // 双指手势：WDA 只能执行一次性 pinch，松开时按距离比例触发
+    if (iosPinchStart !== null && iosPointers.size < 2) {
+      const start = iosPinchStart;
+      iosPinchStart = null;
+      pressing = false;
+      const distance = iosPinchLast || pointerDistance(iosPointers);
+      const scale = start > 0 ? distance / start : 1;
+      if (scale >= 1.15 || scale <= 0.87) {
+        void iosInput({
+          type: 'pinch',
+          scale: Math.min(10, Math.max(0.1, scale)),
+          duration: 0.4,
+        });
+      }
+      return;
+    }
+
+    const start = iosStart;
+    if (!start) return;
+    pressing = false;
+    iosStart = null;
 
     const distance = Math.hypot(position.x - start.x, position.y - start.y);
     emit('input', {
@@ -613,10 +751,33 @@ function onPointerUp(event: PointerEvent): void {
     return;
   }
 
-  if (!pressing) return;
-  pressing = false;
+  if (!activePointers.has(event.pointerId)) return;
   const { x, y } = pointerPosition(event);
-  sendLocal({ t: 'touch', phase: 'ended', x, y, pointerId: 0, pressure: 0 });
+  sendLocal({
+    t: 'touch',
+    phase: 'ended',
+    x,
+    y,
+    pointerId: event.pointerId,
+    pressure: 0,
+  });
+  activePointers.delete(event.pointerId);
+
+  // 抬起鼠标时一并结束虚拟手指
+  if (activePointers.has(PINCH_POINTER_ID)) {
+    const mirror = activePointers.get(PINCH_POINTER_ID)!;
+    sendLocal({
+      t: 'touch',
+      phase: 'ended',
+      x: mirror.x,
+      y: mirror.y,
+      pointerId: PINCH_POINTER_ID,
+      pressure: 0,
+    });
+    activePointers.delete(PINCH_POINTER_ID);
+  }
+
+  pressing = activePointers.size > 0;
   try {
     (event.target as HTMLElement).releasePointerCapture(event.pointerId);
   } catch {

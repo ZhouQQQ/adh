@@ -33,6 +33,7 @@ import {
   wdaAppSwitcher,
   wdaApplyMjpegSettings,
   wdaLock,
+  wdaPinch,
   wdaPressButton,
   wdaScreenshot,
   wdaStatus,
@@ -90,6 +91,12 @@ const IosInputBody = z.discriminatedUnion('type', [
     toX: z.number().min(0).max(1),
     toY: z.number().min(0).max(1),
     duration: z.number().min(0).max(5).optional(),
+  }),
+  /** 双指缩放：scale > 1 放大，< 1 缩小。 */
+  z.object({
+    type: z.literal('pinch'),
+    scale: z.number().min(0.1).max(10),
+    duration: z.number().min(0.1).max(2).optional(),
   }),
   z.object({
     type: z.literal('button'),
@@ -1715,6 +1722,8 @@ export async function registerHttpRoutes(
           payload.toY * size.height,
           payload.duration ?? 0.3,
         );
+      } else if (payload.type === 'pinch') {
+        await wdaPinch(payload.scale, (payload.duration ?? 0.4) * 1000);
       } else if (payload.type === 'button') {
         await wdaPressButton(payload.name);
       } else if (payload.type === 'appSwitcher') {
