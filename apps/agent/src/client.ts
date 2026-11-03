@@ -202,7 +202,7 @@ export class AgentClient {
     try {
       const result = await runCommand(
         'adb',
-        ['-s', udid, 'install', '-r', tempPath],
+        ['-s', udid, 'install', '-r', '-d', tempPath],
         300_000,
       );
       const ok = result.code === 0 && /success/i.test(result.stdout);

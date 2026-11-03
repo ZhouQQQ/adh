@@ -1143,13 +1143,17 @@ export async function registerHttpRoutes(
           device.udid,
           'install',
           '-r',
+          '-d',
           await deps.packages.path(parsed.data.packageId),
         ],
         300_000,
       );
       const output = `${result.stdout}\n${result.stderr}`.trim();
       if (result.code !== 0 || !/success/i.test(result.stdout)) {
-        return reply.code(400).send({ error: output || '安装失败' });
+        const hint = /INSTALL_FAILED_UPDATE_INCOMPATIBLE/i.test(output)
+          ? '签名与已安装版本不一致，请先卸载旧版本再安装'
+          : output || '安装失败';
+        return reply.code(400).send({ error: hint });
       }
       logDevice(request, device, 'app.install', record.name);
       return { ok: true };
