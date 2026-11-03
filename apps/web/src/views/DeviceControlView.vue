@@ -536,6 +536,15 @@ onBeforeUnmount(() => {
         ]"
         @update:value="onQualityChange"
       />
+      <n-button
+        v-if="controller && !isIos"
+        size="tiny"
+        type="error"
+        ghost
+        @click="stopControl"
+      >
+        断开
+      </n-button>
       <n-tag
         v-if="device?.control"
         size="small"
@@ -693,14 +702,6 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="stage-actions">
-          <button
-            v-if="controller && !isIos"
-            type="button"
-            class="overlay-btn"
-            @click="stopControl"
-          >
-            断开
-          </button>
           <button
             type="button"
             class="overlay-btn"
