@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import {
   NButton,
+  NDynamicTags,
   NEmpty,
   NInput,
   NModal,
@@ -11,6 +12,7 @@ import {
   useDialog,
   useMessage,
 } from 'naive-ui';
+import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import { api, type PackageRecord } from '../api';
 
 const message = useMessage();
@@ -28,6 +30,45 @@ const renameTarget = ref<PackageRecord | null>(null);
 const renameName = ref('');
 const renaming = ref(false);
 
+const editTarget = ref<PackageRecord | null>(null);
+const editRemark = ref('');
+const editTags = ref<string[]>([]);
+const saving = ref(false);
+/** 图标解析失败的文件，回退到类型方块。 */
+const brokenIcons = ref<string[]>([]);
+
+function onIconError(id: string): void {
+  if (!brokenIcons.value.includes(id)) {
+    brokenIcons.value = [...brokenIcons.value, id];
+  }
+}
+
+function openEdit(record: PackageRecord): void {
+  editTarget.value = record;
+  editRemark.value = record.remark ?? '';
+  editTags.value = [...record.tags];
+}
+
+async function submitEdit(): Promise<void> {
+  const target = editTarget.value;
+  if (!target) return;
+
+  saving.value = true;
+  try {
+    await api.updatePackageMeta(target.id, {
+      remark: editRemark.value.trim() || null,
+      tags: editTags.value.map((tag) => tag.trim()).filter(Boolean),
+    });
+    message.success('已保存');
+    editTarget.value = null;
+    await load();
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '保存失败');
+  } finally {
+    saving.value = false;
+  }
+}
+
 const counts = computed(() => ({
   apk: packages.value.filter((item) => item.kind === 'apk').length,
   ipa: packages.value.filter((item) => item.kind === 'ipa').length,
@@ -38,7 +79,11 @@ const filtered = computed(() => {
   return packages.value.filter((item) => {
     if (kindFilter.value !== 'all' && item.kind !== kindFilter.value) return false;
     if (!text) return true;
-    return item.name.toLowerCase().includes(text);
+    return (
+      item.name.toLowerCase().includes(text) ||
+      (item.remark ?? '').toLowerCase().includes(text) ||
+      item.tags.some((tag) => tag.toLowerCase().includes(text))
+    );
   });
 });
 
@@ -184,7 +229,7 @@ void load();
         v-model:value="keyword"
         size="small"
         clearable
-        placeholder="搜索文件名"
+        placeholder="搜索文件名 / 备注 / 标签"
         class="search"
       />
       <n-select
@@ -222,20 +267,46 @@ void load();
 
       <div v-else class="list">
         <div v-for="record in filtered" :key="record.id" class="row">
-          <div class="kind" :class="record.kind">
-            {{ record.kind.toUpperCase() }}
+          <div class="icon-wrap">
+            <img
+              v-if="!brokenIcons.includes(record.id)"
+              class="pkg-icon"
+              :src="api.packageIconUrl(record.id)"
+              :alt="record.name"
+              @error="onIconError(record.id)"
+            />
+            <div v-else class="kind fallback" :class="record.kind">
+              <n-icon :size="22">
+                <LogoAndroid v-if="record.kind === 'apk'" />
+                <LogoApple v-else />
+              </n-icon>
+            </div>
           </div>
           <div class="info">
             <span class="name" :title="record.name">{{ record.name }}</span>
             <span class="meta">
               {{ formatSize(record.size) }} · {{ formatTime(record.uploadedAt) }}
             </span>
+            <span v-if="record.remark" class="remark" :title="record.remark">
+              {{ record.remark }}
+            </span>
+            <div v-if="record.tags.length > 0" class="tag-row">
+              <n-tag
+                v-for="tag in record.tags"
+                :key="tag"
+                size="tiny"
+                :bordered="false"
+              >
+                {{ tag }}
+              </n-tag>
+            </div>
           </div>
           <n-tag v-if="record.kind === 'ipa'" size="tiny" :bordered="false">
             IPA
           </n-tag>
           <div class="actions">
             <n-button size="tiny" @click="download(record)">下载</n-button>
+            <n-button size="tiny" @click="openEdit(record)">编辑</n-button>
             <n-button size="tiny" @click="openRename(record)">重命名</n-button>
             <n-button size="tiny" quaternary type="error" @click="remove(record)">
               删除
@@ -267,6 +338,38 @@ void load();
         <div class="modal-footer">
           <n-button size="small" @click="renameTarget = null">取消</n-button>
           <n-button size="small" type="primary" :loading="renaming" @click="submitRename">
+            保存
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <n-modal
+      :show="editTarget !== null"
+      preset="card"
+      title="编辑安装包"
+      style="width: 420px"
+      :bordered="false"
+      @update:show="editTarget = null"
+    >
+      <div class="edit-body">
+        <div class="edit-label">备注</div>
+        <n-input
+          v-model:value="editRemark"
+          type="textarea"
+          size="small"
+          :rows="3"
+          maxlength="200"
+          show-count
+          placeholder="例如：业务方 A 的测试包"
+        />
+        <div class="edit-label">标签</div>
+        <n-dynamic-tags v-model:value="editTags" size="small" />
+      </div>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button size="small" @click="editTarget = null">取消</n-button>
+          <n-button size="small" type="primary" :loading="saving" @click="submitEdit">
             保存
           </n-button>
         </div>
@@ -345,6 +448,62 @@ void load();
   letter-spacing: 0.04em;
   color: #ffffff;
   background: #3f83f8;
+}
+
+/* 解析不到图标时的平台兜底 */
+.kind.fallback {
+  background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
+  border: 1px solid var(--border);
+  color: #34a853;
+}
+
+.kind.fallback.ipa {
+  color: #18181b;
+  background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
+}
+
+.icon-wrap {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pkg-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  object-fit: contain;
+  background: var(--surface-2);
+}
+
+.remark {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .kind.ipa {

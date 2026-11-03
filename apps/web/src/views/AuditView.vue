@@ -58,6 +58,7 @@ const actionLabel: Record<string, string> = {
   'device.thumbnail': '上传设备图片',
   'package.upload': '上传安装包',
   'package.rename': '重命名安装包',
+  'package.update': '编辑安装包',
   'package.delete': '删除安装包',
   http: '操作',
 };

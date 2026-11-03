@@ -21,6 +21,10 @@ export interface PackageRecord {
   size: number;
   uploadedAt: number;
   kind: PackageKind;
+  /** 人工备注。 */
+  remark: string | null;
+  /** 人工标签。 */
+  tags: string[];
 }
 
 export interface DeviceApp {
@@ -452,6 +456,17 @@ export const api = {
     });
   },
 
+  /** 编辑安装包备注与标签。 */
+  updatePackageMeta(
+    id: string,
+    patch: { remark?: string | null; tags?: string[] },
+  ): Promise<{ package: PackageRecord }> {
+    return request(`/api/packages/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  },
+
   deletePackage(id: string): Promise<void> {
     return request(`/api/packages/${id}`, { method: 'DELETE' });
   },
@@ -459,6 +474,12 @@ export const api = {
   packageFileUrl(id: string): string {
     const token = localStorage.getItem('adh.token');
     return `/api/packages/${id}/file${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  },
+
+  /** 安装包图标；后台会从 apk / ipa 里解析并缓存。 */
+  packageIconUrl(id: string): string {
+    const token = localStorage.getItem('adh.token');
+    return `/api/packages/${id}/icon${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
 
   listDeviceApps(

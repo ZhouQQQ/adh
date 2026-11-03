@@ -14,6 +14,10 @@ export interface PackageRecord {
   size: number;
   uploadedAt: number;
   kind: PackageKind;
+  /** 人工备注，可为空。 */
+  remark: string | null;
+  /** 人工标签。 */
+  tags: string[];
 }
 
 /** 按后缀判断安装包类型，无法识别时按 APK 处理。 */
@@ -21,7 +25,42 @@ export function packageKind(name: string): PackageKind {
   return name.toLowerCase().endsWith('.ipa') ? 'ipa' : 'apk';
 }
 
-const SELECT_COLUMNS = 'id, name, kind, size, uploaded_at AS uploadedAt';
+const SELECT_COLUMNS =
+  'id, name, kind, size, remark, tags, uploaded_at AS uploadedAt';
+
+interface PackageRowRecord {
+  id: string;
+  name: string;
+  kind: string;
+  size: number;
+  uploadedAt: number;
+  remark: string | null;
+  tags: string | null;
+}
+
+function parseTags(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value)
+      ? value.map((item) => String(item)).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function toPackageRecord(row: PackageRowRecord): PackageRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind === 'ipa' ? 'ipa' : 'apk',
+    size: Number(row.size),
+    uploadedAt: Number(row.uploadedAt),
+    remark: row.remark ?? null,
+    tags: parseTags(row.tags),
+  };
+}
 
 function reportOssError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
@@ -191,18 +230,51 @@ export class PackageStore {
   }
 
   async list(): Promise<PackageRecord[]> {
-    return this.db.query<PackageRecord>(
+    const rows = await this.db.query<PackageRowRecord>(
       `SELECT ${SELECT_COLUMNS} FROM adh_packages ORDER BY uploaded_at DESC`,
     );
+    return rows.map(toPackageRecord);
   }
 
   async record(id: string): Promise<PackageRecord | undefined> {
     if (!ID_PATTERN.test(id)) return undefined;
-    const [row] = await this.db.query<PackageRecord>(
+    const [row] = await this.db.query<PackageRowRecord>(
       `SELECT ${SELECT_COLUMNS} FROM adh_packages WHERE id = ?`,
       [id],
     );
-    return row;
+    return row ? toPackageRecord(row) : undefined;
+  }
+
+  /** 更新显示名、备注或标签；只动元数据，不碰文件。 */
+  async updateMeta(
+    id: string,
+    patch: { name?: string; remark?: string | null; tags?: string[] },
+  ): Promise<PackageRecord | null> {
+    const record = await this.record(id);
+    if (!record) return null;
+
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (patch.name !== undefined) {
+      sets.push('name = ?');
+      params.push(patch.name);
+    }
+    if (patch.remark !== undefined) {
+      sets.push('remark = ?');
+      params.push(patch.remark?.trim() ? patch.remark.trim() : null);
+    }
+    if (patch.tags !== undefined) {
+      sets.push('tags = ?');
+      params.push(JSON.stringify(patch.tags));
+    }
+    if (sets.length === 0) return record;
+
+    params.push(id);
+    await this.db.execute(
+      `UPDATE adh_packages SET ${sets.join(', ')} WHERE id = ?`,
+      params,
+    );
+    return (await this.record(id)) ?? null;
   }
 
   async read(id: string): Promise<Buffer | null> {

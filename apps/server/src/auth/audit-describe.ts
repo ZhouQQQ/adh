@@ -87,11 +87,20 @@ export function describeAudit(input: {
     };
   }
   if (method === 'PATCH' && /^\/api\/packages\/[^/]+$/.test(path)) {
-    const detail =
-      input.subjectName && payload.name && input.subjectName !== payload.name
-        ? `重命名安装包${subject} → ${packageLabel(payload.name)}`
-        : `重命名安装包${packageLabel(payload.name ?? input.subjectName)}`;
-    return { action: 'package.rename', detail };
+    const patch = (body ?? {}) as {
+      name?: string;
+      remark?: unknown;
+      tags?: unknown;
+    };
+    const renamed =
+      patch.name && input.subjectName && patch.name !== input.subjectName;
+    const detail = renamed
+      ? `重命名安装包${subject} → ${packageLabel(patch.name)}`
+      : `编辑安装包${packageLabel(input.subjectName ?? patch.name)}`;
+    return {
+      action: renamed ? 'package.rename' : 'package.update',
+      detail,
+    };
   }
   if (method === 'DELETE' && /^\/api\/packages\/[^/]+$/.test(path)) {
     return {

@@ -54,4 +54,6 @@ export interface PackageRow {
   kind: string;
   size: number;
   uploadedAt: number;
+  remark: string | null;
+  tags: string | null;
 }

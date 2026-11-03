@@ -62,8 +62,13 @@ const InstallBody = z.object({
   packageId: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
-const RenamePackageBody = z.object({
-  name: z.string().trim().min(1).max(160),
+const UpdatePackageBody = z.object({
+  name: z.string().trim().min(1).max(160).optional(),
+  remark: z.string().max(200).nullable().optional(),
+  tags: z
+    .array(z.string().trim().min(1).max(32))
+    .max(20)
+    .optional(),
 });
 
 const IosInputBody = z.discriminatedUnion('type', [
@@ -901,6 +906,8 @@ export async function registerHttpRoutes(
 
     const id = PackageStore.hash(body);
     const record = await deps.packages.save(id, body, name);
+    // 后台解析图标，第一次打开列表就有图
+    void ensurePackageIcon(record.id);
     return {
       id: record.id,
       name: record.name,
@@ -914,27 +921,83 @@ export async function registerHttpRoutes(
     return { packages: await deps.packages.list() };
   });
 
-  /** 重命名安装包（仅改显示名，后缀不可变）。 */
+  /** 安装包图标：首次访问时从 apk / ipa 里解析出来并缓存。 */
+  const packageIconKey = (id: string): string => `pkg-${id.slice(0, 16)}`;
+
+  async function ensurePackageIcon(id: string): Promise<Buffer | null> {
+    const key = packageIconKey(id);
+    if (deps.icons.has(key)) return deps.icons.read(key);
+    if (!(await deps.packages.ensureLocal(id))) return null;
+
+    const file = await deps.packages.path(id);
+    try {
+      const parser = new AppInfoParser(file);
+      const info = await parser.parse();
+      const raw = info.icon ?? info.application?.icon;
+      if (typeof raw !== 'string' || raw.length === 0) return null;
+
+      const encoded = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
+      const bytes = Buffer.from(encoded, 'base64');
+      if (bytes.length === 0) return null;
+
+      const png = await sharp(bytes)
+        .resize(96, 96, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toBuffer();
+      deps.icons.save(key, png);
+      return png;
+    } catch {
+      return null;
+    }
+  }
+
+  app.get('/api/packages/:id/icon', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const png = await ensurePackageIcon(id);
+    if (!png) return reply.code(404).send({ error: '暂无图标' });
+    return reply
+      .header('content-type', 'image/png')
+      .header('cache-control', 'public, max-age=86400')
+      .send(png);
+  });
+
+  /** 编辑安装包：重命名、备注、标签。 */
   app.patch('/api/packages/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const parsed = RenamePackageBody.safeParse(request.body);
+    const parsed = UpdatePackageBody.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: '名称不能为空' });
+      return reply.code(400).send({ error: '参数不合法' });
+    }
+    if (
+      parsed.data.name === undefined &&
+      parsed.data.remark === undefined &&
+      parsed.data.tags === undefined
+    ) {
+      return reply.code(400).send({ error: '没有需要修改的内容' });
     }
 
     const record = await deps.packages.record(id);
-    if (!record || !(await deps.packages.has(id))) {
+    if (!record) {
       return reply.code(404).send({ error: '安装包不存在' });
     }
 
-    const name = parsed.data.name.trim();
-    if (packageKind(name) !== record.kind) {
-      return reply.code(400).send({
-        error: `文件后缀必须是 .${record.kind}`,
-      });
+    if (parsed.data.name !== undefined) {
+      const name = parsed.data.name.trim();
+      if (packageKind(name) !== record.kind) {
+        return reply.code(400).send({
+          error: `文件后缀必须是 .${record.kind}`,
+        });
+      }
     }
 
-    const next = await deps.packages.rename(id, name);
+    const next = await deps.packages.updateMeta(id, {
+      name: parsed.data.name?.trim(),
+      remark: parsed.data.remark,
+      tags: parsed.data.tags?.map((tag) => tag.trim()).filter(Boolean),
+    });
     if (!next) return reply.code(404).send({ error: '安装包不存在' });
     return { package: next };
   });
