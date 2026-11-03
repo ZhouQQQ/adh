@@ -56,11 +56,9 @@ const canKick = computed(
     props.device.control?.userId !== user.value?.id,
 );
 
-/** 别人正在控制时，普通用户的按钮变成「查看」 */
+/** 别人正在控制时，按钮统一变成「查看」（管理员也需要手动接管） */
 const controlLabel = computed(() =>
-  props.device.control &&
-  props.device.control.userId !== user.value?.id &&
-  !isAdmin.value
+  props.device.control && props.device.control.userId !== user.value?.id
     ? '查看'
     : '控制',
 );
@@ -182,7 +180,7 @@ const cpuText = computed(() => {
       >
         <n-icon :size="12"><PersonOutline /></n-icon>
         <span class="control-name">{{ controlName }}</span>
-        <span class="control-time">· {{ controlDuration }}</span>
+        <span class="control-time">已使用 {{ controlDuration }}</span>
       </div>
       <n-tag
         v-else-if="device.inUse"
@@ -199,6 +197,10 @@ const cpuText = computed(() => {
           :device-id="device.id"
           :online="device.status === 'online'"
         />
+      </div>
+
+      <div v-if="device.status === 'offline'" class="offline-tag">
+        最后在线 {{ formatAgo(device.lastSeen) }}
       </div>
 
       <n-tag
@@ -255,10 +257,7 @@ const cpuText = computed(() => {
         </div>
       </div>
 
-      <div v-if="device.status === 'offline'" class="offline-line">
-        最后在线 {{ formatAgo(device.lastSeen) }}
       </div>
-    </div>
 
     <div class="actions">
       <n-button size="tiny" quaternary @click="emit('detail', device)">
@@ -362,18 +361,20 @@ const cpuText = computed(() => {
 
 .control-tag {
   position: absolute;
-  top: 34px;
-  left: 8px;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 2;
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 180px;
+  max-width: 190px;
   padding: 3px 9px;
   border-radius: 999px;
   background: rgba(10, 10, 11, 0.72);
   color: #e4e4e7;
   font-size: 10px;
+  white-space: nowrap;
   backdrop-filter: blur(6px);
 }
 
@@ -483,10 +484,17 @@ const cpuText = computed(() => {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.offline-line {
-  margin-top: 6px;
-  font-size: 10px;
+.offline-tag {
+  position: absolute;
+  top: 32px;
+  right: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 251, 235, 0.9);
   color: #b45309;
+  font-size: 10px;
+  white-space: nowrap;
+  backdrop-filter: blur(6px);
 }
 
 .actions {

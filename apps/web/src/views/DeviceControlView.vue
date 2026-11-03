@@ -135,6 +135,7 @@ const quality = ref<'low' | 'medium' | 'high'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
 const safeKeyboard = ref(false);
+const readonlyBannerClosed = ref(false);
 
 const now = ref(Date.now());
 let clockTimer: number | null = null;
@@ -151,10 +152,7 @@ const controlDuration = computed(() =>
 );
 const controlSinceText = computed(() =>
   device.value?.control
-    ? new Date(device.value.control.since).toLocaleTimeString('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
+    ? formatDateTime(device.value.control.since)
     : '',
 );
 const canKick = computed(
@@ -163,6 +161,37 @@ const canKick = computed(
     Boolean(device.value?.control) &&
     device.value?.control?.userId !== user.value?.id,
 );
+const canTakeover = canKick;
+
+async function takeoverControl(): Promise<void> {
+  const current = device.value;
+  if (!current) return;
+  try {
+    await api.takeoverDeviceStream(current.id);
+    message.success('已接管控制权');
+    await refresh();
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '接管失败');
+  }
+}
+
+async function stopControl(): Promise<void> {
+  const current = device.value;
+  if (!current) return;
+  try {
+    await api.stopDeviceStream(current.id);
+  } catch {
+    /* 会话可能已经结束 */
+  }
+  await goBack();
+}
+
+watch(controller, (value, previous) => {
+  if (value) readonlyBannerClosed.value = false;
+  if (previous === true && value === false) {
+    message.warning('控制权已被接管，你现在是只读');
+  }
+});
 
 async function kickControl(): Promise<void> {
   const current = device.value;
@@ -510,13 +539,21 @@ onBeforeUnmount(() => {
       <n-tag
         v-if="device?.control"
         size="small"
-        type="warning"
         :bordered="false"
         round
       >
-        {{ controlName }} 从 {{ controlSinceText }} 起控制 · 已
+        {{ controlName }} {{ controlSinceText }} 起控制 · 已
         {{ controlDuration }}
       </n-tag>
+      <n-button
+        v-if="canTakeover"
+        size="tiny"
+        type="primary"
+        ghost
+        @click="takeoverControl"
+      >
+        接管
+      </n-button>
       <n-button
         v-if="canKick"
         size="tiny"
@@ -627,9 +664,22 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div v-if="sessionId && !controller" class="readonly-banner">
-          {{ controlName }} 从 {{ controlSinceText }} 开始控制这台设备，你当前只能查看。
-          <template v-if="isAdmin">可以点右上角「强制断开」后接管。</template>
+        <div
+          v-if="sessionId && !controller && !readonlyBannerClosed"
+          class="readonly-banner"
+        >
+          <span>
+            {{ controlName }} {{ controlSinceText }} 开始控制，你当前只能查看。
+            <template v-if="isAdmin">可以点右上角「接管」继续操作。</template>
+          </span>
+          <button
+            type="button"
+            class="banner-close"
+            title="关闭提示"
+            @click="readonlyBannerClosed = true"
+          >
+            ×
+          </button>
         </div>
 
         <div v-if="pipActive" class="pip-notice">
@@ -643,6 +693,14 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="stage-actions">
+          <button
+            v-if="controller && !isIos"
+            type="button"
+            class="overlay-btn"
+            @click="stopControl"
+          >
+            断开
+          </button>
           <button
             type="button"
             class="overlay-btn"
@@ -1164,13 +1222,34 @@ onBeforeUnmount(() => {
   top: 10px;
   transform: translateX(-50%);
   z-index: 11;
-  max-width: 70%;
-  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 72%;
+  padding: 6px 8px 6px 12px;
   border-radius: 999px;
   background: rgba(217, 119, 6, 0.92);
   color: #fff;
   font-size: 12px;
   text-align: center;
+}
+
+.banner-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.banner-close:hover {
+  background: rgba(255, 255, 255, 0.34);
 }
 
 .side.readonly {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { NIcon } from 'naive-ui';
-import { BatteryChargingOutline, BatteryHalfOutline } from '@vicons/ionicons5';
+import { FlashOutline } from '@vicons/ionicons5';
 import { api, type DeviceRuntime } from '../api';
 
 const props = defineProps<{ deviceId: string; online: boolean }>();
@@ -39,21 +39,35 @@ watch(() => [props.deviceId, props.online] as const, start);
 
 const level = computed(() => battery.value?.level ?? null);
 const charging = computed(() => battery.value?.charging ?? false);
-const low = computed(() => level.value !== null && level.value <= 20 && !charging.value);
+
+const tone = computed(() => {
+  const value = level.value ?? 0;
+  if (value <= 20) return 'low';
+  if (value <= 50) return 'mid';
+  return 'high';
+});
+
+const fillWidth = computed(() => {
+  const value = Math.min(100, Math.max(0, level.value ?? 0));
+  return `calc((100% - 3px) * ${value} / 100)`;
+});
 </script>
 
 <template>
   <span
     v-if="level !== null"
     class="battery"
-    :class="{ charging, low }"
+    :class="tone"
     :title="charging ? `充电中 · ${level}%` : `电量 ${level}%`"
   >
-    <n-icon :size="13">
-      <BatteryChargingOutline v-if="charging" />
-      <BatteryHalfOutline v-else />
+    <span class="shell">
+      <span class="fill" :style="{ width: fillWidth }" />
+      <span class="value">{{ level }}%</span>
+    </span>
+    <span class="tip" />
+    <n-icon v-if="charging" class="bolt" :size="10">
+      <FlashOutline />
     </n-icon>
-    <span>{{ level }}%</span>
   </span>
 </template>
 
@@ -61,26 +75,70 @@ const low = computed(() => level.value !== null && level.value <= 20 && !chargin
 .battery {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(6px);
-  color: #18181b;
-  font-size: 10px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.4;
-}
-
-.battery.charging {
-  color: #16a34a;
-  border-color: rgba(22, 163, 74, 0.35);
+  gap: 2px;
+  padding: 0;
 }
 
 .battery.low {
-  color: #dc2626;
-  border-color: rgba(220, 38, 38, 0.35);
+  --tone: #ef4444;
+}
+
+.battery.mid {
+  --tone: #f59e0b;
+}
+
+.battery.high {
+  --tone: #22c55e;
+}
+
+.shell {
+  position: relative;
+  width: 38px;
+  height: 18px;
+  padding: 1.5px;
+  box-sizing: border-box;
+  border: 1px solid #d4d4d8;
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.fill {
+  position: absolute;
+  left: 1.5px;
+  top: 1.5px;
+  bottom: 1.5px;
+  border-radius: 2px;
+  background: var(--tone, #22c55e);
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.3),
+    rgba(255, 255, 255, 0)
+  );
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.value {
+  position: relative;
+  z-index: 1;
+  display: block;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 13px;
+  color: #18181b;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+
+.tip {
+  width: 2px;
+  height: 8px;
+  border-radius: 0 2px 2px 0;
+  background: #d4d4d8;
+}
+
+.bolt {
+  color: #16a34a;
 }
 </style>

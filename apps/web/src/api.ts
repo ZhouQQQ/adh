@@ -397,6 +397,18 @@ export const api = {
     return request(`/api/devices/${deviceId}/stream/kick`, { method: 'POST' });
   },
 
+  /** 管理员接管该设备的控制权。 */
+  takeoverDeviceStream(deviceId: string): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/stream/takeover`, {
+      method: 'POST',
+    });
+  },
+
+  /** 控制者主动断开投屏。 */
+  stopDeviceStream(deviceId: string): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/stream/stop`, { method: 'POST' });
+  },
+
   /** 在指定设备上安装已上传的 APK / IPA。 */
   installPackage(deviceId: string, packageId: string): Promise<{ ok: boolean }> {
     return request(`/api/devices/${deviceId}/install`, {

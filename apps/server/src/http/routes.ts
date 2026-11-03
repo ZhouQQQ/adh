@@ -741,6 +741,38 @@ export async function registerHttpRoutes(
     return { ok: kicked };
   });
 
+  /** 管理员接管他人正在控制的设备。 */
+  app.post('/api/devices/:id/stream/takeover', async (request, reply) => {
+    if (request.user?.role !== 'admin') {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+
+    const ok = deps.streams.takeover(id, request.user);
+    if (!ok) {
+      return reply.code(400).send({ error: '当前没有可接管的会话' });
+    }
+    logDevice(request, device, 'control.takeover', '管理员接管控制权');
+    return { ok: true };
+  });
+
+  /** 控制者主动断开投屏。 */
+  app.post('/api/devices/:id/stream/stop', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (!request.user) return reply.code(401).send({ error: '请先登录' });
+
+    const ok = deps.streams.stopDevice(id, request.user);
+    if (!ok) {
+      return reply.code(403).send({ error: '只有控制者或管理员可以断开' });
+    }
+    logDevice(request, device, 'control.stop', '主动断开投屏');
+    return { ok: true };
+  });
+
   /* ---------------------------------------------------------------- */
   /* APK 安装                                                          */
   /* ---------------------------------------------------------------- */

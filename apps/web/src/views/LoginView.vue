@@ -8,7 +8,7 @@ const router = useRouter();
 const message = useMessage();
 const { login } = useAuth();
 
-const username = ref('root');
+const username = ref('admin');
 const password = ref('');
 const loading = ref(false);
 
