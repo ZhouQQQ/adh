@@ -60,7 +60,7 @@ const { openPreview, closePreview, previews } = usePreviews();
 
 const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
 const sessionId = ref<string | null>(null);
-const loading = ref(false);
+const loading = ref(true);
 const errorText = ref<string | null>(null);
 const viewerClosed = computed(() =>
   Boolean(errorText.value?.includes('关闭其他人查看')),
@@ -175,8 +175,21 @@ function onControlReleased(username: string): void {
 
 const allowViewers = ref(true);
 
+const playerReady = ref(false);
+
+watch([sessionId, quality, reloadNonce], () => {
+  playerReady.value = false;
+});
+
 /** 设备被锁定后，任何人都不能控制或查看，只有管理员能解锁。 */
 const lockedBlocked = computed(() => Boolean(device.value?.locked));
+
+/** 首次进入 / 重连时显示「正在连接」，不要一上来就提示断开。 */
+const connecting = computed(
+  () =>
+    loading.value ||
+    (!sessionId.value && !isIos.value && !errorText.value && !lockedBlocked.value),
+);
 
 const moreOptions = computed<DropdownOption[]>(() => [
   {
@@ -494,6 +507,7 @@ async function toggleRecording(): Promise<void> {
 
 function onPlayerClosed(): void {
   sessionId.value = null;
+  playerReady.value = false;
   if (!errorText.value) {
     errorText.value = '画面连接已断开，点击重试';
   }
@@ -825,7 +839,7 @@ onBeforeUnmount(() => {
       </aside>
 
       <div ref="stageRef" class="stage">
-        <n-spin v-if="loading" :show="true" class="spin" />
+        <n-spin v-if="loading && sessionId" :show="true" class="spin" />
         <div
           v-if="sessionId || isIos"
           class="player-shell"
@@ -842,8 +856,13 @@ onBeforeUnmount(() => {
             @error="errorText = $event"
             @control-released="onControlReleased"
             @viewers-allow="onViewersAllow"
+            @ready="playerReady = true"
             @closed="onPlayerClosed"
           />
+        </div>
+        <div v-else-if="connecting" class="connecting">
+          <n-spin :size="20" />
+          <span>正在连接设备…</span>
         </div>
         <div v-else class="placeholder">
           <div class="placeholder-icon">
@@ -870,6 +889,14 @@ onBeforeUnmount(() => {
           >
             重新连接
           </button>
+        </div>
+
+        <div
+          v-if="sessionId && !isIos && !playerReady"
+          class="connecting-overlay"
+        >
+          <n-spin :size="20" />
+          <span>正在连接设备…</span>
         </div>
 
         <div
@@ -1453,6 +1480,32 @@ onBeforeUnmount(() => {
   height: 100%;
   padding: 32px 24px;
   text-align: center;
+}
+
+/* 连接中：不要一进来就显示「画面已断开」 */
+.connecting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 100%;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.connecting-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(9, 9, 11, 0.92);
+  color: #a1a1aa;
+  font-size: 12px;
 }
 
 .placeholder-icon {
