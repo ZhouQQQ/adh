@@ -188,6 +188,7 @@ async function stopControl(): Promise<void> {
 
 watch(controller, (value, previous) => {
   if (value) readonlyBannerClosed.value = false;
+  if (!value) safeKeyboard.value = false;
   if (previous === true && value === false) {
     message.warning('控制权已被接管，你现在是只读');
   }
@@ -706,6 +707,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="overlay-btn"
+            :disabled="!controller"
             @click="toggleSafeKeyboard"
           >
             {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
@@ -1071,6 +1073,15 @@ onBeforeUnmount(() => {
 
 .overlay-btn:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.overlay-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.overlay-btn:disabled:hover {
+  background: rgba(10, 10, 11, 0.6);
 }
 
 .stage:fullscreen .stage-actions {
