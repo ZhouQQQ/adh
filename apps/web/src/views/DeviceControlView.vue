@@ -453,15 +453,16 @@ async function stopControl(): Promise<void> {
   if (isIos.value) {
     stopIosHeartbeat();
     selfReleased = true;
+    // 先切状态再发请求：服务端广播 control 变空时不会误判成「别人断开」
+    selfLeft.value = true;
+    releasedBy.value = '';
+    readonlyBannerClosed.value = false;
+    controller.value = false;
     try {
       await api.stopDeviceStream(current.id);
     } catch {
       /* 控制权可能已经超时释放 */
     }
-    controller.value = false;
-    readonlyBannerClosed.value = false;
-    selfLeft.value = true;
-    releasedBy.value = '';
     message.success('已断开控制，当前页面保持只读');
     await refresh();
     return;
@@ -540,9 +541,12 @@ watch(
 
     // 只读观看：控制者断开时提示可以接管，并带上具体名字
     if (previous && !userId) {
+      // 自己刚断开：显示「重新连接」，不显示接管提示
+      if (selfLeft.value) return;
       releasedBy.value = lastControlName || '控制者';
       readonlyBannerClosed.value = false;
     } else if (userId) {
+      selfLeft.value = false;
       releasedBy.value = '';
     }
   },
