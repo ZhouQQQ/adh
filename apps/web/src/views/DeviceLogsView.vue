@@ -38,6 +38,8 @@ const actionOptions = [
   { label: '查看权限', value: 'control.viewers' },
   { label: '断开投屏', value: 'control.stop' },
   { label: '强制断开', value: 'control.kick' },
+  { label: '锁定设备', value: 'device.lock' },
+  { label: '解除锁定', value: 'device.unlock' },
   { label: '触摸操作', value: 'input.touch' },
   { label: '按键', value: 'input.key' },
   { label: '文本输入', value: 'input.text' },
@@ -145,6 +147,8 @@ const columns: DataTableColumns<DeviceLogRecord> = [
   {
     title: '详情',
     key: 'detail',
+    minWidth: 240,
+    ellipsis: { tooltip: true },
     render: (row) => row.detail || '—',
   },
   {
