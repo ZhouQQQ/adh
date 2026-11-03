@@ -1,4 +1,5 @@
 import type { DeviceInfo } from '@adh/protocol';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { runCommand } from './exec.js';
 import { lookupIosHardware, lookupIosResolution } from './ios-models.js';
 
@@ -84,8 +85,10 @@ async function loadInfo(command: string, udid: string): Promise<IosInfo | null> 
 }
 
 /** WDA 默认监听 8100，有端口转发时才算可用。 */
-async function probeWda(): Promise<boolean> {
-  if (wdaCache && Date.now() - wdaCache.at < WDA_TTL_MS) return wdaCache.available;
+async function probeWda(force = false): Promise<boolean> {
+  if (!force && wdaCache && Date.now() - wdaCache.at < WDA_TTL_MS) {
+    return wdaCache.available;
+  }
 
   let available = false;
   try {
@@ -100,17 +103,89 @@ async function probeWda(): Promise<boolean> {
   return available;
 }
 
+/* ------------------------------------------------------------------ */
+/* WDA 端口转发                                                        */
+/* ------------------------------------------------------------------ */
+
+let forwardProcess: ChildProcess | null = null;
+let forwardUdid: string | null = null;
+let forwardRetryAt = 0;
+
+/**
+ * 手机上 WDA 已经在跑、但没做端口转发时，本机 8100 是打不开的。
+ * 这里自动补一条 `ios forward 8100 8100 --udid=<udid>`，让 WDA 立即可用。
+ * @returns 是否新起了转发进程
+ */
+function ensureForward(command: string, udid: string): boolean {
+  if (
+    forwardProcess &&
+    forwardUdid === udid &&
+    forwardProcess.exitCode === null
+  ) {
+    return false;
+  }
+  // 端口被别的进程占用时会立刻退出，退避一分钟再试
+  if (Date.now() < forwardRetryAt) return false;
+
+  stopForward();
+
+  const child = spawn(command, ['forward', '8100', '8100', `--udid=${udid}`], {
+    windowsHide: true,
+    stdio: 'ignore',
+  });
+  forwardProcess = child;
+  forwardUdid = udid;
+  const startedAt = Date.now();
+
+  const cleanup = (): void => {
+    if (forwardProcess !== child) return;
+    forwardProcess = null;
+    forwardUdid = null;
+    // 刚起来就退出多半是端口被占用；跑过一会儿才退出说明设备断开了
+    if (Date.now() - startedAt < 3_000) {
+      forwardRetryAt = Date.now() + 60_000;
+    }
+  };
+  child.on('exit', cleanup);
+  child.on('error', cleanup);
+
+  return true;
+}
+
+function stopForward(): void {
+  const child = forwardProcess;
+  forwardProcess = null;
+  forwardUdid = null;
+  if (!child || child.exitCode !== null) return;
+  try {
+    child.kill();
+  } catch {
+    /* 进程可能已经退出 */
+  }
+}
+
+process.on('exit', stopForward);
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function discoverIos(): Promise<DeviceInfo[]> {
   const command = await resolveCommand();
   if (!command) return [];
 
   const udids = await listUdids(command);
   if (udids.length === 0) {
+    stopForward();
     infoCache.clear();
     return [];
   }
 
-  const wda = await probeWda();
+  let wda = await probeWda();
+  if (!wda && ensureForward(command, udids[0]!)) {
+    // 转发起来后给它一点时间建立连接
+    await delay(1_200);
+    wda = await probeWda(true);
+  }
   // 用户约定：iOS 必须先启动 WDA（automation running）才接入节点
   if (!wda) {
     infoCache.clear();

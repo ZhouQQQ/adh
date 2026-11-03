@@ -322,7 +322,18 @@ const onlineDevices = computed(
   flex-direction: column;
 }
 
+/* n-layout 把子节点都塞进内部滚动容器，这里让它变成纵向 flex，
+   页头固定、内容自己滚动；直接子选择器避免影响内容区的滚动容器 */
+.app-main > :deep(.n-layout-scroll-container) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   flex: none;
   display: flex;
   align-items: center;
@@ -331,6 +342,7 @@ const onlineDevices = computed(
   height: 56px;
   padding: 0 24px;
   border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .page-header h1 {
