@@ -16,6 +16,7 @@ import DevicePlayer from '../components/DevicePlayer.vue';
 import DeviceAppsDrawer from '../components/DeviceAppsDrawer.vue';
 import DeviceStats from '../components/DeviceStats.vue';
 import InstallAppModal from '../components/InstallAppModal.vue';
+import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
@@ -125,6 +126,7 @@ const isIos = computed(() => device.value?.platform === 'ios');
 const quality = ref<'low' | 'medium' | 'high'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
+const safeKeyboard = ref(false);
 
 watch(previews, (list) => {
   const id = device.value?.id;
@@ -522,6 +524,13 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="stage-actions">
+          <button
+            type="button"
+            class="overlay-btn"
+            @click="safeKeyboard = !safeKeyboard"
+          >
+            {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
+          </button>
           <button type="button" class="overlay-btn" @click="togglePip">
             {{ pipActive ? '收回画中画' : '画中画' }}
           </button>
@@ -529,6 +538,8 @@ onBeforeUnmount(() => {
             {{ isFullscreen ? '退出全屏' : '全屏' }}
           </button>
         </div>
+
+        <SafeKeyboardOverlay :visible="safeKeyboard" />
 
         <div v-if="isFullscreen" class="fullscreen-bar">
           <div class="fs-group">
