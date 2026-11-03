@@ -279,6 +279,7 @@ export async function loadDashboard(deps: DashboardDeps): Promise<DashboardData>
             l.created_at AS createdAt
      FROM adh_device_logs l
      LEFT JOIN adh_users u ON u.username = l.username
+     WHERE l.action <> 'input.touch'
      ORDER BY l.created_at DESC
      LIMIT 12`,
   );

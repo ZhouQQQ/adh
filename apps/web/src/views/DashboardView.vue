@@ -210,7 +210,6 @@ function userText(item: DashboardData['recent'][number]): string {
             v-for="card in cards"
             :key="card.key"
             class="card"
-            :class="card.tone"
           >
             <span class="card-icon">
               <n-icon :size="16"><component :is="card.icon" /></n-icon>
