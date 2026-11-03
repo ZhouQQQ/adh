@@ -106,6 +106,8 @@ export class StreamManager {
     if (!entry) return undefined;
     if (Date.now() - entry.touchedAt > IOS_CONTROL_TTL_MS) {
       this.iosControls.delete(deviceId);
+      // 过期释放也要通知前端，否则设备卡片会一直显示「使用中」
+      this.notifyDevice(deviceId);
       return undefined;
     }
     return entry;
@@ -140,6 +142,8 @@ export class StreamManager {
     };
     entry.touchedAt = Date.now();
     this.iosControls.set(deviceId, entry);
+    // 首次拿到控制权时广播，让其他端的设备卡片立即显示「谁在使用」
+    if (!existing) this.notifyDevice(deviceId);
     return { granted: true, control: this.toControlInfo(entry) };
   }
 
@@ -158,17 +162,25 @@ export class StreamManager {
     }
   }
 
-  /** 该设备是否已有控制会话。 */
+  /** 该设备是否已有控制会话（含 iOS 的心跳式控制权）。 */
   isInUse(deviceId: string): boolean {
+    if (this.liveIosControl(deviceId)) return true;
     return [...this.sessions.values()].some(
       (session) => session.device.id === deviceId && !session.closed,
     );
   }
 
   listInUseDeviceIds(): string[] {
-    return [...this.sessions.values()]
-      .filter((session) => !session.closed)
-      .map((session) => session.device.id);
+    const ids = new Set(
+      [...this.sessions.values()]
+        .filter((session) => !session.closed)
+        .map((session) => session.device.id),
+    );
+    // iOS 没有投屏会话，控制权只存在于 iosControls 里
+    for (const deviceId of [...this.iosControls.keys()]) {
+      if (this.liveIosControl(deviceId)) ids.add(deviceId);
+    }
+    return [...ids];
   }
 
   /** 当前正在控制设备的用户。 */
@@ -253,6 +265,7 @@ export class StreamManager {
       // 管理员不能断开超级管理员
       if (ios.role === 'superadmin' && user.role !== 'superadmin') return false;
       this.iosControls.delete(deviceId);
+      this.notifyDevice(deviceId);
       return true;
     }
 
@@ -273,7 +286,11 @@ export class StreamManager {
    */
   setLocked(deviceId: string, locked: boolean): void {
     const session = this.findSessionByDevice(deviceId);
-    if (!session) return;
+    if (!session) {
+      // iOS 没有投屏会话：锁定时同步收回控制权，解锁后重新申请
+      if (locked && this.iosControls.delete(deviceId)) this.notifyDevice(deviceId);
+      return;
+    }
     session.locked = locked;
     if (!locked) return;
 
@@ -356,6 +373,7 @@ export class StreamManager {
       if (ios.role === 'superadmin' && user.role !== 'superadmin') return false;
       if (!isAdminRole(user.role) && ios.userId !== user.id) return false;
       this.iosControls.delete(deviceId);
+      this.notifyDevice(deviceId);
       return true;
     }
 
@@ -408,6 +426,7 @@ export class StreamManager {
         since: Date.now(),
         touchedAt: Date.now(),
       });
+      this.notifyDevice(deviceId);
       return true;
     }
 

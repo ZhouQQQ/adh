@@ -460,6 +460,7 @@ async function stopControl(): Promise<void> {
     readonlyBannerClosed.value = false;
     releasedBy.value = user.value?.username ?? '控制者';
     message.success('已断开控制，当前页面保持只读');
+    await refresh();
     return;
   }
 
@@ -575,6 +576,8 @@ async function createSession(): Promise<void> {
       controller.value = result.granted;
       if (result.granted) {
         startIosHeartbeat();
+        // 拉一次设备状态，顶部才能显示「谁 · 起控制 · 已用时长」
+        await refresh();
       } else {
         // 被其他人占用：刷新设备状态，让只读横幅显示当前控制者
         readonlyBannerClosed.value = false;
