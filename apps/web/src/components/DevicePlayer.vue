@@ -629,9 +629,8 @@ function onWheel(event: WheelEvent): void {
     if (Math.abs(wheelPinchAccum) < 30) return;
     const step = wheelPinchAccum;
     wheelPinchAccum = 0;
-    // 向上滚（dy < 0）放大，向下滚缩小
-    // 触控板捏合事件里，张开手指给的是正 deltaY，与鼠标滚轮相反
-    const scale = Math.min(2, Math.max(0.5, Math.exp(step / 300)));
+    // 向上滚 / 张开手指（dy < 0）放大，向下滚 / 收拢缩小
+    const scale = Math.min(2, Math.max(0.5, Math.exp(-step / 300)));
 
     if (import.meta.env.DEV) {
       console.info('[adh pinch]', { step, scale });
