@@ -71,11 +71,13 @@ const fileShow = ref(false);
 const appsShow = ref(false);
 const installShow = ref(false);
 const stageRef = ref<HTMLElement | null>(null);
+const pageRef = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
 const recording = ref(false);
 
 async function toggleFullscreen(): Promise<void> {
-  const element = stageRef.value;
+  // 整页全屏：工具栏、用户信息与普通页面保持一致
+  const element = pageRef.value;
   if (!element) return;
   try {
     if (!document.fullscreenElement) {
@@ -89,7 +91,7 @@ async function toggleFullscreen(): Promise<void> {
 }
 
 function onFullscreenChange(): void {
-  isFullscreen.value = document.fullscreenElement === stageRef.value;
+  isFullscreen.value = document.fullscreenElement === pageRef.value;
 }
 
 const deviceId = computed(() => String(route.params.id ?? ''));
@@ -637,7 +639,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   if (clockTimer) window.clearInterval(clockTimer);
   document.title = 'ADH · 设备农场';
-  if (document.fullscreenElement === stageRef.value) {
+  if (document.fullscreenElement === pageRef.value) {
     void document.exitFullscreen();
   }
   // 主画面销毁后镜像流就失效了，同步关掉画中画
@@ -647,7 +649,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="control-page">
+  <div ref="pageRef" class="control-page">
     <header class="toolbar">
       <n-button
         quaternary
@@ -713,6 +715,16 @@ onBeforeUnmount(() => {
           ]"
           @update:value="onQualityChange"
         />
+        <n-button
+          v-if="!isIos"
+          size="tiny"
+          :type="safeKeyboard ? 'primary' : 'default'"
+          :ghost="safeKeyboard"
+          :disabled="!controller"
+          @click="toggleSafeKeyboard"
+        >
+          {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
+        </n-button>
         <n-button
           v-if="device && device.status !== 'online'"
           size="tiny"
@@ -970,15 +982,12 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <div v-if="recording" class="rec-badge">
+          <span class="rec-dot" />
+          <span>录制中</span>
+        </div>
+
         <div class="stage-actions">
-          <button
-            type="button"
-            class="overlay-btn"
-            :disabled="!controller"
-            @click="toggleSafeKeyboard"
-          >
-            {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
-          </button>
           <button type="button" class="overlay-btn" @click="togglePip">
             {{ pipActive ? '收回画中画' : '画中画' }}
           </button>
@@ -1039,8 +1048,13 @@ onBeforeUnmount(() => {
                 复制截图
               </button>
               <button type="button" class="bar-btn" @click="takeScreenshot">截图保存</button>
-              <button type="button" class="bar-btn span-2" @click="toggleRecording">
-                {{ recording ? '停止' : '录屏' }}
+              <button
+                type="button"
+                class="bar-btn span-2"
+                :class="{ recording }"
+                @click="toggleRecording"
+              >
+                {{ recording ? '停止录屏' : '录屏' }}
               </button>
             </div>
           </div>
@@ -1107,8 +1121,14 @@ onBeforeUnmount(() => {
             </n-button>
             <n-button size="small" @click="takeScreenshot">截图保存</n-button>
           </div>
-          <n-button size="small" block @click="toggleRecording">
-            {{ recording ? '停止' : '录屏' }}
+          <n-button
+            size="small"
+            block
+            class="record-btn"
+            :class="{ recording }"
+            @click="toggleRecording"
+          >
+            {{ recording ? '停止录屏' : '录屏' }}
           </n-button>
         </section>
 
@@ -1476,6 +1496,74 @@ onBeforeUnmount(() => {
 
 .bar-btn.span-2 {
   grid-column: span 2;
+}
+
+/* 录制中：红色背景 + 呼吸闪烁 */
+@keyframes rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.bar-btn.recording {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+  animation: rec-pulse 1.1s ease-in-out infinite;
+}
+
+.bar-btn.recording:hover {
+  background: #b91c1c;
+}
+
+.record-btn.recording {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+  animation: rec-pulse 1.1s ease-in-out infinite;
+}
+
+/* 左上角录制指示 */
+.rec-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(9, 9, 11, 0.88);
+  color: #fafafa;
+  font-size: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+  animation: rec-blink 1.1s ease-in-out infinite;
+}
+
+@keyframes rec-blink {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+  }
+  50% {
+    opacity: 0.35;
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0);
+  }
 }
 
 .bar-divider {
