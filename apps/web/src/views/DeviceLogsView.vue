@@ -37,6 +37,7 @@ const actionOptions = [
   { label: '观看投屏', value: 'control.view' },
   { label: '接管控制', value: 'control.takeover' },
   { label: '查看权限', value: 'control.viewers' },
+  { label: '切换画质', value: 'control.quality' },
   { label: '断开投屏', value: 'control.stop' },
   { label: '强制断开', value: 'control.kick' },
   { label: '锁定设备', value: 'device.lock' },

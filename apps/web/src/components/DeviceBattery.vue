@@ -71,12 +71,12 @@ const fillWidth = computed(() => {
   >
     <span class="shell">
       <span class="fill" :style="{ width: fillWidth }" />
-      <span class="value">{{ level }}%</span>
+      <span class="value" :class="{ 'with-bolt': charging }">{{ level }}%</span>
+      <n-icon v-if="charging" class="bolt" :size="8">
+        <FlashOutline />
+      </n-icon>
     </span>
     <span class="tip" />
-    <n-icon v-if="charging" class="bolt" :size="10">
-      <FlashOutline />
-    </n-icon>
     <span v-if="temperatureText" class="temp" :class="{ hot: temperatureHot }">
       {{ temperatureText }}
     </span>
@@ -105,8 +105,8 @@ const fillWidth = computed(() => {
 
 .shell {
   position: relative;
-  width: 38px;
-  height: 18px;
+  width: 34px;
+  height: 16px;
   padding: 1.5px;
   box-sizing: border-box;
   border: 1px solid #d4d4d8;
@@ -135,23 +135,33 @@ const fillWidth = computed(() => {
   z-index: 1;
   display: block;
   text-align: center;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
-  line-height: 13px;
+  line-height: 12px;
   color: #18181b;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
 }
 
+/* 充电时给内部闪电留位置 */
+.value.with-bolt {
+  padding-right: 8px;
+}
+
 .tip {
   width: 2px;
-  height: 8px;
+  height: 7px;
   border-radius: 0 2px 2px 0;
   background: #d4d4d8;
 }
 
 .bolt {
-  color: #16a34a;
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+  color: #15803d;
 }
 
 .temp {

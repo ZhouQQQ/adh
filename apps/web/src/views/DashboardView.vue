@@ -173,6 +173,7 @@ const actionLabels: Record<string, string> = {
   'control.stop': '断开投屏',
   'control.kick': '强制断开',
   'control.viewers': '查看权限',
+  'control.quality': '切换画质',
   'device.lock': '锁定设备',
   'device.unlock': '解除锁定',
   'input.touch': '触摸操作',

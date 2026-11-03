@@ -41,7 +41,11 @@ const actionOptions = [
   { label: '上传设备图片', value: 'device.thumbnail' },
   { label: '上传安装包', value: 'package.upload' },
   { label: '重命名安装包', value: 'package.rename' },
+  { label: '编辑安装包', value: 'package.update' },
   { label: '删除安装包', value: 'package.delete' },
+  { label: '修改系统设置', value: 'settings.update' },
+  { label: '更新站点 Logo', value: 'settings.logo' },
+  { label: '移除站点 Logo', value: 'settings.logo.remove' },
 ];
 
 const actionLabel: Record<string, string> = {
@@ -63,6 +67,9 @@ const actionLabel: Record<string, string> = {
   'package.rename': '重命名安装包',
   'package.update': '编辑安装包',
   'package.delete': '删除安装包',
+  'settings.update': '修改系统设置',
+  'settings.logo': '更新站点 Logo',
+  'settings.logo.remove': '移除站点 Logo',
   http: '操作',
 };
 

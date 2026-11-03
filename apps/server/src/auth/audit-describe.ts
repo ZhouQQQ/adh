@@ -109,5 +109,35 @@ export function describeAudit(input: {
     };
   }
 
+  if (method === 'POST' && path === '/api/settings/logo') {
+    return { action: 'settings.logo', detail: '更新站点 Logo' };
+  }
+  if (method === 'DELETE' && path === '/api/settings/logo') {
+    return { action: 'settings.logo.remove', detail: '移除站点 Logo' };
+  }
+  if (method === 'PUT' && path === '/api/settings') {
+    const patch = (body ?? {}) as {
+      title?: string;
+      subtitle?: string;
+      operatorDeviceLimit?: number;
+      adminDeviceLimit?: number;
+      superadminDeviceLimit?: number;
+    };
+    const changes: string[] = [];
+    if (patch.title !== undefined) changes.push('标题');
+    if (patch.subtitle !== undefined) changes.push('副标题');
+    if (
+      patch.operatorDeviceLimit !== undefined ||
+      patch.adminDeviceLimit !== undefined ||
+      patch.superadminDeviceLimit !== undefined
+    ) {
+      changes.push('控制上限');
+    }
+    return {
+      action: 'settings.update',
+      detail: `修改系统设置（${changes.join('、') || '无变更'}）`,
+    };
+  }
+
   return null;
 }

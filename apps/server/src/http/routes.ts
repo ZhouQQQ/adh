@@ -282,6 +282,9 @@ interface RuntimeStats {
   uptimeSeconds: number | null;
 }
 
+/** iOS 触摸日志节流：设备 id → 上次记录时间。 */
+const lastIosTouchAt = new Map<string, number>();
+
 /** go-ios 的命令名兼容 ios / go-ios。 */
 let iosCliCache: { at: number; command: string | null } | null = null;
 
@@ -820,7 +823,18 @@ export async function registerHttpRoutes(
     }
     const body = request.body as { quality?: string } | undefined;
     try {
-      return await deps.streams.restart(id, body?.quality ?? 'medium');
+      const result = await deps.streams.restart(
+        id,
+        body?.quality ?? 'medium',
+      );
+      const label =
+        body?.quality === 'low'
+          ? '低画质'
+          : body?.quality === 'high'
+            ? '高画质'
+            : '中画质';
+      logDevice(request, device, 'control.quality', `切换为${label}`);
+      return result;
     } catch (error) {
       return reply.code(400).send({
         error: error instanceof Error ? error.message : '无法切换画质',
@@ -1666,6 +1680,31 @@ export async function registerHttpRoutes(
       } else {
         await wdaTypeText(payload.text);
       }
+
+      // 记录 iOS 输入操作（触摸做 1.2 秒节流，避免日志刷屏）
+      if (payload.type === 'tap' || payload.type === 'swipe') {
+        const now = Date.now();
+        if (now - (lastIosTouchAt.get(device.id) ?? 0) >= 1200) {
+          lastIosTouchAt.set(device.id, now);
+          const detail =
+            payload.type === 'tap'
+              ? `(${payload.x.toFixed(3)}, ${payload.y.toFixed(3)})`
+              : `(${payload.fromX.toFixed(3)}, ${payload.fromY.toFixed(3)}) → (${payload.toX.toFixed(3)}, ${payload.toY.toFixed(3)})`;
+          logDevice(request, device, 'input.touch', detail);
+        }
+      } else if (payload.type === 'text') {
+        logDevice(
+          request,
+          device,
+          'input.text',
+          `输入 ${payload.text.length} 个字符`,
+        );
+      } else if (payload.type === 'button') {
+        logDevice(request, device, 'input.key', payload.name);
+      } else if (payload.type === 'appSwitcher') {
+        logDevice(request, device, 'input.key', '任务切换');
+      }
+
       return { ok: true };
     } catch (error) {
       return reply.code(502).send({
