@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { NButton, NEmpty, NIcon, NSwitch, NTag, useMessage } from 'naive-ui';
 import { AddOutline } from '@vicons/ionicons5';
-import type { ViewerToStreamMessage } from '@adh/protocol';
+import type { DeviceSummary, ViewerToStreamMessage } from '@adh/protocol';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import BulkInstallModal from '../components/BulkInstallModal.vue';
 import AddBatchDevicesModal from '../components/AddBatchDevicesModal.vue';
@@ -132,6 +132,14 @@ const installTargets = computed(() =>
     .map((device) => ({ id: device.id, name: device.name })),
 );
 
+/** 卡片按设备分辨率取宽高比，画面刚好填满，避免四周大片黑边。 */
+function tileRatio(device: DeviceSummary): string {
+  const resolution = device.resolution;
+  return resolution
+    ? `${resolution.width} / ${resolution.height}`
+    : '9 / 19.5';
+}
+
 function addDevices(ids: string[]): void {
   selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
 }
@@ -206,7 +214,12 @@ function onControllerChange(deviceId: string, value: boolean): void {
     </header>
 
     <div v-if="selectedDevices.length > 0" class="batch-grid">
-      <section v-for="device in selectedDevices" :key="device.id" class="tile">
+      <section
+        v-for="device in selectedDevices"
+        :key="device.id"
+        class="tile"
+        :style="{ '--tile-ratio': tileRatio(device) }"
+      >
         <div class="tile-header">
           <span class="tile-name" :title="device.name">{{ device.name }}</span>
           <n-tag
@@ -240,6 +253,7 @@ function onControllerChange(deviceId: string, value: boolean): void {
             :session-id="sessions[device.id] ?? ''"
             :platform="device.platform"
             :device-id="device.id"
+            flush
             @controller-change="onControllerChange(device.id, $event)"
             @input="onInput(device.id, $event)"
           />
@@ -317,8 +331,10 @@ function onControllerChange(deviceId: string, value: boolean): void {
 
 .batch-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 340px));
+  justify-content: center;
+  align-items: start;
+  gap: 10px;
 }
 
 .tile {
@@ -371,8 +387,8 @@ function onControllerChange(deviceId: string, value: boolean): void {
 
 .tile-stage {
   position: relative;
-  /* 基本填满一屏，避免底部大片留白；设备多时自然滚动 */
-  height: clamp(520px, calc(100vh - 215px), 960px);
+  width: 100%;
+  aspect-ratio: var(--tile-ratio, 9 / 19.5);
   background: #000;
 }
 

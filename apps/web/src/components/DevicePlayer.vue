@@ -14,6 +14,8 @@ const props = defineProps<{
   platform?: 'android' | 'ios';
   deviceId?: string;
   quality?: 'low' | 'medium' | 'high';
+  /** 批量控制等场景：去掉画面四周留白，贴满容器。 */
+  flush?: boolean;
 }>();
 const emit = defineEmits<{
   'controller-change': [value: boolean];
@@ -723,7 +725,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="player">
+  <div class="player" :class="{ flush }">
     <canvas
       ref="canvasRef"
       class="surface"
@@ -755,6 +757,14 @@ defineExpose({
   justify-content: center;
   overflow: hidden;
   padding: 12px;
+}
+
+.player.flush {
+  padding: 0;
+}
+
+.player.flush .surface {
+  border-radius: 0;
 }
 
 .surface {
