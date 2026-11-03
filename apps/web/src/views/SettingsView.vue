@@ -271,7 +271,7 @@ async function removeLogo(): Promise<void> {
                   :max="50"
                   style="width: 140px"
                 />
-                <span class="hint">0 表示不限制，默认 1 台</span>
+                <span class="hint">0 表示不限制，默认 2 台</span>
               </div>
               <div class="hint">
                 超过上限时创建投屏会被拒绝，保存后立即生效。

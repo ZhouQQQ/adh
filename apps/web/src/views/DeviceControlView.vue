@@ -189,6 +189,8 @@ const publishedText = computed(() => {
 });
 
 const isIos = computed(() => device.value?.platform === 'ios');
+/** iOS 端不支持的操作统一提示。 */
+const iosTip = 'iOS 暂不支持该操作';
 const quality = ref<'low' | 'medium' | 'high'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
@@ -1173,7 +1175,7 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">导航</div>
           <div class="grid-3">
-            <n-button size="small" :disabled="isIos" @click="sendKey('back')">
+            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
               <template #icon>
                 <n-icon><ArrowBackOutline /></n-icon>
               </template>
@@ -1209,7 +1211,7 @@ onBeforeUnmount(() => {
               </template>
               音量+
             </n-button>
-            <n-button size="small" :disabled="isIos" @click="sendKey('mute')">
+            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('mute')">
               <template #icon>
                 <n-icon><VolumeMuteOutline /></n-icon>
               </template>
@@ -1221,19 +1223,19 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">设备</div>
           <div class="grid-3">
-            <n-button size="small" :disabled="isIos" @click="sendKey('power')">
+            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="sendKey('power')">
               <template #icon>
                 <n-icon><PowerOutline /></n-icon>
               </template>
               电源
             </n-button>
-            <n-button size="small" :disabled="isIos" @click="setScreen(false)">
+            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
               <template #icon>
                 <n-icon><MoonOutline /></n-icon>
               </template>
               息屏
             </n-button>
-            <n-button size="small" :disabled="isIos" @click="setScreen(true)">
+            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
               <template #icon>
                 <n-icon><SunnyOutline /></n-icon>
               </template>
@@ -1241,13 +1243,13 @@ onBeforeUnmount(() => {
             </n-button>
           </div>
           <div class="grid-2">
-            <n-button size="small" :disabled="isIos" @click="fileShow = true">
+            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="fileShow = true">
               <template #icon>
                 <n-icon><FolderOpenOutline /></n-icon>
               </template>
               文件管理
             </n-button>
-            <n-button size="small" :disabled="isIos" @click="openNotification">
+            <n-button size="small" :disabled="isIos" :title="isIos ? iosTip : undefined" @click="openNotification">
               <template #icon>
                 <n-icon><NotificationsOutline /></n-icon>
               </template>
@@ -1259,13 +1261,23 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">抓取</div>
           <div class="grid-2">
-            <n-button size="small" title="截图到剪贴板" @click="copyScreenshot">
+            <n-button
+              size="small"
+              :disabled="isIos"
+              :title="isIos ? iosTip : '截图到剪贴板'"
+              @click="copyScreenshot"
+            >
               <template #icon>
                 <n-icon><CopyOutline /></n-icon>
               </template>
               复制截图
             </n-button>
-            <n-button size="small" @click="takeScreenshot">
+            <n-button
+              size="small"
+              :disabled="isIos"
+              :title="isIos ? iosTip : undefined"
+              @click="takeScreenshot"
+            >
               <template #icon>
                 <n-icon><CameraOutline /></n-icon>
               </template>
@@ -1277,6 +1289,8 @@ onBeforeUnmount(() => {
             block
             class="record-btn"
             :class="{ recording }"
+            :disabled="isIos"
+            :title="isIos ? iosTip : undefined"
             @click="toggleRecording"
           >
             <template #icon>
@@ -1331,10 +1345,10 @@ onBeforeUnmount(() => {
             发送到设备
           </n-button>
           <n-button
-            v-if="!isIos"
             size="small"
             block
-            :disabled="!controller"
+            :disabled="!controller || isIos"
+            :title="isIos ? iosTip : undefined"
             @click="copyToDeviceClipboard"
           >
             <template #icon>
@@ -1343,12 +1357,12 @@ onBeforeUnmount(() => {
             复制到剪贴板
           </n-button>
           <n-button
-            v-if="!isIos"
             size="small"
             block
             :type="safeKeyboard ? 'primary' : 'default'"
             :ghost="safeKeyboard"
-            :disabled="!controller"
+            :disabled="!controller || isIos"
+            :title="isIos ? iosTip : undefined"
             @click="toggleSafeKeyboard"
           >
             <template #icon>
