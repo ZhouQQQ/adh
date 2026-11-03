@@ -20,6 +20,7 @@ import {
 } from '@vicons/ionicons5';
 import { api, type Role, type UserRecord } from '../api';
 import { useAuth } from '../stores/auth';
+import { formatAgo } from '../utils/format';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -101,7 +102,8 @@ function roleType(role: Role): 'error' | 'warning' | 'success' {
 
 function formatTime(ts: number): string {
   if (!ts) return '—';
-  return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+  const date = new Date(ts).toLocaleString('zh-CN', { hour12: false });
+  return `${date}（${formatAgo(ts)}）`;
 }
 
 const roleFilter = ref<'all' | Role>('all');
@@ -257,6 +259,11 @@ const columns: DataTableColumns<UserRecord> = [
         { size: 'tiny', type: row.enabled ? 'success' : 'default', bordered: false },
         { default: () => (row.enabled ? '启用' : '禁用') },
       ),
+  },
+  {
+    title: '添加时间',
+    key: 'createdAt',
+    render: (row) => formatTime(row.createdAt),
   },
   {
     title: '最后登录',
@@ -478,16 +485,19 @@ onMounted(load);
 }
 
 .perm-role.active {
-  color: var(--text);
+  color: #2563eb;
+  font-weight: 600;
 }
 
 .perm-cell {
   display: flex;
   justify-content: center;
+  padding: 3px 0;
+  border-radius: 4px;
 }
 
 .perm-cell.active {
-  background: rgba(34, 197, 94, 0.08);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .toolbar {
