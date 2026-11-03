@@ -738,6 +738,8 @@ onMounted(async () => {
     now.value = Date.now();
   }, 1_000);
   if (devices.value.length === 0) await refresh();
+  // iOS 走 MJPEG，截图+编码开销大，默认用低画质保证流畅
+  if (device.value?.platform === 'ios') quality.value = 'low';
   await createSession();
 });
 

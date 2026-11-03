@@ -356,15 +356,17 @@ async function startIosStream(): Promise<void> {
       if (done) break;
       if (value && value.length > 0) buffer = concatBytes(buffer, value);
 
+      let latest: Uint8Array | null = null;
       while (true) {
         const start = indexOfMarker(buffer, 0xff, 0xd8);
         const end = start >= 0 ? indexOfMarker(buffer, 0xff, 0xd9, start + 2) : -1;
         if (start < 0 || end < 0) break;
 
-        const frame = buffer.slice(start, end + 2);
+        // 只画最新一帧：渲染慢时丢掉积压的旧帧，避免延迟越积越大
+        latest = buffer.slice(start, end + 2);
         buffer = buffer.slice(end + 2);
-        await drawIosFrame(frame);
       }
+      if (latest) await drawIosFrame(latest);
 
       if (buffer.length > 4_000_000) buffer = buffer.slice(buffer.length - 2);
     }

@@ -1835,7 +1835,7 @@ export async function registerHttpRoutes(
     // 避免服务端逐帧解码再编码，延迟可以降一个数量级
     await wdaApplyMjpegSettings(
       quality === 'low'
-        ? { framerate: 15, quality: 35, scaling: 40 }
+        ? { framerate: 20, quality: 30, scaling: 35 }
         : quality === 'medium'
           ? { framerate: 24, quality: 55, scaling: 60 }
           : quality === 'high'
