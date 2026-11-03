@@ -72,7 +72,7 @@ const { devices, agents, refresh } = useFleet();
 const { user, isAdmin, logout } = useAuth();
 
 const roleLabel = computed(() =>
-  user.value?.role === 'admin' ? '管理员' : '操作员',
+  user.value?.role === 'admin' ? '管理员' : '普通用户',
 );
 
 async function handleLogout(): Promise<void> {

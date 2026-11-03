@@ -38,12 +38,12 @@ const form = ref({
 
 const roleOptions = [
   { label: '管理员', value: 'admin' },
-  { label: '操作员', value: 'operator' },
+  { label: '普通用户', value: 'operator' },
 ];
 
 const roleLabel: Record<Role, string> = {
   admin: '管理员',
-  operator: '操作员',
+  operator: '普通用户',
 };
 
 function roleType(role: Role): 'error' | 'warning' {

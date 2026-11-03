@@ -65,7 +65,7 @@ const actionLabel: Record<string, string> = {
 
 const roleLabel: Record<string, string> = {
   admin: '管理员',
-  operator: '操作员',
+  operator: '普通用户',
 };
 
 function formatTime(ts: number): string {

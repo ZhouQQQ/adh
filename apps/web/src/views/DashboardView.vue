@@ -407,6 +407,8 @@ function userText(item: DashboardData['recent'][number]): string {
 }
 
 .panel {
+  display: flex;
+  flex-direction: column;
   padding: 18px 20px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -424,7 +426,8 @@ function userText(item: DashboardData['recent'][number]): string {
   display: flex;
   align-items: stretch;
   gap: 8px;
-  height: 150px;
+  flex: 1;
+  min-height: 140px;
 }
 
 .bar-col {

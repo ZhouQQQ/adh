@@ -67,7 +67,7 @@ onMounted(() => {
 });
 
 const roleLabel = computed(() =>
-  user.value?.role === 'admin' ? '管理员' : '操作员',
+  user.value?.role === 'admin' ? '管理员' : '普通用户',
 );
 
 async function handleLogout(): Promise<void> {
@@ -116,7 +116,7 @@ const menuOptions = computed<MenuOption[]>(() => {
     },
   ];
 
-  // 操作员只看设备相关菜单
+  // 普通用户只看设备相关菜单
   if (!isAdmin.value) return groups;
 
   groups.push(

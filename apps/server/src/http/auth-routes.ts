@@ -96,7 +96,7 @@ export async function registerAuthRoutes(
       target: user.username,
       status: 201,
       ip: request.ip,
-      detail: `创建用户「${user.username}」，角色=${user.role === 'admin' ? '管理员' : '操作员'}`,
+      detail: `创建用户「${user.username}」，角色=${user.role === 'admin' ? '管理员' : '普通用户'}`,
     });
     return reply.code(201).send({ user });
   });
@@ -128,7 +128,7 @@ export async function registerAuthRoutes(
 
     const changes: string[] = [];
     if (parsed.data.role !== undefined) {
-      changes.push(`角色=${parsed.data.role === 'admin' ? '管理员' : '操作员'}`);
+      changes.push(`角色=${parsed.data.role === 'admin' ? '管理员' : '普通用户'}`);
     }
     if (parsed.data.enabled !== undefined) {
       changes.push(parsed.data.enabled ? '启用账号' : '禁用账号');
