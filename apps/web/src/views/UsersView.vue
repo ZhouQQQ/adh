@@ -323,6 +323,7 @@ const columns: DataTableColumns<UserRecord> = [
     type: 'selection',
     disabled: (row) => !canManageUser(row),
   },
+  {
     title: '用户名',
     key: 'username',
     render: (row) =>
