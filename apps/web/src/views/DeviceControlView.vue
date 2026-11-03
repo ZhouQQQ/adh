@@ -742,7 +742,7 @@ onBeforeUnmount(() => {
           :options="moreOptions"
           @select="onMoreSelect"
         >
-          <n-button quaternary circle size="small" title="更多操作">
+          <n-button tertiary circle size="small" title="更多操作">
             <template #icon>
               <n-icon><EllipsisVerticalOutline /></n-icon>
             </template>

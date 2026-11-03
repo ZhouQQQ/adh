@@ -44,6 +44,35 @@ async function kickDevice(device: DeviceSummary): Promise<void> {
   });
 }
 
+async function toggleLock(device: DeviceSummary): Promise<void> {
+  const next = !device.locked;
+  if (next) {
+    dialog.warning({
+      title: '锁定设备',
+      content: `锁定「${device.name}」后，任何人（包括管理员）都不能控制或查看，确定锁定吗？`,
+      positiveText: '锁定',
+      negativeText: '取消',
+      onPositiveClick: async () => {
+        await applyLock(device, true);
+      },
+    });
+    return;
+  }
+  await applyLock(device, false);
+}
+
+async function applyLock(device: DeviceSummary, locked: boolean): Promise<void> {
+  try {
+    await api.updateDevice(device.id, { locked });
+    message.success(
+      locked ? '已锁定设备，任何人都不能控制或查看' : '已解除锁定',
+    );
+    await refresh();
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '操作失败');
+  }
+}
+
 const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
 const agentFilter = ref<string>('all');
@@ -739,6 +768,7 @@ function resetFilters(): void {
         @control="openControl"
         @select="toggleSelect"
         @kick="kickDevice"
+        @lock="toggleLock"
       />
     </div>
 

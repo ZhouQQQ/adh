@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { NButton, NIcon, NTag } from 'naive-ui';
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+  NButton,
+  NDropdown,
+  NIcon,
+  NTag,
+  type DropdownOption,
+} from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import {
+  EllipsisVerticalOutline,
   FingerPrintOutline,
   HardwareChipOutline,
+  LockClosedOutline,
+  LockOpenOutline,
   PersonOutline,
   PhonePortraitOutline,
   ResizeOutline,
@@ -34,16 +43,42 @@ const emit = defineEmits<{
   control: [device: DeviceSummary];
   select: [id: string];
   kick: [device: DeviceSummary];
+  lock: [device: DeviceSummary];
 }>();
 
 const { user, isAdmin } = useAuth();
 const now = ref(Date.now());
+
+/** 卡片右上角三点菜单：目前只有锁定 / 解锁。 */
+const moreOptions = computed<DropdownOption[]>(() => [
+  {
+    label: props.device.locked ? '解除锁定' : '锁定设备',
+    key: 'lock',
+    icon: () =>
+      h(NIcon, null, {
+        default: () =>
+          h(props.device.locked ? LockOpenOutline : LockClosedOutline),
+      }),
+  },
+]);
+
+function onMoreSelect(key: string): void {
+  if (key === 'lock') emit('lock', props.device);
+}
 
 const controlName = computed(() =>
   props.device.control
     ? props.device.control.displayName || props.device.control.username
     : '',
 );
+
+/** 卡片状态色：红=锁定，蓝=我在用，黄=别人在用。 */
+const usageTone = computed(() => {
+  if (props.device.locked) return 'locked';
+  const control = props.device.control;
+  if (!control) return '';
+  return control.userId === user.value?.id ? 'mine' : 'busy';
+});
 const controlDuration = computed(() =>
   props.device.control
     ? formatDuration(props.device.control.since, now.value)
@@ -155,7 +190,10 @@ const cpuText = computed(() => {
 </script>
 
 <template>
-  <article class="device-card" :class="{ offline: device.status !== 'online', selected }">
+  <article
+    class="device-card"
+    :class="[{ offline: device.status !== 'online', selected }, usageTone]"
+  >
     <div class="thumb">
       <button
         v-if="selectable"
@@ -178,6 +216,7 @@ const cpuText = computed(() => {
       <div
         v-if="device.control"
         class="control-tag"
+        :class="usageTone"
         :title="`${controlName} 正在控制`"
       >
         <n-icon :size="12"><PersonOutline /></n-icon>
@@ -208,7 +247,7 @@ const cpuText = computed(() => {
         <n-tag
           v-if="device.locked"
           size="small"
-          type="warning"
+          type="error"
           :bordered="false"
           round
         >
@@ -284,6 +323,19 @@ const cpuText = computed(() => {
       >
         断开
       </n-button>
+      <n-dropdown
+        v-if="isAdmin"
+        trigger="click"
+        placement="bottom-end"
+        :options="moreOptions"
+        @select="onMoreSelect"
+      >
+        <n-button class="more-btn" size="tiny" tertiary title="更多操作">
+          <template #icon>
+            <n-icon><EllipsisVerticalOutline /></n-icon>
+          </template>
+        </n-button>
+      </n-dropdown>
     </div>
   </article>
 </template>
@@ -304,6 +356,22 @@ const cpuText = computed(() => {
 .device-card:hover {
   border-color: var(--border-strong);
   background: #fcfcfd;
+}
+
+/* 红=被锁定，蓝=我在用，黄=别人在用 */
+.device-card.locked {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 1px #ef4444;
+}
+
+.device-card.mine {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.device-card.busy {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px #f59e0b;
 }
 
 .device-card.offline {
@@ -379,6 +447,14 @@ const cpuText = computed(() => {
   font-size: 10px;
   white-space: nowrap;
   backdrop-filter: blur(6px);
+}
+
+.control-tag.mine {
+  background: rgba(37, 99, 235, 0.92);
+}
+
+.control-tag.busy {
+  background: rgba(217, 119, 6, 0.92);
 }
 
 .control-name {
@@ -508,5 +584,10 @@ const cpuText = computed(() => {
 
 .actions :deep(.n-button) {
   flex: 1;
+}
+
+.actions :deep(.more-btn) {
+  flex: none;
+  width: 28px;
 }
 </style>
