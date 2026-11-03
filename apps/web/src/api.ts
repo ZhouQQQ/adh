@@ -53,6 +53,16 @@ export interface DeviceRuntime {
   uptimeSeconds: number | null;
 }
 
+export interface SiteSettings {
+  title: string;
+  subtitle: string;
+  logoUpdatedAt: number;
+  /** 普通用户可同时控制的设备数，0 表示不限。 */
+  operatorDeviceLimit: number;
+  /** 管理员可同时控制的设备数，0 表示不限。 */
+  adminDeviceLimit: number;
+}
+
 export interface DashboardData {
   users: { total: number; admins: number; enabled: number };
   devices: {
@@ -255,12 +265,15 @@ export const api = {
     offset?: number;
     username?: string;
     action?: string;
+    /** 起始时间（毫秒时间戳）。 */
+    since?: number;
   }): Promise<{ logs: AuditRecord[]; total: number }> {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.username) query.set('username', params.username);
     if (params?.action) query.set('action', params.action);
+    if (params?.since) query.set('since', String(params.since));
     const suffix = query.toString();
     return request(`/api/audit${suffix ? `?${suffix}` : ''}`);
   },
@@ -271,6 +284,8 @@ export const api = {
     deviceId?: string;
     username?: string;
     action?: string;
+    /** 起始时间（毫秒时间戳）。 */
+    since?: number;
   }): Promise<{ logs: DeviceLogRecord[]; total: number }> {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
@@ -278,6 +293,7 @@ export const api = {
     if (params?.deviceId) query.set('deviceId', params.deviceId);
     if (params?.username) query.set('username', params.username);
     if (params?.action) query.set('action', params.action);
+    if (params?.since) query.set('since', String(params.since));
     const suffix = query.toString();
     return request(`/api/device-logs${suffix ? `?${suffix}` : ''}`);
   },
@@ -497,6 +513,56 @@ export const api = {
 
   getDashboard(): Promise<DashboardData> {
     return request('/api/dashboard');
+  },
+
+  getSiteSettings(): Promise<SiteSettings> {
+    return request('/api/settings');
+  },
+
+  updateSiteTitle(title: string): Promise<SiteSettings> {
+    return request('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ title }),
+    });
+  },
+
+  updateSiteSettings(input: {
+    title: string;
+    subtitle: string;
+    operatorDeviceLimit?: number;
+    adminDeviceLimit?: number;
+  }): Promise<SiteSettings> {
+    return request('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  },
+
+  async uploadSiteLogo(blob: Blob): Promise<{ logoUpdatedAt: number }> {
+    const response = await fetch('/api/settings/logo', {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'image/png' }),
+      body: blob,
+    });
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* 非 JSON 响应 */
+      }
+      throw new Error(msg);
+    }
+    return response.json() as Promise<{ logoUpdatedAt: number }>;
+  },
+
+  removeSiteLogo(): Promise<{ logoUpdatedAt: number }> {
+    return request('/api/settings/logo', { method: 'DELETE' });
+  },
+
+  siteLogoUrl(updatedAt: number): string {
+    return `/api/settings/logo?v=${updatedAt}`;
   },
 
   renamePackage(

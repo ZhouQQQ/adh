@@ -143,6 +143,17 @@ export class StreamManager {
     }
   }
 
+  /** 同一用户当前正在控制的设备数。 */
+  countControlledDevices(userId: string): number {
+    let count = 0;
+    for (const session of this.sessions.values()) {
+      if (session.closed || !session.controller) continue;
+      const meta = viewerMeta.get(session.controller);
+      if (meta?.user?.id === userId) count += 1;
+    }
+    return count;
+  }
+
   /** 管理员强制断开某台设备的投屏会话。 */
   kickDevice(deviceId: string, reason = '管理员强制断开连接'): boolean {
     const session = this.findSessionByDevice(deviceId);

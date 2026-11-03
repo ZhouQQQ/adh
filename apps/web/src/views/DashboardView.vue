@@ -458,14 +458,14 @@ function userText(item: DashboardData['recent'][number]): string {
   justify-content: center;
   padding-top: 4px;
   border-radius: 5px 5px 0 0;
-  background: #3b82f6;
+  background: var(--primary);
   transition: height 0.3s ease;
 }
 
 .bar-value {
   font-size: 10px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--primary-fg);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -530,7 +530,7 @@ function userText(item: DashboardData['recent'][number]): string {
 .rank-fill {
   height: 100%;
   border-radius: 2px;
-  background: #3b82f6;
+  background: var(--primary);
 }
 
 .recent {

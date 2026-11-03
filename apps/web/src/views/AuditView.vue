@@ -81,6 +81,27 @@ function userText(row: AuditRecord): string {
   return row.displayName ? `${row.username}（${row.displayName}）` : row.username;
 }
 
+/** 时间范围快捷选项。 */
+const RANGE_OPTIONS = [
+  { label: '全部时间', value: 'all' },
+  { label: '最近 10 分钟', value: '10m' },
+  { label: '最近 1 小时', value: '1h' },
+  { label: '最近 1 天', value: '1d' },
+  { label: '最近 7 天', value: '7d' },
+];
+const RANGE_MS: Record<string, number> = {
+  '10m': 10 * 60_000,
+  '1h': 60 * 60_000,
+  '1d': 24 * 60 * 60_000,
+  '7d': 7 * 24 * 60 * 60_000,
+};
+const range = ref<'all' | '10m' | '1h' | '1d' | '7d'>('all');
+
+function sinceValue(): number | undefined {
+  if (range.value === 'all') return undefined;
+  return Date.now() - (RANGE_MS[range.value] ?? 0);
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   try {
@@ -89,6 +110,7 @@ async function load(): Promise<void> {
       offset: (page.value - 1) * pageSize.value,
       username: keyword.value.trim() || undefined,
       action: action.value || undefined,
+      since: sinceValue(),
     });
     logs.value = result.logs;
     total.value = result.total;
@@ -186,6 +208,13 @@ onMounted(load);
         v-model:value="action"
         size="small"
         :options="actionOptions"
+        style="width: 140px"
+        @update:value="search"
+      />
+      <n-select
+        v-model:value="range"
+        size="small"
+        :options="RANGE_OPTIONS"
         style="width: 140px"
         @update:value="search"
       />

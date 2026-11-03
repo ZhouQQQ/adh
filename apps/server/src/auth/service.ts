@@ -347,9 +347,15 @@ export class AuthService {
     offset: number;
     username?: string;
     action?: string;
+    /** 只返回该时间之后的日志（毫秒时间戳）。 */
+    since?: number;
   }): Promise<{ rows: AuditRow[]; total: number }> {
     const where: string[] = [];
     const params: unknown[] = [];
+    if (options.since && options.since > 0) {
+      where.push('l.created_at >= ?');
+      params.push(options.since);
+    }
     if (options.username) {
       where.push('l.username = ?');
       params.push(options.username);

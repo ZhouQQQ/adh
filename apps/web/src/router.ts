@@ -8,6 +8,7 @@ import DeviceControlView from './views/DeviceControlView.vue';
 import DeviceLogsView from './views/DeviceLogsView.vue';
 import DevicesView from './views/DevicesView.vue';
 import LoginView from './views/LoginView.vue';
+import SettingsView from './views/SettingsView.vue';
 import UsersView from './views/UsersView.vue';
 
 export const router = createRouter({
@@ -73,6 +74,12 @@ export const router = createRouter({
       name: 'audit',
       component: AuditView,
       meta: { title: '审计日志', admin: true },
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsView,
+      meta: { title: '系统设置', admin: true },
     },
     { path: '/:pathMatch(.*)*', redirect: '/devices' },
   ],

@@ -21,11 +21,14 @@ import {
   PhonePortraitOutline,
   ReaderOutline,
   ServerOutline,
+  SettingsOutline,
   SpeedometerOutline,
 } from '@vicons/ionicons5';
 import { startFleet, stopFleet, useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
+import { useSite } from '../stores/site';
+import { api } from '../api';
 import FloatingPreviews from '../components/FloatingPreviews.vue';
 
 const route = useRoute();
@@ -33,6 +36,7 @@ const router = useRouter();
 const { agents, devices } = useFleet();
 const { previews, closeAllPreviews, focusPreview } = usePreviews();
 const { user, isAdmin, loadMe, logout } = useAuth();
+const { title: siteTitle, subtitle: siteSubtitle, logoUpdatedAt } = useSite();
 
 const previewMenu = computed<DropdownOption[]>(() => {
   if (previews.value.length === 0) return [];
@@ -152,6 +156,11 @@ const menuOptions = computed<MenuOption[]>(() => {
           key: '/agents',
           icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
         },
+        {
+          label: () => h(RouterLink, { to: '/settings' }, { default: () => '系统设置' }),
+          key: '/settings',
+          icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
+        },
       ],
     },
   );
@@ -172,10 +181,16 @@ const onlineDevices = computed(
   <n-layout has-sider class="app-shell">
     <n-layout-sider bordered :width="220">
       <div class="brand">
-        <div class="brand-mark">A</div>
+        <img
+          v-if="logoUpdatedAt > 0"
+          class="brand-logo"
+          :src="api.siteLogoUrl(logoUpdatedAt)"
+          alt="logo"
+        />
+        <div v-else class="brand-mark">A</div>
         <div class="brand-text">
-          <strong>设备农场</strong>
-          <span>Device Hub</span>
+          <strong>{{ siteTitle }}</strong>
+          <span>{{ siteSubtitle }}</span>
         </div>
       </div>
 
@@ -262,6 +277,14 @@ const onlineDevices = computed(
   color: #fafafa;
   font-size: 13px;
   font-weight: 600;
+}
+
+.brand-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: contain;
+  background: var(--surface-2);
 }
 
 .brand-text {

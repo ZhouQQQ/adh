@@ -10,6 +10,7 @@ import {
 } from 'naive-ui';
 import MainLayout from './layouts/MainLayout.vue';
 import { useAuth } from './stores/auth';
+import { loadSiteSettings } from './stores/site';
 import { shadcnTheme } from './theme';
 
 const route = useRoute();
@@ -27,6 +28,7 @@ function onUnauthorized(): void {
 
 onMounted(() => {
   window.addEventListener('adh:unauthorized', onUnauthorized);
+  void loadSiteSettings();
   if (!isLogin.value) void loadMe();
 });
 

@@ -428,6 +428,7 @@ async function createSession(): Promise<void> {
   } catch (error) {
     errorText.value =
       error instanceof Error ? error.message : '无法建立投屏会话';
+    message.warning(errorText.value);
   } finally {
     loading.value = false;
   }

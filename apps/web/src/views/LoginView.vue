@@ -3,10 +3,13 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NButton, NInput, useMessage } from 'naive-ui';
 import { useAuth } from '../stores/auth';
+import { useSite } from '../stores/site';
+import { api } from '../api';
 
 const router = useRouter();
 const message = useMessage();
 const { login } = useAuth();
+const { title: siteTitle, subtitle: siteSubtitle, logoUpdatedAt } = useSite();
 
 const username = ref('admin');
 const password = ref('');
@@ -38,10 +41,16 @@ async function submit(): Promise<void> {
   <div class="login-page">
     <div class="login-card">
       <div class="login-brand">
-        <div class="brand-mark">A</div>
+        <img
+          v-if="logoUpdatedAt > 0"
+          class="brand-logo"
+          :src="api.siteLogoUrl(logoUpdatedAt)"
+          alt="logo"
+        />
+        <div v-else class="brand-mark">A</div>
         <div class="brand-text">
-          <strong>设备农场</strong>
-          <span>Device Hub</span>
+          <strong>{{ siteTitle }}</strong>
+          <span>{{ siteSubtitle }}</span>
         </div>
       </div>
 

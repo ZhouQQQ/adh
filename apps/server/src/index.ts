@@ -27,6 +27,8 @@ import { registerAgentChannel } from './ws/agent.js';
 import { registerStreamChannel } from './ws/stream.js';
 import { WebHub } from './ws/web-hub.js';
 import { loadDashboard } from './stats/dashboard.js';
+import { SettingsService } from './settings/service.js';
+import { registerSettingsRoutes } from './http/settings-routes.js';
 
 /** ADH_SERVE_WEB=0 时只提供 API，前端页面走 Vite 开发服务器。 */
 async function main(): Promise<void> {
@@ -44,6 +46,10 @@ async function main(): Promise<void> {
   const icons = new AppIconStore(config.appIconDir, oss);
   const commands = new CommandBus(registry);
   const deviceLogs = new DeviceLogService(driver);
+  const settings = new SettingsService(
+    driver,
+    path.join(config.dataDir, 'branding'),
+  );
   const streams = new StreamManager({ queries, registry, hub, logger, deviceLogs });
   hub.setControlResolver((deviceId) => streams.getControl(deviceId));
 
@@ -77,7 +83,11 @@ async function main(): Promise<void> {
       path === WS_PATHS.web || path.startsWith(`${WS_PATHS.stream}/`);
 
     if (!isApi && !isBrowserWs) return;
-    if (PUBLIC_API.has(path)) return;
+    // 站点标题与 Logo 公开读取，登录页也要展示
+    const publicSiteRead =
+      request.method === 'GET' &&
+      (path === '/api/settings' || path === '/api/settings/logo');
+    if (PUBLIC_API.has(path) || publicSiteRead) return;
 
     const token = bearerToken(request);
     const user = token ? await auth.resolveToken(token) : null;
@@ -189,6 +199,7 @@ async function main(): Promise<void> {
     commands,
     streams,
     deviceLogs,
+    settings,
     port: config.port,
   });
 
@@ -199,6 +210,8 @@ async function main(): Promise<void> {
     }
     return loadDashboard({ db: driver, queries, packages, streams, registry });
   });
+
+  await registerSettingsRoutes(app, { settings });
 
   // 静态资源与 SPA 回退：Vite 构建产物输出到 apps/server/public
   // ADH_SERVE_WEB=0 时只提供 API，页面统一走 Vite 开发服务器

@@ -20,6 +20,7 @@ import { baseName, normalizeDevicePath, parseLsOutput } from '../files/ls.js';
 import type { AgentRegistry } from '../registry.js';
 import { PackageStore, packageKind, type PackageKind } from '../storage/packages.js';
 import type { OssStore } from '../storage/oss.js';
+import type { SettingsService } from '../settings/service.js';
 import { AppIconStore } from '../storage/app-icons.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
 import type { StreamManager } from '../stream/manager.js';
@@ -51,6 +52,7 @@ export interface HttpDeps {
   commands: CommandBus;
   streams: StreamManager;
   deviceLogs: DeviceLogService;
+  settings: SettingsService;
   port: number;
 }
 
@@ -772,6 +774,21 @@ export async function registerHttpRoutes(
     // 锁定后只有管理员能进入，其他人既不能控制也不能查看
     if (device.locked) {
       return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
+    // 同时控制设备数按角色限制，0 表示不限
+    if (request.user) {
+      const limit = await deps.settings.getDeviceLimit(request.user.role);
+      const current = deps.streams.getControl(id);
+      const alreadyMine = current?.userId === request.user.id;
+      if (
+        limit > 0 &&
+        !alreadyMine &&
+        deps.streams.countControlledDevices(request.user.id) >= limit
+      ) {
+        return reply.code(403).send({
+          error: `最多同时控制 ${limit} 台设备，请先断开其他设备`,
+        });
+      }
     }
     const body = request.body as { quality?: string } | undefined;
     try {

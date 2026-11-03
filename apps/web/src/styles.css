@@ -16,6 +16,9 @@ body,
   --text-muted: #52525b;
   --text-dim: #71717a;
   --text-faint: #a1a1aa;
+  /* 主题色，与 theme.ts 的 primaryColor 保持一致 */
+  --primary: #18181b;
+  --primary-fg: #fafafa;
 }
 
 body {

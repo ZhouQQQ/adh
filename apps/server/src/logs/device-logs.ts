@@ -59,9 +59,15 @@ export class DeviceLogService {
     deviceId?: string;
     username?: string;
     action?: string;
+    /** 只返回该时间之后的日志（毫秒时间戳）。 */
+    since?: number;
   }): Promise<{ logs: DeviceLogRow[]; total: number }> {
     const where: string[] = [];
     const params: unknown[] = [];
+    if (options.since && options.since > 0) {
+      where.push('l.created_at >= ?');
+      params.push(options.since);
+    }
     if (options.deviceId) {
       where.push('l.device_id = ?');
       params.push(options.deviceId);
