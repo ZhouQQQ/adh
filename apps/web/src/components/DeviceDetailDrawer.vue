@@ -17,7 +17,7 @@ import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import CopyValue from './CopyValue.vue';
 import DeviceStats from './DeviceStats.vue';
-import { api, thumbnailUrl } from '../api';
+import { api, thumbnailUrl, type DeviceRuntime } from '../api';
 import { useAuth } from '../stores/auth';
 import { useFleet } from '../stores/fleet';
 import {
@@ -46,6 +46,36 @@ const manualThumbnail = computed(
 );
 
 const publishedAt = ref<number | null>(null);
+const runtime = ref<DeviceRuntime | null>(null);
+
+/** 网络信息来自运行状态接口，详情里也展示一份。 */
+async function loadRuntime(): Promise<void> {
+  const device = props.device;
+  if (!device) {
+    runtime.value = null;
+    return;
+  }
+  try {
+    runtime.value = await api.getDeviceRuntime(device.id);
+  } catch {
+    runtime.value = null;
+  }
+}
+
+watch(
+  () => [props.show, props.device?.id] as const,
+  () => {
+    if (props.show) void loadRuntime();
+  },
+  { immediate: true },
+);
+
+const wifiLabel = computed(() => {
+  const wifi = runtime.value?.wifi;
+  if (!wifi) return undefined;
+  if (!wifi.connected) return '未连接';
+  return wifi.ssid ?? '已连接（未获取到名称）';
+});
 
 const publishedAgoText = computed(() => {
   const timestamp = props.device?.publishedAt ?? 0;
@@ -291,6 +321,15 @@ async function onImageSelected(event: Event): Promise<void> {
           <n-descriptions-item label="系统版本">
             <CopyValue :value="osLabel" />
           </n-descriptions-item>
+          <n-descriptions-item v-if="device.marketName" label="市场名称">
+            <CopyValue :value="device.marketName" />
+          </n-descriptions-item>
+          <n-descriptions-item v-if="device.model" label="型号">
+            <CopyValue :value="device.model" mono />
+          </n-descriptions-item>
+          <n-descriptions-item v-if="device.sdk" label="API Level">
+            <CopyValue :value="String(device.sdk)" />
+          </n-descriptions-item>
           <n-descriptions-item label="CPU">
             <CopyValue :value="device.cpu" />
           </n-descriptions-item>
@@ -311,6 +350,12 @@ async function onImageSelected(event: Event): Promise<void> {
           </n-descriptions-item>
           <n-descriptions-item label="分辨率">
             <CopyValue :value="formatResolution(device.resolution)" />
+          </n-descriptions-item>
+          <n-descriptions-item label="WiFi">
+            <CopyValue :value="wifiLabel" />
+          </n-descriptions-item>
+          <n-descriptions-item label="IP 地址">
+            <CopyValue :value="runtime?.wifi?.ip ?? undefined" />
           </n-descriptions-item>
           <n-descriptions-item label="所属节点">
             <CopyValue :value="agentName" />
