@@ -49,6 +49,58 @@ export interface ServerInfo {
     | { driver: 'oss'; bucket: string; prefix: string };
 }
 
+export type Role = 'admin' | 'operator';
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  displayName: string | null;
+  role: Role;
+}
+
+export interface UserRecord extends AuthUser {
+  enabled: boolean;
+  createdAt: number;
+  lastLoginAt: number;
+}
+
+export interface AuditRecord {
+  id: string;
+  userId: string | null;
+  username: string | null;
+  role: string | null;
+  action: string;
+  target: string | null;
+  method: string | null;
+  path: string | null;
+  status: number | null;
+  ip: string | null;
+  detail: string | null;
+  createdAt: number;
+}
+
+export interface DeviceLogRecord {
+  id: string;
+  deviceId: string | null;
+  deviceName: string | null;
+  userId: string | null;
+  username: string | null;
+  action: string;
+  detail: string | null;
+  ip: string | null;
+  createdAt: number;
+}
+
+function authHeaders(
+  extra?: Record<string, string>,
+): Record<string, string> {
+  const token = localStorage.getItem('adh.token');
+  return {
+    ...(extra ?? {}),
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 async function request<T>(
   url: string,
   init?: RequestInit,
@@ -58,7 +110,15 @@ async function request<T>(
   if (init?.body !== undefined && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
   }
+  const token = localStorage.getItem('adh.token');
+  if (token && !headers.has('authorization')) {
+    headers.set('authorization', `Bearer ${token}`);
+  }
   const response = await fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    localStorage.removeItem('adh.token');
+    window.dispatchEvent(new Event('adh:unauthorized'));
+  }
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {
@@ -74,6 +134,90 @@ async function request<T>(
 }
 
 export const api = {
+  login(
+    username: string,
+    password: string,
+  ): Promise<{ token: string; user: AuthUser }> {
+    return request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  },
+
+  logout(): Promise<void> {
+    return request('/api/auth/logout', { method: 'POST' });
+  },
+
+  me(): Promise<{ user: AuthUser | null }> {
+    return request('/api/auth/me');
+  },
+
+  listUsers(): Promise<{ users: UserRecord[] }> {
+    return request('/api/users');
+  },
+
+  createUser(body: {
+    username: string;
+    password: string;
+    role: Role;
+    displayName?: string | null;
+  }): Promise<{ user: UserRecord }> {
+    return request('/api/users', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateUser(
+    id: string,
+    body: {
+      displayName?: string | null;
+      role?: Role;
+      enabled?: boolean;
+      password?: string;
+    },
+  ): Promise<{ user: UserRecord }> {
+    return request(`/api/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
+  deleteUser(id: string): Promise<void> {
+    return request(`/api/users/${id}`, { method: 'DELETE' });
+  },
+
+  listAudit(params?: {
+    limit?: number;
+    offset?: number;
+    username?: string;
+    action?: string;
+  }): Promise<{ logs: AuditRecord[]; total: number }> {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    if (params?.username) query.set('username', params.username);
+    if (params?.action) query.set('action', params.action);
+    const suffix = query.toString();
+    return request(`/api/audit${suffix ? `?${suffix}` : ''}`);
+  },
+
+  listDeviceLogs(params?: {
+    limit?: number;
+    offset?: number;
+    deviceId?: string;
+    username?: string;
+    action?: string;
+  }): Promise<{ logs: DeviceLogRecord[]; total: number }> {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    if (params?.deviceId) query.set('deviceId', params.deviceId);
+    if (params?.username) query.set('username', params.username);
+    if (params?.action) query.set('action', params.action);
+    const suffix = query.toString();
+    return request(`/api/device-logs${suffix ? `?${suffix}` : ''}`);
+  },
   health(): Promise<{ ok: boolean; version: string }> {
     return request('/api/health');
   },
@@ -135,7 +279,7 @@ export const api = {
   ): Promise<DeviceSummary> {
     const response = await fetch(`/api/devices/${deviceId}/thumbnail`, {
       method: 'POST',
-      headers: { 'content-type': 'image/jpeg' },
+      headers: authHeaders({ 'content-type': 'image/jpeg' }),
       body: blob,
     });
     if (!response.ok) {
@@ -168,8 +312,11 @@ export const api = {
   },
 
   agentPackageUrl(platform?: string): string {
-    const query = platform ? `?platform=${encodeURIComponent(platform)}` : '';
-    return `/api/agent/download${query}`;
+    const query = new URLSearchParams();
+    if (platform) query.set('platform', platform);
+    const token = localStorage.getItem('adh.token');
+    if (token) query.set('token', token);
+    return `/api/agent/download?${query.toString()}`;
   },
 
   agentPlatforms(): Promise<{
@@ -206,12 +353,12 @@ export const api = {
     const isIpa = file.name.toLowerCase().endsWith('.ipa');
     const response = await fetch('/api/packages', {
       method: 'POST',
-      headers: {
+      headers: authHeaders({
         'content-type': isIpa
           ? 'application/octet-stream'
           : 'application/vnd.android.package-archive',
         'x-file-name': encodeURIComponent(file.name),
-      },
+      }),
       body: file,
     });
     if (!response.ok) {
@@ -270,7 +417,8 @@ export const api = {
   },
 
   packageFileUrl(id: string): string {
-    return `/api/packages/${id}/file`;
+    const token = localStorage.getItem('adh.token');
+    return `/api/packages/${id}/file${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
 
   listDeviceApps(
@@ -282,7 +430,10 @@ export const api = {
   },
 
   deviceAppExportUrl(deviceId: string, packageName: string): string {
-    return `/api/devices/${deviceId}/apps/export?package=${encodeURIComponent(packageName)}`;
+    const query = new URLSearchParams({ package: packageName });
+    const token = localStorage.getItem('adh.token');
+    if (token) query.set('token', token);
+    return `/api/devices/${deviceId}/apps/export?${query.toString()}`;
   },
 
   deviceAppIconUrl(
@@ -292,6 +443,8 @@ export const api = {
   ): string {
     const query = new URLSearchParams({ package: packageName });
     if (version) query.set('version', version);
+    const token = localStorage.getItem('adh.token');
+    if (token) query.set('token', token);
     return `/api/devices/${deviceId}/apps/icon?${query.toString()}`;
   },
 
@@ -320,6 +473,7 @@ export const api = {
   ): Promise<{ blob: Blob; name: string }> {
     const response = await fetch(
       `/api/devices/${deviceId}/files/download?path=${encodeURIComponent(filePath)}`,
+      { headers: authHeaders() },
     );
     if (!response.ok) {
       let msg = `${response.status} ${response.statusText}`;
@@ -344,10 +498,10 @@ export const api = {
       `/api/devices/${deviceId}/files/upload?dir=${encodeURIComponent(dir)}`,
       {
         method: 'POST',
-        headers: {
+        headers: authHeaders({
           'content-type': 'application/octet-stream',
           'x-file-name': encodeURIComponent(file.name),
-        },
+        }),
         body: file,
       },
     );
@@ -370,7 +524,7 @@ export const api = {
   ): Promise<Blob> {
     const response = await fetch(`/api/devices/${deviceId}/files/archive`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ paths }),
     });
     if (!response.ok) {
@@ -421,5 +575,8 @@ export const api = {
 };
 
 export function thumbnailUrl(device: DeviceSummary): string {
-  return `/api/devices/${device.id}/thumbnail?v=${device.thumbnailAt}`;
+  const query = new URLSearchParams({ v: String(device.thumbnailAt) });
+  const token = localStorage.getItem('adh.token');
+  if (token) query.set('token', token);
+  return `/api/devices/${device.id}/thumbnail?${query.toString()}`;
 }

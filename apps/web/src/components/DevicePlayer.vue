@@ -208,8 +208,9 @@ function connect(): void {
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const token = localStorage.getItem('adh.token') ?? '';
   const ws = new WebSocket(
-    `${protocol}://${window.location.host}/ws/stream/${props.sessionId}`,
+    `${protocol}://${window.location.host}/ws/stream/${props.sessionId}?token=${encodeURIComponent(token)}`,
   );
   ws.binaryType = 'arraybuffer';
   socket = ws;
@@ -269,6 +270,16 @@ async function drawIosFrame(data: Uint8Array): Promise<void> {
 }
 
 /** 优先消费 WDA 的 MJPEG 流（约 10fps），失败再退回截图轮询。 */
+function authHeaders(
+  extra?: Record<string, string>,
+): Record<string, string> {
+  const token = localStorage.getItem('adh.token');
+  return {
+    ...(extra ?? {}),
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 async function startIosStream(): Promise<void> {
   iosAbort?.abort();
   const controller = new AbortController();
@@ -277,7 +288,7 @@ async function startIosStream(): Promise<void> {
   try {
     const response = await fetch(
       `/api/devices/${props.deviceId}/ios/mjpeg?quality=${props.quality ?? 'medium'}`,
-      { signal: controller.signal, cache: 'no-store' },
+      { signal: controller.signal, cache: 'no-store', headers: authHeaders() },
     );
     if (!response.ok || !response.body) throw new Error('mjpeg unavailable');
 
@@ -315,7 +326,7 @@ async function pollIosFrame(): Promise<void> {
   try {
     const response = await fetch(
       `/api/devices/${props.deviceId}/ios/screenshot?quality=${props.quality ?? 'medium'}`,
-      { cache: 'no-store' },
+      { cache: 'no-store', headers: authHeaders() },
     );
     if (!response.ok) throw new Error('screenshot');
 
@@ -335,7 +346,7 @@ async function iosInput(payload: Record<string, unknown>): Promise<void> {
       `/api/devices/${props.deviceId}/ios/input`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify(payload),
       },
     );

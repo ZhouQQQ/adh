@@ -7,6 +7,7 @@ import {
   parseViewerMessage,
   type DeviceSummary,
   type StreamReady,
+  type ViewerToStreamMessage,
 } from '@adh/protocol';
 import {
   ScrcpyControlTranslator,
@@ -15,7 +16,9 @@ import {
   resolveQuality,
   type StreamQuality,
 } from '@adh/device-host';
+import type { AuthUser } from '../auth/service.js';
 import type { Queries } from '../db/queries.js';
+import type { DeviceLogService } from '../logs/device-logs.js';
 import type { Logger } from '../log.js';
 import type { AgentRegistry } from '../registry.js';
 import type { WebHub } from '../ws/web-hub.js';
@@ -48,7 +51,17 @@ export interface StreamManagerDeps {
   registry: AgentRegistry;
   hub: WebHub;
   logger: Logger;
+  deviceLogs: DeviceLogService;
 }
+
+interface ViewerMeta {
+  user?: AuthUser;
+  ip?: string;
+  lastTouch: number;
+}
+
+/** socket 对应的用户信息，用于写设备操作日志。 */
+const viewerMeta = new WeakMap<WebSocket, ViewerMeta>();
 
 function sendJson(socket: WebSocket, value: unknown): void {
   if (socket.readyState === 1) socket.send(JSON.stringify(value));
@@ -139,7 +152,12 @@ export class StreamManager {
     return this.create(deviceId, quality);
   }
 
-  attachViewer(sessionId: string, socket: WebSocket): void {
+  attachViewer(
+    sessionId: string,
+    socket: WebSocket,
+    user?: AuthUser,
+    ip?: string,
+  ): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       sendJson(socket, { t: 'error', message: '会话不存在或已结束' });
@@ -147,8 +165,23 @@ export class StreamManager {
       return;
     }
 
+    const becomesController = !session.controller;
     session.viewers.add(socket);
     if (!session.controller) session.controller = socket;
+
+    viewerMeta.set(socket, { user, ip, lastTouch: 0 });
+
+    if (user) {
+      void this.deps.deviceLogs.write({
+        deviceId: session.device.id,
+        deviceName: session.device.name,
+        userId: user.id,
+        username: user.username,
+        action: becomesController ? 'control.start' : 'control.view',
+        detail: becomesController ? '获得控制权' : '只读观看',
+        ip,
+      });
+    }
 
     this.clearIdleTimer(session);
 
@@ -175,6 +208,18 @@ export class StreamManager {
         if (next) {
           session.controller = next;
           sendJson(next, { t: 'role', controller: true });
+          const meta = viewerMeta.get(next);
+          if (meta?.user) {
+            void this.deps.deviceLogs.write({
+              deviceId: session.device.id,
+              deviceName: session.device.name,
+              userId: meta.user.id,
+              username: meta.user.username,
+              action: 'control.takeover',
+              detail: '控制者离开，自动接管',
+              ip: meta.ip,
+            });
+          }
           return;
         }
         this.destroy(session.id, '控制者已离开，设备已释放');
@@ -363,6 +408,9 @@ export class StreamManager {
     const message = parseViewerMessage(raw);
     if (!message) return;
 
+    const meta = viewerMeta.get(socket);
+    if (meta) this.logViewerAction(session, meta, message);
+
     try {
       if (session.local) {
         for (const payload of session.local.translator.translate(message)) {
@@ -380,6 +428,62 @@ export class StreamManager {
         'control message failed',
       );
     }
+  }
+
+  private logViewerAction(
+    session: StreamSession,
+    meta: ViewerMeta,
+    message: ViewerToStreamMessage,
+  ): void {
+    const user = meta.user;
+    if (!user) return;
+
+    let action = '';
+    let detail = '';
+
+    switch (message.t) {
+      case 'touch': {
+        if (message.phase !== 'began') return;
+        const now = Date.now();
+        if (now - meta.lastTouch < 1200) return;
+        meta.lastTouch = now;
+        action = 'input.touch';
+        detail = `(${message.x.toFixed(3)}, ${message.y.toFixed(3)})`;
+        break;
+      }
+      case 'key':
+        action = 'input.key';
+        detail = message.key;
+        break;
+      case 'text':
+        action = 'input.text';
+        detail = `输入 ${message.text.length} 个字符`;
+        break;
+      case 'rotate':
+        action = 'input.rotate';
+        detail = '旋转屏幕';
+        break;
+      case 'screen':
+        action = 'input.screen';
+        detail = message.on ? '亮屏' : '息屏';
+        break;
+      case 'panel':
+        action = 'input.panel';
+        detail = message.panel === 'settings' ? '快捷设置' : '通知栏';
+        break;
+      default:
+        return;
+    }
+
+    void this.deps.deviceLogs.write({
+      deviceId: session.device.id,
+      deviceName: session.device.name,
+      userId: user.id,
+      username: user.username,
+      action,
+      detail,
+      ip: meta.ip,
+    });
   }
 
   private broadcastBinary(

@@ -201,9 +201,25 @@ packages/device-host/ adb / scrcpy / iOS 采集
 docs/                部署与接入文档
 ```
 
+## 账号与权限
+
+首次启动会自动创建超级管理员：
+
+```
+用户名：root
+密码：rootxiaoan
+```
+
+- `admin`：全部权限，可管理用户、查看审计日志
+- `operator`：设备、应用、文件等日常操作
+
+所有 `/api` 接口和浏览器 WebSocket 都需要登录，Agent 仍使用 `adh_` 前缀的 key。
+登录信息显示在页面右上角，侧边栏按角色显示菜单。
+
 ## 说明
 
-- 内网工具，Web 端无鉴权
+- 内网工具，登录后才能访问
+- 写操作自动记入审计日志；设备控制、按键、安装、文件操作记入设备日志
 - iOS 的 WiFi SSID 系统不开放，只能显示 IP
 - iOS 文件管理受限于 App 容器，且需要 `ios tunnel start`
 - 离线包与平台相关，Windows / macOS 需分别在对应系统打包

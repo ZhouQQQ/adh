@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { RouterView, useRoute, useRouter } from 'vue-router';
 import {
   NConfigProvider,
   NDialogProvider,
@@ -7,7 +9,30 @@ import {
   zhCN,
 } from 'naive-ui';
 import MainLayout from './layouts/MainLayout.vue';
+import { useAuth } from './stores/auth';
 import { shadcnTheme } from './theme';
+
+const route = useRoute();
+const router = useRouter();
+const { clear, loadMe } = useAuth();
+
+const isLogin = computed(() => route.path === '/login');
+
+function onUnauthorized(): void {
+  clear();
+  if (route.path !== '/login') {
+    void router.replace('/login');
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('adh:unauthorized', onUnauthorized);
+  if (!isLogin.value) void loadMe();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('adh:unauthorized', onUnauthorized);
+});
 </script>
 
 <template>
@@ -18,7 +43,8 @@ import { shadcnTheme } from './theme';
   >
     <n-message-provider>
       <n-dialog-provider>
-        <MainLayout />
+        <RouterView v-if="isLogin" />
+        <MainLayout v-else />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>

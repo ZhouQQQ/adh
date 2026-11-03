@@ -14,6 +14,7 @@ import { runCommand, runCommandBuffer, resolveQuality } from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
 import type { CommandBus } from '../command-bus.js';
 import type { Queries } from '../db/queries.js';
+import type { DeviceLogService } from '../logs/device-logs.js';
 import { baseName, normalizeDevicePath, parseLsOutput } from '../files/ls.js';
 import type { AgentRegistry } from '../registry.js';
 import { PackageStore, packageKind, type PackageKind } from '../storage/packages.js';
@@ -48,6 +49,7 @@ export interface HttpDeps {
   agentDistDir: string;
   commands: CommandBus;
   streams: StreamManager;
+  deviceLogs: DeviceLogService;
   port: number;
 }
 
@@ -411,6 +413,23 @@ export async function registerHttpRoutes(
   app: FastifyInstance,
   deps: HttpDeps,
 ): Promise<void> {
+  const logDevice = (
+    request: FastifyRequest,
+    device: { id: string; name: string },
+    action: string,
+    detail?: string,
+  ): void => {
+    void deps.deviceLogs.write({
+      deviceId: device.id,
+      deviceName: device.name,
+      userId: request.user?.id,
+      username: request.user?.username,
+      action,
+      detail,
+      ip: request.ip,
+    });
+  };
+
   app.addContentTypeParser(
     'image/jpeg',
     { parseAs: 'buffer' },
@@ -865,6 +884,7 @@ export async function registerHttpRoutes(
       if (!result || result.code !== 0) {
         return reply.code(400).send({ error: output || 'IPA 安装失败' });
       }
+      logDevice(request, device, 'app.install', record.name);
       return { ok: true };
     }
 
@@ -894,6 +914,7 @@ export async function registerHttpRoutes(
       if (result.code !== 0 || !/success/i.test(result.stdout)) {
         return reply.code(400).send({ error: output || '安装失败' });
       }
+      logDevice(request, device, 'app.install', record.name);
       return { ok: true };
     }
 
@@ -911,6 +932,7 @@ export async function registerHttpRoutes(
       if (!result.ok) {
         return reply.code(400).send({ error: result.error ?? '安装失败' });
       }
+      logDevice(request, device, 'app.install', record.name);
       return { ok: true };
     } catch (error) {
       return reply.code(400).send({
@@ -982,6 +1004,7 @@ export async function registerHttpRoutes(
     }
 
     const name = baseName(filePath);
+    logDevice(request, device, 'file.download', filePath);
     return reply
       .header('content-type', 'application/octet-stream')
       .header(
@@ -1028,6 +1051,12 @@ export async function registerHttpRoutes(
           .code(400)
           .send({ error: result.stderr.trim() || '上传失败' });
       }
+      logDevice(
+        request,
+        device,
+        'file.upload',
+        `${remotePath} (${(body.length / 1024 / 1024).toFixed(1)} MB)`,
+      );
       return { path: remotePath };
     } finally {
       try {
@@ -1084,6 +1113,7 @@ export async function registerHttpRoutes(
       }
 
       const buffer = zip.toBuffer();
+      logDevice(request, device, 'file.download', `打包下载 ${count} 个文件`);
       return reply
         .header('content-type', 'application/zip')
         .header(
@@ -1125,6 +1155,7 @@ export async function registerHttpRoutes(
           .send({ error: result.stderr.trim() || `删除 ${target} 失败` });
       }
     }
+    logDevice(request, device, 'file.delete', targets.join(', ').slice(0, 400));
     return { ok: true, count: targets.length };
   });
 
@@ -1161,6 +1192,7 @@ export async function registerHttpRoutes(
         .code(400)
         .send({ error: result.stderr.trim() || '重命名失败' });
     }
+    logDevice(request, device, 'file.rename', `${source} → ${destination}`);
     return { ok: true, path: destination };
   });
 
@@ -1210,6 +1242,12 @@ export async function registerHttpRoutes(
         });
       }
     }
+    logDevice(
+      request,
+      device,
+      parsed.data.mode === 'copy' ? 'file.copy' : 'file.move',
+      `${sources.length} 个 → ${targetDir}`,
+    );
     return { ok: true, count: sources.length };
   });
 
@@ -1724,6 +1762,7 @@ export async function registerHttpRoutes(
       if (!result || result.code !== 0) {
         return reply.code(400).send({ error: output || '卸载失败' });
       }
+      logDevice(request, device, 'app.uninstall', packageName);
       return { ok: true };
     }
 
@@ -1736,6 +1775,7 @@ export async function registerHttpRoutes(
     if (result.code !== 0 || !/success/i.test(result.stdout)) {
       return reply.code(400).send({ error: output || '卸载失败' });
     }
+    logDevice(request, device, 'app.uninstall', packageName);
     return { ok: true };
   });
 

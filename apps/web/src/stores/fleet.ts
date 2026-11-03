@@ -46,7 +46,10 @@ function applyEvent(event: WebEvent): void {
 function connect(): void {
   if (closed) return;
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${protocol}://${window.location.host}/ws/web`);
+  const token = localStorage.getItem('adh.token') ?? '';
+  const ws = new WebSocket(
+    `${protocol}://${window.location.host}/ws/web?token=${encodeURIComponent(token)}`,
+  );
   socket = ws;
   connection.value = 'connecting';
 

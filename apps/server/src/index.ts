@@ -4,10 +4,15 @@ import Fastify, { type FastifyBaseLogger } from 'fastify';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WS_PATHS, BUILTIN_AGENT_ID } from '@adh/protocol';
+import { AuthService } from './auth/service.js';
+import { bearerToken } from './auth/token.js';
 import { loadConfig, SERVER_VERSION } from './config.js';
 import { CommandBus } from './command-bus.js';
 import { openDatabase } from './db/index.js';
 import { createQueries } from './db/queries.js';
+import { DeviceLogService } from './logs/device-logs.js';
+import { registerAuthRoutes } from './http/auth-routes.js';
+import { registerDeviceLogRoutes } from './http/device-log-routes.js';
 import { registerHttpRoutes } from './http/routes.js';
 import { LocalAgent } from './local-agent.js';
 import { createLogger } from './log.js';
@@ -26,6 +31,8 @@ async function main(): Promise<void> {
   const logger = createLogger(config.logLevel);
   const { driver, close: closeDatabase } = await openDatabase(config.db);
   const queries = createQueries(driver);
+  const auth = new AuthService(driver);
+  await auth.ensureDefaultAdmin();
   const registry = new AgentRegistry();
   const hub = new WebHub();
   const oss = config.oss ? new OssStore(config.oss) : null;
@@ -33,7 +40,8 @@ async function main(): Promise<void> {
   const packages = await PackageStore.create(config.packageDir, driver, oss);
   const icons = new AppIconStore(config.appIconDir, oss);
   const commands = new CommandBus(registry);
-  const streams = new StreamManager({ queries, registry, hub, logger });
+  const deviceLogs = new DeviceLogService(driver);
+  const streams = new StreamManager({ queries, registry, hub, logger, deviceLogs });
 
   const localAgent = new LocalAgent({
     queries,
@@ -53,6 +61,52 @@ async function main(): Promise<void> {
     // APK 上传需要更大的请求体上限
     bodyLimit: 512 * 1024 * 1024,
     disableRequestLogging: true,
+  });
+
+  const PUBLIC_API = new Set(['/api/health', '/api/auth/login']);
+
+  // 登录校验：/api 和浏览器 WebSocket 需要 token，/ws/agent 走 agent key
+  app.addHook('onRequest', async (request, reply) => {
+    const path = (request.raw.url ?? '').split('?')[0] ?? '';
+    const isApi = path.startsWith('/api');
+    const isBrowserWs =
+      path === WS_PATHS.web || path.startsWith(`${WS_PATHS.stream}/`);
+
+    if (!isApi && !isBrowserWs) return;
+    if (PUBLIC_API.has(path)) return;
+
+    const token = bearerToken(request);
+    const user = token ? await auth.resolveToken(token) : null;
+    if (!user) {
+      return reply.code(401).send({ error: '请先登录' });
+    }
+    request.user = user;
+
+    if (path.startsWith('/api/users') || path.startsWith('/api/audit')) {
+      if (user.role !== 'admin') {
+        return reply.code(403).send({ error: '需要管理员权限' });
+      }
+    }
+  });
+
+  // 写操作自动记审计日志，读操作不记
+  app.addHook('onResponse', async (request, reply) => {
+    const user = request.user;
+    if (!user) return;
+    const path = (request.raw.url ?? '').split('?')[0] ?? '';
+    if (!path.startsWith('/api')) return;
+    if (request.method === 'GET' || request.method === 'HEAD') return;
+
+    await auth.writeAudit({
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      action: 'http',
+      method: request.method,
+      path,
+      status: reply.statusCode,
+      ip: request.ip,
+    });
   });
 
   await app.register(websocket, {
@@ -76,6 +130,9 @@ async function main(): Promise<void> {
 
   registerStreamChannel(app, streams);
 
+  await registerAuthRoutes(app, { auth });
+  await registerDeviceLogRoutes(app, { deviceLogs });
+
   await registerHttpRoutes(app, {
     queries,
     registry,
@@ -87,6 +144,7 @@ async function main(): Promise<void> {
     agentDistDir: config.agentDistDir,
     commands,
     streams,
+    deviceLogs,
     port: config.port,
   });
 

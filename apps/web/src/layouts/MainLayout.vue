@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted } from 'vue';
+import { computed, h, onMounted, watch } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import {
   NButton,
@@ -15,10 +15,14 @@ import {
 import {
   AppsOutline,
   ArrowBackOutline,
+  DocumentTextOutline,
+  PeopleOutline,
   PhonePortraitOutline,
+  ReaderOutline,
   ServerOutline,
 } from '@vicons/ionicons5';
-import { startFleet, useFleet } from '../stores/fleet';
+import { startFleet, stopFleet, useFleet } from '../stores/fleet';
+import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
 import FloatingPreviews from '../components/FloatingPreviews.vue';
 
@@ -26,6 +30,7 @@ const route = useRoute();
 const router = useRouter();
 const { agents, devices, connection } = useFleet();
 const { previews, closeAllPreviews, focusPreview } = usePreviews();
+const { user, isAdmin, loadMe, logout } = useAuth();
 
 const previewMenu = computed<DropdownOption[]>(() => {
   if (previews.value.length === 0) return [];
@@ -54,25 +59,68 @@ function goBack(): void {
   if (backTo.value) void router.push(backTo.value);
 }
 
-onMounted(() => startFleet());
+onMounted(() => {
+  void loadMe();
+  startFleet();
+});
 
-const menuOptions = [
-  {
-    label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
-    key: '/devices',
-    icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
-  },
-  {
-    label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
-    key: '/apps',
-    icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
-  },
-  {
-    label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
-    key: '/agents',
-    icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
-  },
-];
+const roleLabel = computed(() =>
+  user.value?.role === 'admin' ? '管理员' : '操作员',
+);
+
+async function handleLogout(): Promise<void> {
+  stopFleet();
+  await logout();
+  await router.replace('/login');
+}
+
+watch([user, () => route.meta.admin], () => {
+  if (route.meta.admin && user.value && user.value.role !== 'admin') {
+    void router.replace('/devices');
+  }
+});
+
+const menuOptions = computed(() => {
+  const items = [
+    {
+      label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
+      key: '/devices',
+      icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
+    },
+    {
+      label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
+      key: '/apps',
+      icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
+    },
+    {
+      label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
+      key: '/agents',
+      icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
+    },
+    {
+      label: () => h(RouterLink, { to: '/device-logs' }, { default: () => '设备日志' }),
+      key: '/device-logs',
+      icon: () => h(NIcon, null, { default: () => h(ReaderOutline) }),
+    },
+  ];
+
+  if (isAdmin.value) {
+    items.push(
+      {
+        label: () => h(RouterLink, { to: '/users' }, { default: () => '用户管理' }),
+        key: '/users',
+        icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }),
+      },
+      {
+        label: () => h(RouterLink, { to: '/audit' }, { default: () => '审计日志' }),
+        key: '/audit',
+        icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
+      },
+    );
+  }
+
+  return items;
+});
 
 const activeKey = computed(() => route.path);
 const onlineAgents = computed(
@@ -144,6 +192,13 @@ const connectionMeta = computed(() => {
           <n-tag :type="connectionMeta.type" size="small" :bordered="false" round>
             {{ connectionMeta.text }}
           </n-tag>
+          <div class="user-chip">
+            <span class="user-name">
+              {{ user?.displayName || user?.username || '未登录' }}
+            </span>
+            <n-tag size="tiny" :bordered="false">{{ roleLabel }}</n-tag>
+            <n-button text size="tiny" @click="handleLogout">退出</n-button>
+          </div>
         </div>
       </header>
 
@@ -205,6 +260,23 @@ const connectionMeta = computed(() => {
 
 .menu-wrap {
   padding: 10px 8px;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.user-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .sider-footer {

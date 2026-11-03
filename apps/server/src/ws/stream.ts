@@ -18,7 +18,7 @@ export function registerStreamChannel(
         void manager.attachAgent(sessionId, socket, query.token ?? '');
         return;
       }
-      manager.attachViewer(sessionId, socket);
+      manager.attachViewer(sessionId, socket, request.user, request.ip);
     },
   );
 }
