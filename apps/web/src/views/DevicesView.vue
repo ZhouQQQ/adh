@@ -88,6 +88,8 @@ const selectedIds = ref<string[]>([]);
 
 /** 默认内置候选，配合设备实际值一起展示，没有设备命中的置灰。 */
 const DEFAULT_ANDROID_VERSIONS = [
+  '8',
+  '9',
   '10',
   '11',
   '12',
@@ -96,9 +98,18 @@ const DEFAULT_ANDROID_VERSIONS = [
   '15',
   '16',
 ];
-const DEFAULT_IOS_VERSIONS = ['15', '16', '17', '18', '26'];
-const DEFAULT_CORES = [4, 6, 8, 10, 12];
-const DEFAULT_MEMORY = [4, 6, 8, 12, 16, 24];
+const DEFAULT_IOS_VERSIONS = [
+  '12',
+  '13',
+  '14',
+  '15',
+  '16',
+  '17',
+  '18',
+  '26',
+];
+const DEFAULT_CORES = [2, 4, 6, 8, 10, 12, 16];
+const DEFAULT_MEMORY = [2, 3, 4, 6, 8, 12, 16, 24, 32];
 const DEFAULT_CPU_VENDORS = ['联发科', '高通', '华为', '三星', 'Google', '紫光展锐'];
 
 /** 系统版本只比较大版本：iOS 26.4.2 → 26。 */
