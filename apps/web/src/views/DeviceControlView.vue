@@ -343,18 +343,26 @@ const controlSinceText = computed(() =>
     ? formatDateTime(device.value.control.since)
     : '',
 );
-const canKick = computed(
-  () =>
-    isAdmin.value &&
-    Boolean(device.value?.control) &&
-    device.value?.control?.userId !== user.value?.id,
-);
+const canKick = computed(() => {
+  if (!isAdmin.value) return false;
+  const control = device.value?.control;
+  if (!control || control.userId === user.value?.id) return false;
+  // 管理员不能断开超级管理员
+  if (control.role === 'superadmin' && user.value?.role !== 'superadmin') {
+    return false;
+  }
+  return true;
+});
 const canTakeover = computed(() => {
   if (controller.value) return false;
   // 控制者主动释放后，任何观看者都能接管；其余情况只有管理员能抢
   if (releasedBy.value) return true;
-  if (isIos.value) return isAdmin.value;
-  return Boolean(sessionId.value) && isAdmin.value;
+  if (!isAdmin.value) return false;
+  const control = device.value?.control;
+  if (control?.role === 'superadmin' && user.value?.role !== 'superadmin') {
+    return false;
+  }
+  return isIos.value || Boolean(sessionId.value);
 });
 
 async function takeoverControl(): Promise<void> {

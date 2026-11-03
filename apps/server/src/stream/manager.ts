@@ -34,6 +34,7 @@ interface IosControl {
   userId: string;
   username: string;
   displayName?: string;
+  role: string;
   since: number;
   touchedAt: number;
 }
@@ -115,6 +116,7 @@ export class StreamManager {
       userId: entry.userId,
       username: entry.username,
       displayName: entry.displayName,
+      role: entry.role,
       since: entry.since,
     };
   }
@@ -132,6 +134,7 @@ export class StreamManager {
       userId: user.id,
       username: user.username,
       displayName: user.displayName,
+      role: user.role,
       since: Date.now(),
       touchedAt: Date.now(),
     };
@@ -182,6 +185,7 @@ export class StreamManager {
       userId: meta.user.id,
       username: meta.user.username,
       displayName: meta.user.displayName ?? undefined,
+      role: meta.user.role,
       since: session.controllerSince,
     };
   }
@@ -237,11 +241,28 @@ export class StreamManager {
   }
 
   /** 管理员强制断开某台设备的投屏会话。 */
-  kickDevice(deviceId: string, reason = '管理员强制断开连接'): boolean {
+  kickDevice(
+    deviceId: string,
+    user: AuthUser,
+    reason = '管理员强制断开连接',
+  ): boolean {
     const session = this.findSessionByDevice(deviceId);
     if (!session) {
-      return this.iosControls.delete(deviceId);
+      const ios = this.liveIosControl(deviceId);
+      if (!ios) return false;
+      // 管理员不能断开超级管理员
+      if (ios.role === 'superadmin' && user.role !== 'superadmin') return false;
+      this.iosControls.delete(deviceId);
+      return true;
     }
+
+    const meta = session.controller
+      ? viewerMeta.get(session.controller)
+      : undefined;
+    if (meta?.user?.role === 'superadmin' && user.role !== 'superadmin') {
+      return false;
+    }
+
     this.destroy(session.id, reason);
     return true;
   }
@@ -331,6 +352,8 @@ export class StreamManager {
     if (!session) {
       const ios = this.liveIosControl(deviceId);
       if (!ios) return false;
+      // 管理员不能断开超级管理员
+      if (ios.role === 'superadmin' && user.role !== 'superadmin') return false;
       if (!isAdminRole(user.role) && ios.userId !== user.id) return false;
       this.iosControls.delete(deviceId);
       return true;
@@ -338,6 +361,9 @@ export class StreamManager {
 
     const controller = session.controller;
     const meta = controller ? viewerMeta.get(controller) : undefined;
+    if (meta?.user?.role === 'superadmin' && user.role !== 'superadmin') {
+      return false;
+    }
     if (!isAdminRole(user.role) && meta?.user?.id !== user.id) return false;
 
     session.controller = null;
@@ -368,16 +394,29 @@ export class StreamManager {
   takeover(deviceId: string, user: AuthUser): boolean {
     const session = this.findSessionByDevice(deviceId);
     if (!session) {
-      // iOS：管理员直接把控制权抢过来
+      // iOS：管理员直接把控制权抢过来，但不能抢超级管理员
       if (!isAdminRole(user.role)) return false;
+      const existing = this.liveIosControl(deviceId);
+      if (existing?.role === 'superadmin' && user.role !== 'superadmin') {
+        return false;
+      }
       this.iosControls.set(deviceId, {
         userId: user.id,
         username: user.username,
         displayName: user.displayName,
+        role: user.role,
         since: Date.now(),
         touchedAt: Date.now(),
       });
       return true;
+    }
+
+    // 管理员不能接管超级管理员
+    const currentMeta = session.controller
+      ? viewerMeta.get(session.controller)
+      : undefined;
+    if (currentMeta?.user?.role === 'superadmin' && user.role !== 'superadmin') {
+      return false;
     }
 
     // 有人正在控制，或原控制者刚离开还没释放，只有管理员能抢

@@ -83,6 +83,8 @@ export const DeviceControlInfoSchema = z.object({
   userId: z.string(),
   username: z.string(),
   displayName: z.string().optional(),
+  /** 控制者角色：admin 不能接管 / 断开 superadmin。 */
+  role: z.string().optional(),
   /** 开始控制的时间（毫秒） */
   since: z.number(),
 });

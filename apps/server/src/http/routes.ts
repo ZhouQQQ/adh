@@ -866,11 +866,14 @@ export async function registerHttpRoutes(
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: '设备不存在' });
 
-    const kicked = deps.streams.kickDevice(id);
-    if (kicked) {
-      logDevice(request, device, 'control.kick', '强制断开他人投屏');
+    const kicked = deps.streams.kickDevice(id, request.user!);
+    if (!kicked) {
+      return reply.code(403).send({
+        error: '无法断开：会话不存在，或对方是超级管理员',
+      });
     }
-    return { ok: kicked };
+    logDevice(request, device, 'control.kick', '强制断开他人投屏');
+    return { ok: true };
   });
 
   /** 接管他人正在控制的设备；控制权空出来时任何人都能接管。 */
@@ -885,7 +888,9 @@ export async function registerHttpRoutes(
 
     const ok = deps.streams.takeover(id, request.user);
     if (!ok) {
-      return reply.code(400).send({ error: '控制权已被占用或会话不存在' });
+      return reply.code(400).send({
+        error: '控制权已被占用或会话不存在；管理员不能接管超级管理员',
+      });
     }
     logDevice(
       request,
@@ -932,7 +937,9 @@ export async function registerHttpRoutes(
 
     const ok = deps.streams.releaseControl(id, request.user);
     if (!ok) {
-      return reply.code(403).send({ error: '只有控制者或管理员可以断开' });
+      return reply.code(403).send({
+        error: '只有控制者或管理员可以断开；管理员不能断开超级管理员',
+      });
     }
     logDevice(request, device, 'control.stop', '释放控制权');
     return { ok: true };
