@@ -140,20 +140,20 @@ const cards = computed(() => {
       tone: 'cyan',
     },
     {
-      key: 'packages',
-      label: '安装包',
-      value: String(d.packages.total),
-      hint: `APK ${d.packages.apk} · IPA ${d.packages.ipa} · ${formatSize(d.packages.totalSize)}`,
-      icon: ArchiveOutline,
-      tone: 'rose',
-    },
-    {
       key: 'age',
       label: '设备平均年龄',
       value: formatAge(d.devices.avgAgeDays),
       hint: `依据 ${d.devices.publishedCount} 台已填发布时间的设备`,
       icon: CalendarOutline,
       tone: 'orange',
+    },
+    {
+      key: 'packages',
+      label: '安装包',
+      value: String(d.packages.total),
+      hint: `APK ${d.packages.apk} · IPA ${d.packages.ipa} · ${formatSize(d.packages.totalSize)}`,
+      icon: ArchiveOutline,
+      tone: 'rose',
     },
   ];
 });
