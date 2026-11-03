@@ -194,6 +194,24 @@ export class StreamManager {
     }
   }
 
+  /** 无会话设备（iOS）的查看开关：谁能看由 owner 控制。 */
+  private readonly deviceViewers = new Map<
+    string,
+    { allow: boolean; owner: string | null }
+  >();
+
+  /** iOS 等无会话设备是否允许其他人查看。 */
+  isViewersAllowed(
+    deviceId: string,
+    userId?: string,
+    role?: string,
+  ): boolean {
+    const entry = this.deviceViewers.get(deviceId);
+    if (!entry || entry.allow) return true;
+    if (role === 'admin' || role === 'superadmin') return true;
+    return entry.owner === userId;
+  }
+
   /** 控制者开关「允许其他人查看」，管理员不受限制。 */
   setAllowViewers(
     deviceId: string,
@@ -201,7 +219,11 @@ export class StreamManager {
     allow: boolean,
   ): boolean {
     const session = this.findSessionByDevice(deviceId);
-    if (!session) return false;
+    if (!session) {
+      // iOS 没有投屏会话，按设备级开关处理
+      this.deviceViewers.set(deviceId, { allow, owner: user.id });
+      return true;
+    }
 
     if (!isAdminRole(user.role)) {
       const meta = session.controller

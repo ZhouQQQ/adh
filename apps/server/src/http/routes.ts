@@ -1619,6 +1619,11 @@ export async function registerHttpRoutes(
     if (device.locked) {
       return reply.code(403).send({ error: '设备已被管理员锁定' });
     }
+    if (
+      !deps.streams.isViewersAllowed(id, request.user?.id, request.user?.role)
+    ) {
+      return reply.code(403).send({ error: '控制者已关闭其他人查看' });
+    }
 
     const { preset } = resolveQuality(
       (request.query as { quality?: string }).quality,
@@ -1761,6 +1766,11 @@ export async function registerHttpRoutes(
     }
     if (device.locked) {
       return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
+    if (
+      !deps.streams.isViewersAllowed(id, request.user?.id, request.user?.role)
+    ) {
+      return reply.code(403).send({ error: '控制者已关闭其他人查看' });
     }
 
     const port = await ensureMjpegPort(device.udid);

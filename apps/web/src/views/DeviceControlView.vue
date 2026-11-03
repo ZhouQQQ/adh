@@ -805,12 +805,12 @@ onBeforeUnmount(() => {
         <label
           v-if="controller || isAdmin"
           class="viewers-switch"
-          :title="isIos ? iosTip : '关闭后其他人无法查看'"
+          title="关闭后其他人无法查看"
         >
           <n-switch
             size="small"
             :value="allowViewers"
-            :disabled="!controller || isIos"
+            :disabled="!controller"
             @update:value="toggleViewers"
           />
           <span>允许他人查看</span>
