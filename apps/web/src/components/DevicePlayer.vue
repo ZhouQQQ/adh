@@ -36,6 +36,8 @@ const isIos = computed(() => props.platform === 'ios');
 let socket: WebSocket | null = null;
 let decoder: VideoDecoder | null = null;
 let timestamp = 0;
+/** 新接入的观看者要等第一个关键帧再解码 */
+let waitingKey = true;
 let pressing = false;
 let recorder: MediaRecorder | null = null;
 let recordedChunks: Blob[] = [];
@@ -121,6 +123,7 @@ function configureDecoder(ready: StreamReady): void {
 
   canvas.width = ready.width;
   canvas.height = ready.height;
+  waitingKey = true;
 
   decoder?.close();
   decoder = new VideoDecoder({
@@ -158,6 +161,12 @@ function handleBinary(data: ArrayBuffer): void {
       isKey = true;
       break;
     }
+  }
+
+  // 中途加入的观看者会先收到 P 帧，必须等第一个关键帧再解码，否则黑屏
+  if (waitingKey) {
+    if (!isKey) return;
+    waitingKey = false;
   }
 
   try {

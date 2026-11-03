@@ -5,6 +5,7 @@ import {
   FRAME_KIND,
   encodeFrame,
   parseViewerMessage,
+  type DeviceControlInfo,
   type DeviceSummary,
   type StreamReady,
   type ViewerToStreamMessage,
@@ -38,6 +39,8 @@ interface StreamSession {
   quality: StreamQuality;
   viewers: Set<WebSocket>;
   controller: WebSocket | null;
+  /** 当前控制者开始控制的时间 */
+  controllerSince: number;
   agentSocket: WebSocket | null;
   local: LocalStream | null;
   meta: StreamReady | null;
@@ -93,6 +96,28 @@ export class StreamManager {
       .map((session) => session.device.id);
   }
 
+  /** 当前正在控制设备的用户。 */
+  getControl(deviceId: string): DeviceControlInfo | undefined {
+    const session = this.findSessionByDevice(deviceId);
+    if (!session?.controller) return undefined;
+    const meta = viewerMeta.get(session.controller);
+    if (!meta?.user) return undefined;
+    return {
+      userId: meta.user.id,
+      username: meta.user.username,
+      displayName: meta.user.displayName ?? undefined,
+      since: session.controllerSince,
+    };
+  }
+
+  /** 管理员强制断开某台设备的投屏会话。 */
+  kickDevice(deviceId: string): boolean {
+    const session = this.findSessionByDevice(deviceId);
+    if (!session) return false;
+    this.destroy(session.id, '管理员强制断开连接');
+    return true;
+  }
+
   /** 同一台设备复用同一个会话，只有第一个 viewer 能控制。 */
   findSessionByDevice(deviceId: string): StreamSession | undefined {
     return [...this.sessions.values()].find(
@@ -123,6 +148,7 @@ export class StreamManager {
       quality: normalizeQuality(quality),
       viewers: new Set(),
       controller: null,
+      controllerSince: 0,
       agentSocket: null,
       local: null,
       meta: null,
@@ -165,9 +191,23 @@ export class StreamManager {
       return;
     }
 
-    const becomesController = !session.controller;
+    const previousController = session.controller;
+    // 管理员进入时直接接管控制权，其他人只能只读
+    const isAdmin = user?.role === 'admin';
+    const becomesController =
+      !previousController || (isAdmin && previousController !== socket);
+    const takeover =
+      becomesController && previousController !== null && previousController !== socket;
+
+    if (takeover && previousController) {
+      sendJson(previousController, { t: 'role', controller: false });
+    }
+
     session.viewers.add(socket);
-    if (!session.controller) session.controller = socket;
+    if (becomesController) {
+      session.controller = socket;
+      session.controllerSince = Date.now();
+    }
 
     viewerMeta.set(socket, { user, ip, lastTouch: 0 });
 
@@ -178,7 +218,11 @@ export class StreamManager {
         userId: user.id,
         username: user.username,
         action: becomesController ? 'control.start' : 'control.view',
-        detail: becomesController ? '获得控制权' : '只读观看',
+        detail: becomesController
+          ? takeover
+            ? '管理员接管控制权'
+            : '获得控制权'
+          : '只读观看',
         ip,
       });
     }
@@ -207,6 +251,7 @@ export class StreamManager {
         );
         if (next) {
           session.controller = next;
+          session.controllerSince = Date.now();
           sendJson(next, { t: 'role', controller: true });
           const meta = viewerMeta.get(next);
           if (meta?.user) {
@@ -315,7 +360,11 @@ export class StreamManager {
       if (!device) return;
       this.deps.hub.broadcast({
         t: 'device.updated',
-        device: { ...device, inUse: this.isInUse(deviceId) },
+        device: {
+          ...device,
+          inUse: this.isInUse(deviceId),
+          control: this.getControl(deviceId),
+        },
       });
     });
   }

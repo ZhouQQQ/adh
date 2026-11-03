@@ -392,6 +392,11 @@ export const api = {
     });
   },
 
+  /** 管理员强制断开该设备的投屏。 */
+  kickDeviceStream(deviceId: string): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/stream/kick`, { method: 'POST' });
+  },
+
   /** 在指定设备上安装已上传的 APK / IPA。 */
   installPackage(deviceId: string, packageId: string): Promise<{ ok: boolean }> {
     return request(`/api/devices/${deviceId}/install`, {

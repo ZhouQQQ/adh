@@ -63,6 +63,16 @@ export const DeviceInfoSchema = z.object({
 });
 export type DeviceInfo = z.infer<typeof DeviceInfoSchema>;
 
+/** 当前正在控制设备的用户。 */
+export const DeviceControlInfoSchema = z.object({
+  userId: z.string(),
+  username: z.string(),
+  displayName: z.string().optional(),
+  /** 开始控制的时间（毫秒） */
+  since: z.number(),
+});
+export type DeviceControlInfo = z.infer<typeof DeviceControlInfoSchema>;
+
 /** server 侧对外暴露的设备视图。 */
 export const DeviceSummarySchema = DeviceInfoSchema.extend({
   id: z.string(),
@@ -78,6 +88,8 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   safeKeyboard: SafeKeyboardLayoutSchema.optional(),
   /** 当前是否被某个控制会话占用。 */
   inUse: z.boolean().default(false),
+  /** 正在控制的人；只读观看不算占用。 */
+  control: DeviceControlInfoSchema.optional(),
 });
 export type DeviceSummary = z.infer<typeof DeviceSummarySchema>;
 

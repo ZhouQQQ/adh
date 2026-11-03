@@ -43,6 +43,7 @@ async function main(): Promise<void> {
   const commands = new CommandBus(registry);
   const deviceLogs = new DeviceLogService(driver);
   const streams = new StreamManager({ queries, registry, hub, logger, deviceLogs });
+  hub.setControlResolver((deviceId) => streams.getControl(deviceId));
 
   const localAgent = new LocalAgent({
     queries,

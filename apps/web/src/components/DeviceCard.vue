@@ -5,6 +5,7 @@ import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import {
   FingerPrintOutline,
   HardwareChipOutline,
+  PersonOutline,
   PhonePortraitOutline,
   ResizeOutline,
   SpeedometerOutline,
@@ -13,9 +14,11 @@ import {
 import type { DeviceSummary } from '@adh/protocol';
 import DeviceBattery from './DeviceBattery.vue';
 import { api } from '../api';
+import { useAuth } from '../stores/auth';
 import {
   formatMemory,
   formatAgo,
+  formatDuration,
   formatResolution,
 } from '../utils/format';
 
@@ -30,7 +33,48 @@ const emit = defineEmits<{
   detail: [device: DeviceSummary];
   control: [device: DeviceSummary];
   select: [id: string];
+  kick: [device: DeviceSummary];
 }>();
+
+const { user, isAdmin } = useAuth();
+const now = ref(Date.now());
+
+const controlName = computed(() =>
+  props.device.control
+    ? props.device.control.displayName || props.device.control.username
+    : '',
+);
+const controlDuration = computed(() =>
+  props.device.control
+    ? formatDuration(props.device.control.since, now.value)
+    : '',
+);
+const canKick = computed(
+  () =>
+    isAdmin.value &&
+    Boolean(props.device.control) &&
+    props.device.control?.userId !== user.value?.id,
+);
+
+/** 别人正在控制时，普通用户的按钮变成「查看」 */
+const controlLabel = computed(() =>
+  props.device.control &&
+  props.device.control.userId !== user.value?.id &&
+  !isAdmin.value
+    ? '查看'
+    : '控制',
+);
+
+let clockTimer: ReturnType<typeof setInterval> | null = null;
+onMounted(() => {
+  clockTimer = setInterval(() => {
+    now.value = Date.now();
+  }, 30_000);
+});
+onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = null;
+});
 
 const statusMeta = computed(() => {
   switch (props.device.status) {
@@ -131,15 +175,24 @@ const cpuText = computed(() => {
         </n-icon>
       </div>
 
+      <div
+        v-if="device.control"
+        class="control-tag"
+        :title="`${controlName} 正在控制`"
+      >
+        <n-icon :size="12"><PersonOutline /></n-icon>
+        <span class="control-name">{{ controlName }}</span>
+        <span class="control-time">· {{ controlDuration }}</span>
+      </div>
       <n-tag
-        v-if="device.inUse"
+        v-else-if="device.inUse"
         class="usage-tag"
         size="small"
         type="info"
         :bordered="false"
         round
       >
-        使用中
+        有人观看
       </n-tag>
       <div class="battery-tag">
         <DeviceBattery
@@ -218,7 +271,16 @@ const cpuText = computed(() => {
         :disabled="!canControl"
         @click="emit('control', device)"
       >
-        控制
+        {{ controlLabel }}
+      </n-button>
+      <n-button
+        v-if="canKick"
+        size="tiny"
+        type="error"
+        quaternary
+        @click="emit('kick', device)"
+      >
+        断开
       </n-button>
     </div>
   </article>
@@ -296,6 +358,35 @@ const cpuText = computed(() => {
   top: 34px;
   left: 8px;
   backdrop-filter: blur(6px);
+}
+
+.control-tag {
+  position: absolute;
+  top: 34px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(10, 10, 11, 0.72);
+  color: #e4e4e7;
+  font-size: 10px;
+  backdrop-filter: blur(6px);
+}
+
+.control-name {
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-time {
+  color: #a1a1aa;
+  white-space: nowrap;
 }
 
 .select-toggle {

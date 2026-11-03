@@ -649,6 +649,7 @@ export async function registerHttpRoutes(
     return devices.map((device) => ({
       ...(isOnline(device.agentId) ? device : { ...device, status: 'offline' as const }),
       inUse: inUse.has(device.id),
+      control: deps.streams.getControl(device.id),
     }));
   });
 
@@ -656,7 +657,7 @@ export async function registerHttpRoutes(
     const { id } = request.params as { id: string };
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: 'device not found' });
-    return { ...device, inUse: deps.streams.isInUse(id) };
+    return { ...device, inUse: deps.streams.isInUse(id), control: deps.streams.getControl(id) };
   });
 
   /** 编辑设备元信息（目前只有发布时间）。 */
@@ -722,6 +723,22 @@ export async function registerHttpRoutes(
         error: error instanceof Error ? error.message : '无法切换画质',
       });
     }
+  });
+
+  /** 管理员强制断开某台设备当前的投屏。 */
+  app.post('/api/devices/:id/stream/kick', async (request, reply) => {
+    if (request.user?.role !== 'admin') {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+
+    const kicked = deps.streams.kickDevice(id);
+    if (kicked) {
+      logDevice(request, device, 'control.kick', '强制断开他人投屏');
+    }
+    return { ok: kicked };
   });
 
   /* ---------------------------------------------------------------- */

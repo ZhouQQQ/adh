@@ -8,6 +8,7 @@ import {
   NIcon,
   NInput,
   NTag,
+  useDialog,
   useMessage,
 } from 'naive-ui';
 import { SearchOutline } from '@vicons/ionicons5';
@@ -21,6 +22,27 @@ import { memoryGb } from '../utils/format';
 const router = useRouter();
 const { devices, agents, refresh } = useFleet();
 const message = useMessage();
+const dialog = useDialog();
+
+async function kickDevice(device: DeviceSummary): Promise<void> {
+  const control = device.control;
+  const name = control ? control.displayName || control.username : '对方';
+  dialog.warning({
+    title: '强制断开',
+    content: `确定断开 ${name} 对「${device.name}」的控制吗？`,
+    positiveText: '断开',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await api.kickDeviceStream(device.id);
+        message.success('已断开');
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '断开失败');
+      }
+    },
+  });
+}
 
 const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
@@ -684,6 +706,7 @@ function resetFilters(): void {
         @detail="openDetail"
         @control="openControl"
         @select="toggleSelect"
+        @kick="kickDevice"
       />
     </div>
 
@@ -694,8 +717,12 @@ function resetFilters(): void {
     >
       <template #extra>
         <p v-if="devices.length === 0" class="empty-hint">
-          用 USB 连接 Android 设备并开启「USB 调试」，节点会在 5 秒内自动发现。
-          若显示「未授权」，请在手机上确认调试授权弹窗。
+          <strong>Android：</strong>用 USB 连接并开启「USB 调试」，节点会在 5 秒内自动发现。
+          显示「未授权」时，请在手机上确认调试授权弹窗。
+        </p>
+        <p v-if="devices.length === 0" class="empty-hint">
+          <strong>iOS：</strong>用 USB 连接并在手机上点「信任此电脑」，启动
+          WebDriverAgent（WDA）后会自动发现。
         </p>
         <n-button v-else size="small" @click="resetFilters">清空筛选条件</n-button>
       </template>
@@ -866,7 +893,7 @@ function resetFilters(): void {
 }
 
 .empty-hint {
-  margin: 0;
+  margin: 0 0 6px;
   max-width: 460px;
   font-size: 12px;
   line-height: 1.7;

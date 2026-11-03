@@ -21,15 +21,22 @@ import CopyValue from '../components/CopyValue.vue';
 import type { SafeKeyboardLayout } from '@adh/protocol';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
+import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
 import { openDevicePip, supportsDocumentPip } from '../utils/document-pip';
 import { fileTimestamp, safeFileName, saveBlob } from '../utils/download';
-import { formatDateTime, formatMemory, formatResolution } from '../utils/format';
+import {
+  formatDateTime,
+  formatMemory,
+  formatResolution,
+  formatDuration,
+} from '../utils/format';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const { devices, agents, refresh } = useFleet();
+const { user, isAdmin } = useAuth();
 const { openPreview, closePreview, previews } = usePreviews();
 
 const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
@@ -128,6 +135,46 @@ const quality = ref<'low' | 'medium' | 'high'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
 const safeKeyboard = ref(false);
+
+const now = ref(Date.now());
+let clockTimer: number | null = null;
+
+const controlName = computed(() =>
+  device.value?.control
+    ? device.value.control.displayName || device.value.control.username
+    : '',
+);
+const controlDuration = computed(() =>
+  device.value?.control
+    ? formatDuration(device.value.control.since, now.value)
+    : '',
+);
+const controlSinceText = computed(() =>
+  device.value?.control
+    ? new Date(device.value.control.since).toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '',
+);
+const canKick = computed(
+  () =>
+    isAdmin.value &&
+    Boolean(device.value?.control) &&
+    device.value?.control?.userId !== user.value?.id,
+);
+
+async function kickControl(): Promise<void> {
+  const current = device.value;
+  if (!current) return;
+  try {
+    await api.kickDeviceStream(current.id);
+    message.success('已强制断开');
+    await refresh();
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '断开失败');
+  }
+}
 
 /** 安全键盘位置存服务端，多人共享。 */
 function saveSafeKeyboard(layout: SafeKeyboardLayout): void {
@@ -412,6 +459,9 @@ function togglePip(): void {
 onMounted(async () => {
   document.addEventListener('fullscreenchange', onFullscreenChange);
   window.addEventListener('keydown', onKeydown);
+  clockTimer = window.setInterval(() => {
+    now.value = Date.now();
+  }, 30_000);
   if (devices.value.length === 0) await refresh();
   await createSession();
 });
@@ -419,6 +469,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   window.removeEventListener('keydown', onKeydown);
+  if (clockTimer) window.clearInterval(clockTimer);
   document.title = 'ADH · 设备农场';
   if (document.fullscreenElement === stageRef.value) {
     void document.exitFullscreen();
@@ -448,6 +499,7 @@ onBeforeUnmount(() => {
         v-model:value="quality"
         size="tiny"
         class="quality-select"
+        :disabled="!controller"
         :options="[
           { label: '低画质', value: 'low' },
           { label: '中画质', value: 'medium' },
@@ -455,6 +507,25 @@ onBeforeUnmount(() => {
         ]"
         @update:value="onQualityChange"
       />
+      <n-tag
+        v-if="device?.control"
+        size="small"
+        type="warning"
+        :bordered="false"
+        round
+      >
+        {{ controlName }} 从 {{ controlSinceText }} 起控制 · 已
+        {{ controlDuration }}
+      </n-tag>
+      <n-button
+        v-if="canKick"
+        size="tiny"
+        type="error"
+        ghost
+        @click="kickControl"
+      >
+        强制断开
+      </n-button>
       <n-tag
         v-if="sessionId && !controller"
         size="small"
@@ -556,6 +627,11 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <div v-if="sessionId && !controller" class="readonly-banner">
+          {{ controlName }} 从 {{ controlSinceText }} 开始控制这台设备，你当前只能查看。
+          <template v-if="isAdmin">可以点右上角「强制断开」后接管。</template>
+        </div>
+
         <div v-if="pipActive" class="pip-notice">
           <div class="pip-title">画面已切换到画中画</div>
           <div class="pip-desc">
@@ -648,7 +724,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <aside class="side">
+      <aside class="side" :class="{ readonly: !controller }">
         <section class="section">
           <div class="section-title">导航</div>
           <div class="grid-3">
@@ -1080,6 +1156,26 @@ onBeforeUnmount(() => {
 
 .placeholder-btn:active {
   transform: scale(0.98);
+}
+
+.readonly-banner {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  z-index: 11;
+  max-width: 70%;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.92);
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+}
+
+.side.readonly {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .side {

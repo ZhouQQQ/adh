@@ -62,8 +62,6 @@ async function submit(): Promise<void> {
           登录
         </n-button>
       </form>
-
-      <p class="login-hint">默认管理员：admin / admin</p>
     </div>
   </div>
 </template>
@@ -126,12 +124,5 @@ async function submit(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.login-hint {
-  margin: 18px 0 0;
-  font-size: 11px;
-  color: var(--text-faint, #a1a1aa);
-  text-align: center;
 }
 </style>
