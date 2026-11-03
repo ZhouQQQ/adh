@@ -151,7 +151,8 @@ function configureDecoder(ready: StreamReady): void {
       const context = canvas.getContext('2d');
       if (context) {
         context.drawImage(frame, 0, 0, canvas.width, canvas.height);
-        drawTouchMarks(context, canvas.width, canvas.height);
+        // 只有录制时才把触摸点画进画面，平时预览保持干净
+        if (recorder) drawTouchMarks(context, canvas.width, canvas.height);
         captureTrack?.requestFrame();
       }
       frame.close();
@@ -356,7 +357,7 @@ async function drawIosFrame(data: Uint8Array): Promise<void> {
     const context = canvas.getContext('2d');
     if (context) {
       context.drawImage(bitmap, 0, 0);
-      drawTouchMarks(context, canvas.width, canvas.height);
+      if (recorder) drawTouchMarks(context, canvas.width, canvas.height);
       captureTrack?.requestFrame();
     }
   }

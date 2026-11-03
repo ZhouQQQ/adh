@@ -40,8 +40,8 @@ export class ScrcpyControlTranslator {
             message.y * height,
             width,
             height,
-            message.dx,
-            -message.dy,
+            message.dx * 16,
+            -message.dy * 16,
           ),
         ];
       }
