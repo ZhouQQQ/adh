@@ -117,6 +117,23 @@ export class ScrcpySession {
       5_000,
     );
     this.showTouchesWasOn = current.stdout.trim() === '1';
+    // 直接改系统设置比依赖 scrcpy 参数更可靠
+    if (!this.showTouchesWasOn) {
+      await runCommand(
+        'adb',
+        [
+          '-s',
+          udid,
+          'shell',
+          'settings',
+          'put',
+          'system',
+          'show_touches',
+          '1',
+        ],
+        5_000,
+      );
+    }
 
     this.spawnServer(udid);
 
