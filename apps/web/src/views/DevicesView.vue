@@ -488,6 +488,15 @@ function openControl(device: DeviceSummary): void {
     }
   }
 
+  // iOS 未启动 WDA 时无法投屏，先提示去卡片菜单启动
+  if (
+    device.platform === 'ios' &&
+    !device.capabilities?.includes('wda')
+  ) {
+    message.warning('该 iPhone 的 WDA 尚未启动，请在卡片右上角菜单里先启动 WDA');
+    return;
+  }
+
   // 控制页放在新标签页，设备列表可以继续实时刷新
   const { href } = router.resolve(`/devices/${device.id}/control`);
   window.open(href, '_blank', 'noopener');
@@ -812,6 +821,7 @@ function resetFilters(): void {
         @select="toggleSelect"
         @kick="kickDevice"
         @lock="toggleLock"
+        @refresh="refresh"
       />
     </div>
 

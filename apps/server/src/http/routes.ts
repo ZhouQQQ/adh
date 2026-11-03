@@ -11,7 +11,12 @@ import {
   type DeviceSummary,
   type SafeKeyboardLayout,
 } from '@adh/protocol';
-import { runCommand, runCommandBuffer, resolveQuality } from '@adh/device-host';
+import {
+  runCommand,
+  runCommandBuffer,
+  resolveQuality,
+  invalidateWdaCache,
+} from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
 import type { CommandBus } from '../command-bus.js';
 import type { Queries } from '../db/queries.js';
@@ -44,6 +49,7 @@ import {
   wdaWindow,
 } from '../ios/wda.js';
 import { ensureMjpegPort } from '../ios/mjpeg.js';
+import { installWda, startWda } from '../ios/wda-runner.js';
 
 export interface HttpDeps {
   queries: Queries;
@@ -1738,6 +1744,49 @@ export async function registerHttpRoutes(
   });
 
   /** iOS 切换画质：直接调整 WDA MJPEG 参数，不重建连接。 */
+  /** 一键启动 iOS 设备上的 WebDriverAgent。 */
+  app.post('/api/devices/:id/ios/wda/start', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+    if (!isAdminRole(request.user?.role ?? '')) {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const result = await startWda(device.udid);
+    if (!result.ok) {
+      return reply.code(400).send({ error: result.message });
+    }
+    // 启动成功后立即更新设备能力，前端刷新就能看到 WDA 已就绪
+    invalidateWdaCache();
+    const caps = new Set(device.capabilities ?? []);
+    caps.add('wda');
+    await deps.queries.patchDevice(device.agentId, device.udid, {
+      capabilities: [...caps],
+    });
+    return { ok: true, message: result.message };
+  });
+
+  /** 为 iOS 设备安装 / 更新 WDA（需要配置签名材料）。 */
+  app.post('/api/devices/:id/ios/wda/install', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await requireLocalDevice(id, reply);
+    if (!device) return reply;
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+    if (!isAdminRole(request.user?.role ?? '')) {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const result = await installWda(device.udid);
+    if (!result.ok) {
+      return reply.code(400).send({ error: result.message });
+    }
+    return { ok: true, message: result.message };
+  });
+
   app.post('/api/devices/:id/ios/quality', async (request, reply) => {
     const { id } = request.params as { id: string };
     const device = await requireLocalDevice(id, reply);

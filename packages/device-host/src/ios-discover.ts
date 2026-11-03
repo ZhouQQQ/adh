@@ -29,6 +29,11 @@ const infoCache = new Map<string, CacheEntry>();
 let commandCache: { at: number; command: string | null } | null = null;
 let wdaCache: { at: number; available: boolean } | null = null;
 
+/** WDA 启动成功后清掉探测缓存，让下一次发现立即带上 wda 能力。 */
+export function invalidateWdaCache(): void {
+  wdaCache = null;
+}
+
 async function resolveCommand(): Promise<string | null> {
   if (commandCache && Date.now() - commandCache.at < 60_000) {
     return commandCache.command;
@@ -186,11 +191,8 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
     await delay(1_200);
     wda = await probeWda(true);
   }
-  // 用户约定：iOS 必须先启动 WDA（automation running）才接入节点
-  if (!wda) {
-    infoCache.clear();
-    return [];
-  }
+  // WDA 未启动时也上报设备，前端会提示并提供「启动 WDA」入口
+  const capabilities = wda ? ['ios', 'wda'] : ['ios'];
 
   const devices: DeviceInfo[] = [];
 
@@ -202,7 +204,7 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
       name: info?.DeviceName ?? udid,
       brand: 'Apple',
       status: 'online',
-      capabilities: ['ios', 'wda'],
+      capabilities,
       tags: [],
     };
 

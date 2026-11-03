@@ -5,10 +5,12 @@ import {
   NDropdown,
   NIcon,
   NTag,
+  useMessage,
   type DropdownOption,
 } from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import {
+  CloudDownloadOutline,
   EllipsisVerticalOutline,
   FingerPrintOutline,
   HardwareChipOutline,
@@ -16,6 +18,7 @@ import {
   LockOpenOutline,
   PersonOutline,
   PhonePortraitOutline,
+  PlayCircleOutline,
   ResizeOutline,
   SpeedometerOutline,
   WifiOutline,
@@ -44,26 +47,78 @@ const emit = defineEmits<{
   select: [id: string];
   kick: [device: DeviceSummary];
   lock: [device: DeviceSummary];
+  refresh: [];
 }>();
 
 const { user, isAdmin } = useAuth();
+const message = useMessage();
 const now = ref(Date.now());
+const wdaBusy = ref(false);
 
-/** 卡片右上角三点菜单：目前只有锁定 / 解锁。 */
-const moreOptions = computed<DropdownOption[]>(() => [
-  {
-    label: props.device.locked ? '解除锁定' : '锁定设备',
-    key: 'lock',
-    icon: () =>
-      h(NIcon, null, {
-        default: () =>
-          h(props.device.locked ? LockOpenOutline : LockClosedOutline),
-      }),
-  },
-]);
+/** 卡片右上角三点菜单：锁定 / 解锁，iOS 额外提供 WDA 安装与启动。 */
+const moreOptions = computed<DropdownOption[]>(() => {
+  const options: DropdownOption[] = [
+    {
+      label: props.device.locked ? '解除锁定' : '锁定设备',
+      key: 'lock',
+      icon: () =>
+        h(NIcon, null, {
+          default: () =>
+            h(props.device.locked ? LockOpenOutline : LockClosedOutline),
+        }),
+    },
+  ];
 
-function onMoreSelect(key: string): void {
-  if (key === 'lock') emit('lock', props.device);
+  if (props.device.platform === 'ios') {
+    const wdaReady = props.device.capabilities?.includes('wda');
+    if (!wdaReady) {
+      options.push({
+        label: wdaBusy.value ? '正在启动 WDA…' : '启动 WDA',
+        key: 'start-wda',
+        disabled: wdaBusy.value,
+        icon: () => h(NIcon, null, { default: () => h(PlayCircleOutline) }),
+      });
+    }
+    options.push({
+      label: '安装 / 更新 WDA',
+      key: 'install-wda',
+      disabled: wdaBusy.value,
+      icon: () =>
+        h(NIcon, null, { default: () => h(CloudDownloadOutline) }),
+    });
+  }
+
+  return options;
+});
+
+async function onMoreSelect(key: string): Promise<void> {
+  if (key === 'lock') {
+    emit('lock', props.device);
+    return;
+  }
+  if (key !== 'start-wda' && key !== 'install-wda') return;
+  if (wdaBusy.value) return;
+
+  wdaBusy.value = true;
+  const loading = message.loading(
+    key === 'start-wda' ? '正在启动 WDA…' : '正在安装 WDA，可能需要 1–2 分钟…',
+    { duration: 0 },
+  );
+  try {
+    const result =
+      key === 'start-wda'
+        ? await api.startIosWda(props.device.id)
+        : await api.installIosWda(props.device.id);
+    message.success(result.message || '操作完成');
+    emit('refresh');
+  } catch (error) {
+    message.error(
+      error instanceof Error ? error.message : '操作失败',
+    );
+  } finally {
+    loading.destroy();
+    wdaBusy.value = false;
+  }
 }
 
 const controlName = computed(() =>
@@ -263,6 +318,15 @@ const wifiTitle = computed(() => {
           round
         >
           {{ statusMeta.label }}
+        </n-tag>
+        <n-tag
+          v-if="device.platform === 'ios' && !device.capabilities?.includes('wda')"
+          size="small"
+          type="warning"
+          :bordered="false"
+          round
+        >
+          WDA 未启动
         </n-tag>
         <n-tag
           v-if="device.locked"

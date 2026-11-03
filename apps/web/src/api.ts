@@ -648,6 +648,20 @@ export const api = {
     });
   },
 
+  /** iOS 一键启动 WDA。 */
+  startIosWda(deviceId: string): Promise<{ ok: boolean; message: string }> {
+    return request(`/api/devices/${deviceId}/ios/wda/start`, {
+      method: 'POST',
+    });
+  },
+
+  /** iOS 安装 / 更新 WDA（需要服务端配置签名材料）。 */
+  installIosWda(deviceId: string): Promise<{ ok: boolean; message: string }> {
+    return request(`/api/devices/${deviceId}/ios/wda/install`, {
+      method: 'POST',
+    });
+  },
+
   /** 安装包图标；后台会从 apk / ipa 里解析并缓存。 */
   packageIconUrl(id: string): string {
     const token = localStorage.getItem('adh.token');

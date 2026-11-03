@@ -236,7 +236,34 @@ adb start-server
    - 设置 → 隐私与安全性 → 开发者模式
    - 打开后设备会重启，重启后再次确认开启
 
-### 6.2 安装并启动 WDA
+### 6.2 一键安装与启动（Web 控制台）
+
+设备卡片右上角菜单对 iOS 提供两个操作：
+
+| 菜单项 | 用途 |
+| --- | --- |
+| **启动 WDA** | 设备已安装 WDA，只是没在运行，自动执行 go-ios 并等待 8100 就绪 |
+| **安装 / 更新 WDA** | 全新设备，需要服务端先配置签名材料 |
+
+签名材料配置在 server 的 `.env`：
+
+```bash
+ADH_WDA_P12=D:\certs\wda.p12
+ADH_WDA_PROFILE=D:\certs\wda.mobileprovision
+ADH_WDA_P12_PASSWORD=xxxx
+
+# 可选：已经有签名好的 WDA 时直接指定 bundle
+ADH_WDA_BUNDLE_ID=com.facebook.WebDriverAgentRunner.xctrunner.XXXX
+ADH_WDA_TEST_BUNDLE_ID=com.facebook.WebDriverAgentRunner.xctrunner.XXXX
+```
+
+配置后重启 server。安装完成还需要在手机上手动信任证书：
+
+**设置 → 通用 → VPN 与设备管理 → 开发者 App → 信任**
+
+没有签名材料时「安装 / 更新 WDA」会提示未配置，只能手动用 Xcode 或 go-ios 安装。
+
+### 6.3 手动安装并启动 WDA
 
 go-ios 提供两种方式。
 
@@ -265,7 +292,7 @@ ios runwda \
 - 手机屏幕出现「Automation Running」提示
 - 本机访问 `http://127.0.0.1:8100/status` 返回 `state: success`
 
-### 6.3 端口转发
+### 6.4 端口转发
 
 WDA 默认监听设备侧的 8100，需要转发到本机：
 
@@ -282,7 +309,7 @@ WDA 默认监听设备侧的 8100，需要转发到本机：
 ADH_WDA_URL=http://<wda-host>:8100
 ```
 
-### 6.4 保持 WDA 运行
+### 6.5 保持 WDA 运行
 
 `ios runwda` 是前台进程，终端关闭就退出。建议：
 
@@ -290,7 +317,7 @@ ADH_WDA_URL=http://<wda-host>:8100
 - 或者用计划任务 / systemd 守护，退出后自动重启
 - USB 掉线会导致 WDA 退出，日志里是 `conn closed unexpectedly` / `lost connection to testmanagerd`，重新插拔后重新执行启动命令即可
 
-### 6.5 iOS 键盘说明
+### 6.6 iOS 键盘说明
 
 - 密码框会启用系统的**安全键盘**，第三方输入法被禁用，这是 iOS 行为，无法关闭
 - 安全键盘在**截图 / 录屏 / 投屏**里会被系统抹掉，所以 Web 画面上看不到键盘，但真机是正常显示的
