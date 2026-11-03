@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { NIcon } from 'naive-ui';
-import { Flash } from '@vicons/ionicons5';
+import { FlashOutline } from '@vicons/ionicons5';
 import { api, type DeviceRuntime } from '../api';
 
 const props = defineProps<{ deviceId: string; online: boolean }>();
@@ -72,8 +72,8 @@ const fillWidth = computed(() => {
     <span class="shell">
       <span class="fill" :style="{ width: fillWidth }" />
       <span class="value" :class="{ 'with-bolt': charging }">{{ level }}%</span>
-      <n-icon v-if="charging" class="bolt" :size="11">
-        <Flash />
+      <n-icon v-if="charging" class="bolt" :size="10">
+        <FlashOutline />
       </n-icon>
     </span>
     <span class="tip" />
@@ -166,7 +166,6 @@ const fillWidth = computed(() => {
   z-index: 2;
   transform: translateY(-50%);
   color: #ffffff;
-  filter: drop-shadow(0 1px 2px rgba(9, 9, 11, 0.7));
 }
 
 .temp {
