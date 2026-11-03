@@ -56,7 +56,7 @@ const tone = computed(() => {
 
 const fillWidth = computed(() => {
   const value = Math.min(100, Math.max(0, level.value ?? 0));
-  return `calc((100% - 3px) * ${value} / 100)`;
+  return `${value}%`;
 });
 </script>
 
@@ -117,10 +117,10 @@ const fillWidth = computed(() => {
 
 .fill {
   position: absolute;
-  left: 1.5px;
-  top: 1.5px;
-  bottom: 1.5px;
-  border-radius: 2px;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 0;
   background: var(--tone, #22c55e);
   background-image: linear-gradient(
     180deg,
@@ -165,7 +165,8 @@ const fillWidth = computed(() => {
   top: 50%;
   z-index: 2;
   transform: translateY(-50%);
-  color: #15803d;
+  color: #ffffff;
+  filter: drop-shadow(0 1px 1px rgba(9, 9, 11, 0.55));
 }
 
 .temp {
