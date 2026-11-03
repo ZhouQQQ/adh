@@ -716,16 +716,6 @@ onBeforeUnmount(() => {
           @update:value="onQualityChange"
         />
         <n-button
-          v-if="!isIos"
-          size="tiny"
-          :type="safeKeyboard ? 'primary' : 'default'"
-          :ghost="safeKeyboard"
-          :disabled="!controller"
-          @click="toggleSafeKeyboard"
-        >
-          {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
-        </n-button>
-        <n-button
           v-if="device && device.status !== 'online'"
           size="tiny"
           type="warning"
@@ -1163,6 +1153,17 @@ onBeforeUnmount(() => {
             @click="sendText"
           >
             发送到设备
+          </n-button>
+          <n-button
+            v-if="!isIos"
+            size="small"
+            block
+            :type="safeKeyboard ? 'primary' : 'default'"
+            :ghost="safeKeyboard"
+            :disabled="!controller"
+            @click="toggleSafeKeyboard"
+          >
+            {{ safeKeyboard ? '隐藏安全键盘' : '安全键盘' }}
           </n-button>
         </section>
       </aside>
