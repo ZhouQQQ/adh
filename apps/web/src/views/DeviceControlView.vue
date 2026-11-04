@@ -199,7 +199,7 @@ const shareLink = computed(() => {
 
 const shareText = computed(() => {
   if (!shareLink.value) return '';
-  return `我邀请你查看 ${device.value?.name ?? '设备'}\n${shareLink.value}`;
+  return `我邀请你查看「${device.value?.name ?? '设备'}」\n${shareLink.value}`;
 });
 
 function openShare(): void {
