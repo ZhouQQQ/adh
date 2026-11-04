@@ -229,7 +229,7 @@ adb start-server
    输出类似：
 
    ```json
-   {"deviceList":["00008030-000E245636E0802E"]}
+   {"deviceList":["00008030-XXXXXXXXXXXXXXXX"]}
    ```
 
 3. iOS 16 及以上需要打开开发者模式：

@@ -22,7 +22,7 @@ const useHttps = process.env.ADH_HTTPS !== '0';
  *   Blocked request. This host ("xxx") is not allowed.
  *
  * 默认放行所有域名（本机开发服务器）。需要收紧时设置：
- *   ADH_ALLOWED_HOSTS=yd.frp-bus.com,adh.example.com
+ *   ADH_ALLOWED_HOSTS=adb.example.com,adh.example.com
  *   ADH_ALLOWED_HOSTS=strict   // 只允许 localhost 和 IP
  */
 function resolveAllowedHosts(): true | string[] {
