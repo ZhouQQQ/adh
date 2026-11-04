@@ -2134,11 +2134,30 @@ export async function registerHttpRoutes(
   /** 设备网络信息：SSID（iOS 不支持）+ IP，卡片与详情共用。 */
   app.get('/api/devices/:id/network', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = await requireLocalDevice(id, reply);
-    if (!device) return reply;
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
 
     if (device.platform === 'ios') {
-      const status = await wdaStatus(wdaPortFor(device.udid));
+      // 本机直接问 WDA，远程让 agent 问它本机的 WDA
+      let status: { ip: string | null } | null = null;
+      if (device.agentId === BUILTIN_AGENT_ID) {
+        status = await wdaStatus(wdaPortFor(device.udid));
+      } else {
+        try {
+          const remote = await deps.commands.send(
+            device.agentId,
+            'ios.status',
+            { udid: device.udid },
+            device.id,
+            10_000,
+          );
+          status =
+            (remote.data as { status?: { ip: string | null } | null } | undefined)
+              ?.status ?? null;
+        } catch {
+          status = null;
+        }
+      }
       return {
         platform: 'ios',
         connected: Boolean(status),
@@ -2147,15 +2166,15 @@ export async function registerHttpRoutes(
       };
     }
 
-    if (device.platform !== 'android') {
-      return reply.code(400).send({ error: '仅支持 Android / iOS 设备' });
-    }
+    // Android 的网络信息需要本机 adb
+    const local = await requireLocalDevice(id, reply);
+    if (!local) return reply;
 
     const [wifi, ip] = await Promise.all([
-      runCommand('adb', ['-s', device.udid, 'shell', 'cmd', 'wifi', 'status'], 8_000),
+      runCommand('adb', ['-s', local.udid, 'shell', 'cmd', 'wifi', 'status'], 8_000),
       runCommand(
         'adb',
-        ['-s', device.udid, 'shell', 'ip', '-f', 'inet', 'addr', 'show', 'wlan0'],
+        ['-s', local.udid, 'shell', 'ip', '-f', 'inet', 'addr', 'show', 'wlan0'],
         8_000,
       ),
     ]);

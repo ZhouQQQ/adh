@@ -294,6 +294,8 @@ export const DeviceActionSchema = z.enum([
   /** 设备级 iOS：一键启动 / 重启 WDA（XCTest + 端口转发）。 */
   'ios.wda.start',
   'ios.wda.stop',
+  /** 读取 WDA 状态（设备 IP 等）。 */
+  'ios.status',
   /** 调整 WDA MJPEG 的帧率 / 质量 / 缩放。 */
   'ios.quality',
 ]);

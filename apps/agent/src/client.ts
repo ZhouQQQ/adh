@@ -9,6 +9,7 @@ import {
   stopWda,
   wdaApplyMjpegSettings,
   wdaPortFor,
+  wdaStatus,
 } from '@adh/device-host';
 import {
   parseServerMessage,
@@ -171,6 +172,27 @@ export class AgentClient {
       platform?: string;
       restart?: boolean;
     };
+
+    if (message.action === 'ios.status' && params.udid) {
+      void wdaStatus(wdaPortFor(params.udid))
+        .then((status) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: true,
+            data: { status },
+          });
+        })
+        .catch((error: unknown) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return;
+    }
 
     if (message.action === 'ios.wda.start' && params.udid) {
       void startWda(params.udid, undefined, Boolean(params.restart))

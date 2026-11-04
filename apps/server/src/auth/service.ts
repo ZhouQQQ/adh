@@ -92,8 +92,11 @@ function toUser(row: { id: string; username: string; role: string; displayName: 
 export class AuthService {
   constructor(private readonly db: SqlDriver) {}
 
-  /** 首次启动创建默认超管 admin / admin。 */
-  async ensureDefaultAdmin(): Promise<void> {
+  /**
+   * 首次启动创建默认超管 admin / admin。
+   * 返回是否真的新建了账号（启动日志用它提示初始密码）。
+   */
+  async ensureDefaultAdmin(): Promise<boolean> {
     const [row] = await this.db.query<{ total: number }>(
       'SELECT COUNT(*) AS total FROM adh_users',
     );
@@ -104,8 +107,8 @@ export class AuthService {
         role: 'superadmin',
         displayName: '超级管理员',
       });
-      console.log('[auth] created default superadmin: admin');
-      return;
+      console.log('[auth] 已创建默认管理员：admin / admin');
+      return true;
     }
 
     // 旧库默认账号是 root，平滑改成 admin
@@ -118,8 +121,10 @@ export class AuthService {
          WHERE id = ?`,
         [hashPassword('admin'), root.id],
       );
-      console.log('[auth] migrated default admin: root -> admin');
+      console.log('[auth] 已把默认管理员 root 迁移为 admin / admin');
+      return true;
     }
+    return false;
   }
 
   async login(

@@ -148,7 +148,7 @@ export class LocalAgent {
     try {
       const status = await getTunnelStatus();
       await this.deps.queries.updateAgentTunnel(BUILTIN_AGENT_ID, status);
-      const agent = await this.deps.queries.getAgent(BUILTIN_AGENT_ID);
+      const agent = await this.deps.queries.getAgentSummary(BUILTIN_AGENT_ID);
       if (agent) {
         this.deps.hub.broadcast({
           t: 'agent.updated',

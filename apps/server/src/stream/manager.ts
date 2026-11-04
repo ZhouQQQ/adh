@@ -140,7 +140,7 @@ export class StreamManager {
     const entry: IosControl = existing ?? {
       userId: user.id,
       username: user.username,
-      displayName: user.displayName,
+      displayName: user.displayName ?? undefined,
       role: user.role,
       since: Date.now(),
       touchedAt: Date.now(),
@@ -435,7 +435,7 @@ export class StreamManager {
       this.iosControls.set(deviceId, {
         userId: user.id,
         username: user.username,
-        displayName: user.displayName,
+        displayName: user.displayName ?? undefined,
         role: user.role,
         since: Date.now(),
         touchedAt: Date.now(),
@@ -909,15 +909,6 @@ export class StreamManager {
     let detail = '';
 
     switch (message.t) {
-      case 'touch': {
-        if (message.phase !== 'began') return;
-        const now = Date.now();
-        if (now - meta.lastTouch < 1200) return;
-        meta.lastTouch = now;
-        action = 'input.touch';
-        detail = `(${message.x.toFixed(3)}, ${message.y.toFixed(3)})`;
-        break;
-      }
       case 'key':
         action = 'input.key';
         detail = message.key;
@@ -929,10 +920,6 @@ export class StreamManager {
       case 'clipboard':
         action = 'input.clipboard';
         detail = `复制 ${message.text.length} 个字符到剪贴板`;
-        break;
-      case 'scroll':
-        action = 'input.scroll';
-        detail = `滚动 ${Math.round(message.dy)}`;
         break;
       case 'rotate':
         action = 'input.rotate';

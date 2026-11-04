@@ -7,6 +7,7 @@ import Fastify, {
   type FastifyRequest,
 } from 'fastify';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { WS_PATHS, BUILTIN_AGENT_ID } from '@adh/protocol';
 import { AuthService } from './auth/service.js';
@@ -36,6 +37,16 @@ import { SettingsService } from './settings/service.js';
 import { isAdminRole } from './auth/service.js';
 import { registerSettingsRoutes } from './http/settings-routes.js';
 
+/** 取一个非回环的 IPv4，用于启动日志展示局域网访问地址。 */
+function lanAddress(): string | null {
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal) return entry.address;
+    }
+  }
+  return null;
+}
+
 /** ADH_SERVE_WEB=0 时只提供 API，前端页面走 Vite 开发服务器。 */
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -43,7 +54,7 @@ async function main(): Promise<void> {
   const { driver, close: closeDatabase } = await openDatabase(config.db);
   const queries = createQueries(driver);
   const auth = new AuthService(driver);
-  await auth.ensureDefaultAdmin();
+  const createdDefaultAdmin = await auth.ensureDefaultAdmin();
   const registry = new AgentRegistry();
   const hub = new WebHub();
   const oss = config.oss ? new OssStore(config.oss) : null;
@@ -371,6 +382,19 @@ async function main(): Promise<void> {
       ? `web console  : http://127.0.0.1:${config.port}${basePath}/`
       : 'web console  : 已关闭静态托管（ADH_SERVE_WEB=0），开发请用 http://localhost:5173',
   );
+  if (config.serveWeb) {
+    const lan = lanAddress();
+    if (lan) {
+      logger.info(
+        `局域网访问   : http://${lan}:${config.port}${basePath}/`,
+      );
+    }
+    if (createdDefaultAdmin) {
+      logger.warn(
+        '初始账号     : admin / admin（首次启动创建，请登录后立即修改密码）',
+      );
+    }
+  }
   if (basePath) {
     logger.info(`base path    : ${basePath}`);
   }
