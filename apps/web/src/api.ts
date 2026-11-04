@@ -448,37 +448,65 @@ export const api = {
     });
   },
 
-  /** 上传安装包（apk / ipa，原始二进制，按 sha256 去重）。 */
-  async uploadPackage(
+  /**
+   * 上传安装包（apk / ipa，原始二进制，按 sha256 去重）。
+   * 用 XHR 而不是 fetch：只有 XHR 能拿到上传进度。
+   */
+  uploadPackage(
     file: File,
+    onProgress?: (loaded: number, total: number) => void,
   ): Promise<{ id: string; name: string; size: number; kind: PackageKind }> {
     const isIpa = file.name.toLowerCase().endsWith('.ipa');
-    const response = await fetch('/api/packages', {
-      method: 'POST',
-      headers: authHeaders({
-        'content-type': isIpa
-          ? 'application/octet-stream'
-          : 'application/vnd.android.package-archive',
-        'x-file-name': encodeURIComponent(file.name),
-      }),
-      body: file,
-    });
-    if (!response.ok) {
-      let msg = `${response.status} ${response.statusText}`;
-      try {
-        const body = (await response.json()) as { error?: string };
-        if (body.error) msg = body.error;
-      } catch {
-        /* ignore */
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/packages');
+      for (const [key, value] of Object.entries(
+        authHeaders({
+          'content-type': isIpa
+            ? 'application/octet-stream'
+            : 'application/vnd.android.package-archive',
+          'x-file-name': encodeURIComponent(file.name),
+        }),
+      )) {
+        xhr.setRequestHeader(key, value);
       }
-      throw new Error(msg);
-    }
-    return (await response.json()) as {
-      id: string;
-      name: string;
-      size: number;
-      kind: PackageKind;
-    };
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (!event.lengthComputable) return;
+        onProgress?.(event.loaded, event.total);
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(
+              JSON.parse(xhr.responseText) as {
+                id: string;
+                name: string;
+                size: number;
+                kind: PackageKind;
+              },
+            );
+          } catch {
+            reject(new Error('服务器返回内容不合法'));
+          }
+          return;
+        }
+        let msg = `${xhr.status} ${xhr.statusText}`;
+        try {
+          const body = JSON.parse(xhr.responseText) as { error?: string };
+          if (body.error) msg = body.error;
+        } catch {
+          /* ignore */
+        }
+        reject(new Error(msg));
+      });
+
+      xhr.addEventListener('error', () => reject(new Error('网络错误，上传失败')));
+      xhr.addEventListener('abort', () => reject(new Error('上传已取消')));
+      xhr.send(file);
+    });
   },
 
   /** 切换画质：重建投屏会话。 */
@@ -659,10 +687,14 @@ export const api = {
     });
   },
 
-  /** 安装包图标；后台会从 apk / ipa 里解析并缓存。 */
-  packageIconUrl(id: string): string {
+  /** 安装包图标；后台会从 apk / ipa 里解析并缓存。version 用于强制刷新。 */
+  packageIconUrl(id: string, version?: number): string {
     const token = localStorage.getItem('adh.token');
-    return `/api/packages/${id}/icon${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    const query = new URLSearchParams();
+    if (token) query.set('token', token);
+    if (version) query.set('v', String(version));
+    const suffix = query.toString();
+    return `/api/packages/${id}/icon${suffix ? `?${suffix}` : ''}`;
   },
 
   listDeviceApps(

@@ -1027,7 +1027,7 @@ export async function registerHttpRoutes(
     const id = PackageStore.hash(body);
     const record = await deps.packages.save(id, body, name);
     // 后台解析图标，第一次打开列表就有图
-    void ensurePackageIcon(record.id);
+    void parsePackageIcon(record.id, packageIconKey(record.id));
     return {
       id: record.id,
       name: record.name,
@@ -1044,13 +1044,71 @@ export async function registerHttpRoutes(
   /** 安装包图标：首次访问时从 apk / ipa 里解析出来并缓存。 */
   const packageIconKey = (id: string): string => `pkg-${id.slice(0, 16)}`;
 
-  async function ensurePackageIcon(id: string): Promise<Buffer | null> {
-    const key = packageIconKey(id);
-    if (deps.icons.has(key)) return deps.icons.read(key);
-    if (!(await deps.packages.ensureLocal(id))) return null;
+  /** 正在解析的图标任务，避免同一个安装包被并发重复解析。 */
+  const packageIconJobs = new Map<string, Promise<Buffer | null>>();
 
-    const file = await deps.packages.path(id);
+  /** 按密度从高到低挑 APK 里的启动图标。 */
+  const DENSITY_ORDER = ['xxxhdpi', 'xxhdpi', 'xhdpi', 'hdpi', 'mdpi', 'ldpi'];
+
+  function densityRank(name: string): number {
+    const match = /(xxxhdpi|xxhdpi|xhdpi|hdpi|mdpi|ldpi)/.exec(name);
+    if (!match) return DENSITY_ORDER.length;
+    return DENSITY_ORDER.indexOf(match[1]!);
+  }
+
+  function pickApkIconEntry(
+    entries: ReturnType<AdmZip['getEntries']>,
+  ): ReturnType<AdmZip['getEntries']>[number] | null {
+    const images = entries.filter(
+      (entry) =>
+        /^res\/(mipmap|drawable)/.test(entry.entryName) &&
+        /\.(png|webp)$/i.test(entry.entryName) &&
+        !/\.9\.png$/i.test(entry.entryName),
+    );
+
+    // 先找标准的 ic_launcher.png，再接受 ic_launcher_round / ic_launcher_foreground 等
+    const exact = images.filter((entry) =>
+      /(^|\/)ic_launcher\.(png|webp)$/i.test(entry.entryName),
+    );
+    const loose = images.filter((entry) =>
+      /(^|\/)ic_launcher[^/]*\.(png|webp)$/i.test(entry.entryName),
+    );
+
+    for (const bucket of [exact, loose]) {
+      if (bucket.length === 0) continue;
+      bucket.sort((a, b) => densityRank(a.entryName) - densityRank(b.entryName));
+      return bucket[0]!;
+    }
+
+    // 命名不规范时退到 mipmap 里最大的图，避免拿到通知小图标
+    const mipmaps = images
+      .filter((entry) => entry.entryName.startsWith('res/mipmap'))
+      .sort((a, b) => b.header.size - a.header.size);
+    return mipmaps.find((entry) => entry.header.size >= 4096) ?? null;
+  }
+
+  async function extractApkIcon(file: string): Promise<Buffer | null> {
     try {
+      const zip = new AdmZip(file);
+      const entry = pickApkIconEntry(zip.getEntries());
+      if (!entry) return null;
+      const data = entry.getData();
+      if (data.length === 0) return null;
+      return await sharp(data)
+        .resize(96, 96, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toBuffer();
+    } catch {
+      return null;
+    }
+  }
+
+  /** app-info-parser：小包解析准确，大包可能一直不返回，外部必须加超时。 */
+  function parseIconWithParser(file: string): Promise<Buffer | null> {
+    return (async (): Promise<Buffer | null> => {
       const parser = new AppInfoParser(file);
       const info = await parser.parse();
       const raw = info.icon ?? info.application?.icon;
@@ -1060,28 +1118,75 @@ export async function registerHttpRoutes(
       const bytes = Buffer.from(encoded, 'base64');
       if (bytes.length === 0) return null;
 
-      const png = await sharp(bytes)
+      return await sharp(bytes)
         .resize(96, 96, {
           fit: 'contain',
           background: { r: 0, g: 0, b: 0, alpha: 0 },
         })
         .png()
         .toBuffer();
+    })().catch(() => null);
+  }
+
+  function withTimeout<T>(task: Promise<T | null>, ms: number): Promise<T | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), ms);
+      timer.unref?.();
+      task.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(null);
+        },
+      );
+    });
+  }
+
+  function parsePackageIcon(id: string, key: string): Promise<Buffer | null> {
+    const running = packageIconJobs.get(key);
+    if (running) return running;
+
+    const job = (async (): Promise<Buffer | null> => {
+      if (!(await deps.packages.ensureLocal(id))) return null;
+      const file = await deps.packages.path(id);
+
+      // APK 直接读 zip 找图标：app-info-parser 对超大包会卡死
+      const png =
+        packageKind(file) === 'apk'
+          ? (await extractApkIcon(file)) ??
+            (await withTimeout(parseIconWithParser(file), 8_000))
+          : await parseIconWithParser(file);
+
+      if (!png) return null;
       deps.icons.save(key, png);
       return png;
-    } catch {
-      return null;
-    }
+    })().finally(() => {
+      packageIconJobs.delete(key);
+    });
+
+    packageIconJobs.set(key, job);
+    return job;
   }
 
   app.get('/api/packages/:id/icon', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const png = await ensurePackageIcon(id);
-    if (!png) return reply.code(404).send({ error: '暂无图标' });
-    return reply
-      .header('content-type', 'image/png')
-      .header('cache-control', 'public, max-age=86400')
-      .send(png);
+    const key = packageIconKey(id);
+
+    if (!deps.icons.has(key)) await deps.icons.ensureLocal(key);
+    const cached = deps.icons.read(key);
+    if (cached) {
+      return reply
+        .header('content-type', 'image/png')
+        .header('cache-control', 'public, max-age=86400')
+        .send(cached);
+    }
+
+    // 大包解析要十几秒，不能一直挂着请求：后台解析，先 404 让前端显示平台兜底图标
+    void parsePackageIcon(id, key);
+    return reply.code(404).send({ error: '图标解析中' });
   });
 
   /** 编辑安装包：重命名、备注、标签。 */

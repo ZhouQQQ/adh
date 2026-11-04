@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import {
   NButton,
   NDynamicTags,
@@ -22,6 +22,7 @@ const packages = ref<PackageRecord[]>([]);
 const loading = ref(false);
 const uploading = ref(false);
 const uploadingName = ref('');
+const uploadPercent = ref(0);
 const keyword = ref('');
 const kindFilter = ref<'all' | 'apk' | 'ipa'>('all');
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -36,12 +37,43 @@ const editTags = ref<string[]>([]);
 const saving = ref(false);
 /** 图标解析失败的文件，回退到类型方块。 */
 const brokenIcons = ref<string[]>([]);
+/** 每个包的图标重试次数：后台解析大包需要时间，失败后自动重试几次。 */
+const iconAttempt = ref<Record<string, number>>({});
+const iconTimers = new Map<string, number>();
 
+const ICON_RETRY_LIMIT = 10;
+const ICON_RETRY_DELAY_MS = 2_500;
+
+function iconUrl(record: PackageRecord): string {
+  return api.packageIconUrl(record.id, iconAttempt.value[record.id] ?? 0);
+}
+
+/**
+ * 图标 404 时先显示平台兜底图标。
+ * 服务端是后台解析（大 APK 要十几秒），所以隔一会儿自动重试，
+ * 解析完成后不用刷新页面就能看到真实图标。
+ */
 function onIconError(id: string): void {
   if (!brokenIcons.value.includes(id)) {
     brokenIcons.value = [...brokenIcons.value, id];
   }
+
+  const attempt = iconAttempt.value[id] ?? 0;
+  if (attempt >= ICON_RETRY_LIMIT) return;
+  if (iconTimers.has(id)) return;
+
+  const timer = window.setTimeout(() => {
+    iconTimers.delete(id);
+    iconAttempt.value = { ...iconAttempt.value, [id]: attempt + 1 };
+    brokenIcons.value = brokenIcons.value.filter((item) => item !== id);
+  }, ICON_RETRY_DELAY_MS);
+  iconTimers.set(id, timer);
 }
+
+onBeforeUnmount(() => {
+  for (const timer of iconTimers.values()) window.clearTimeout(timer);
+  iconTimers.clear();
+});
 
 function openEdit(record: PackageRecord): void {
   editTarget.value = record;
@@ -131,12 +163,17 @@ async function uploadFiles(files: File[]): Promise<void> {
   if (valid.length === 0) return;
 
   uploading.value = true;
+  uploadPercent.value = 0;
   let succeeded = 0;
   try {
     for (const file of valid) {
       uploadingName.value = file.name;
+      uploadPercent.value = 0;
       try {
-        await api.uploadPackage(file);
+        await api.uploadPackage(file, (loaded, total) => {
+          uploadPercent.value =
+            total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+        });
         succeeded += 1;
       } catch (error) {
         message.error(
@@ -147,6 +184,7 @@ async function uploadFiles(files: File[]): Promise<void> {
   } finally {
     uploading.value = false;
     uploadingName.value = '';
+    uploadPercent.value = 0;
   }
 
   if (succeeded > 0) {
@@ -246,7 +284,7 @@ void load();
         {{ packages.length }} 个 · APK {{ counts.apk }} · IPA {{ counts.ipa }}
       </span>
       <span v-if="uploading" class="uploading">
-        正在上传 {{ uploadingName }} …
+        正在上传 {{ uploadingName }} · {{ uploadPercent }}%
       </span>
       <input
         ref="fileInput"
@@ -256,6 +294,10 @@ void load();
         hidden
         @change="onFileSelected"
       />
+    </div>
+
+    <div v-if="uploading" class="upload-track">
+      <div class="upload-bar" :style="{ width: `${uploadPercent}%` }" />
     </div>
 
     <n-spin :show="loading">
@@ -271,7 +313,7 @@ void load();
             <img
               v-if="!brokenIcons.includes(record.id)"
               class="pkg-icon"
-              :src="api.packageIconUrl(record.id)"
+              :src="iconUrl(record)"
               :alt="record.name"
               @error="onIconError(record.id)"
             />
@@ -411,6 +453,20 @@ void load();
   font-size: 11px;
   color: var(--text-dim);
   white-space: nowrap;
+}
+
+.upload-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.upload-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: #18181b;
+  transition: width 0.2s ease;
 }
 
 .list {
