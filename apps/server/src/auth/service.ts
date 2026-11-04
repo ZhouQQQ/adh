@@ -92,7 +92,7 @@ function toUser(row: { id: string; username: string; role: string; displayName: 
 export class AuthService {
   constructor(private readonly db: SqlDriver) {}
 
-  /** 首次启动创建默认超管 root / rootxiaoan。 */
+  /** 首次启动创建默认超管 admin / admin。 */
   async ensureDefaultAdmin(): Promise<void> {
     const [row] = await this.db.query<{ total: number }>(
       'SELECT COUNT(*) AS total FROM adh_users',
