@@ -1228,6 +1228,7 @@ onBeforeUnmount(() => {
             :device-id="device?.id"
             :quality="quality"
             :control-allowed="controller"
+            show-latency
             @controller-change="onPlayerControllerChange"
             @error="errorText = $event"
             @control-released="onControlReleased"

@@ -90,6 +90,24 @@ function stopLatencyProbe(): void {
   }
 }
 
+/* ------------------------- 渲染帧率 ------------------------- */
+
+const fps = ref(0);
+let renderedFrames = 0;
+let fpsWindowStart = performance.now();
+
+/** 每绘制一帧调用一次，按 1 秒窗口统计实际渲染帧率（丢帧会直接反映出来）。 */
+function markFrameRendered(): void {
+  renderedFrames += 1;
+  const now = performance.now();
+  const elapsed = now - fpsWindowStart;
+  if (elapsed >= 1_000) {
+    fps.value = Math.round((renderedFrames * 1_000) / elapsed);
+    renderedFrames = 0;
+    fpsWindowStart = now;
+  }
+}
+
 // 父组件拿到 iOS 控制权后同步给播放器，只读时不能操作
 watch(
   () => props.controlAllowed,
@@ -234,6 +252,7 @@ function configureDecoder(ready: StreamReady): void {
         // 只有录制时才把触摸点画进画面，平时预览保持干净
         if (recorder) drawTouchMarks(context, canvas.width, canvas.height);
         captureTrack?.requestFrame();
+        markFrameRendered();
       }
       frame.close();
     },
@@ -343,6 +362,11 @@ function handleText(raw: string): void {
 function connect(): void {
   resetPointers();
 
+  // 切换设备 / 重连时重新统计，避免沿用上一路的帧率
+  fps.value = 0;
+  renderedFrames = 0;
+  fpsWindowStart = performance.now();
+
   if (isIos.value) {
     // 控制权由服务端分配，只读用户也能看流但不能操作
     controller.value = props.controlAllowed ?? true;
@@ -442,6 +466,7 @@ async function drawIosFrame(data: Uint8Array): Promise<void> {
       context.drawImage(bitmap, 0, 0);
       if (recorder) drawTouchMarks(context, canvas.width, canvas.height);
       captureTrack?.requestFrame();
+      markFrameRendered();
     }
   }
   bitmap.close();
@@ -1263,11 +1288,13 @@ function releasePipStream(): void {
 
 onMounted(() => {
   pipVideoRef.value?.addEventListener('leavepictureinpicture', releasePipStream);
+  startLatencyProbe();
   connect();
 });
 
 onBeforeUnmount(() => {
   unmounted = true;
+  stopLatencyProbe();
   releasePipStream();
   socket?.close();
   socket = null;
@@ -1354,6 +1381,23 @@ defineExpose({
     />
     <div v-if="starting" class="overlay">正在连接设备…</div>
     <div v-else-if="!connected" class="overlay">连接已断开</div>
+    <div v-if="showLatency" class="hud">
+      <div
+        v-if="latencyLevel"
+        class="latency"
+        :class="latencyLevel"
+        :title="`浏览器到服务器往返 ${latencyMs}ms`"
+      >
+        <span class="latency-dot" />
+        <span class="latency-label">延迟 {{ latencyLabel }}</span>
+        <span class="latency-value">{{ latencyMs }}ms</span>
+      </div>
+      <div v-if="connected" class="latency fps" title="实际渲染帧率">
+        <span class="latency-dot" />
+        <span class="latency-label">FPS</span>
+        <span class="latency-value">{{ fps }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1405,5 +1449,60 @@ defineExpose({
   color: var(--text-dim);
   background: rgba(0, 0, 0, 0.6);
   pointer-events: none;
+}
+
+.hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.latency {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(15, 18, 24, 0.62);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.latency-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.latency.low .latency-dot {
+  background: #22c55e;
+}
+
+.latency.medium .latency-dot {
+  background: #f59e0b;
+}
+
+.latency.high .latency-dot {
+  background: #ef4444;
+}
+
+.latency.fps .latency-dot {
+  background: #38bdf8;
+}
+
+.latency-value {
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
 }
 </style>
