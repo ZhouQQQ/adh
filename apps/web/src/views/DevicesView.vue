@@ -83,6 +83,17 @@ async function applyLock(device: DeviceSummary, locked: boolean): Promise<void> 
 
 const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
+type BrandKey = 'apple' | 'huawei' | 'xiaomi' | 'honor' | 'oppo' | 'vivo';
+/** 品牌筛选：按厂商归一化，覆盖常见子品牌。 */
+const BRANDS: Array<{ key: BrandKey; label: string }> = [
+  { key: 'apple', label: '苹果' },
+  { key: 'huawei', label: '华为' },
+  { key: 'xiaomi', label: '小米' },
+  { key: 'honor', label: '荣耀' },
+  { key: 'oppo', label: 'OPPO' },
+  { key: 'vivo', label: 'vivo' },
+];
+const brand = ref<BrandKey | 'all'>('all');
 const agentFilter = ref<string>('all');
 const status = ref<DeviceStatus | 'all'>('all');
 const version = ref<string | 'all'>('all');
@@ -167,6 +178,30 @@ const versionOptions = computed(() => {
 const platformPresent = computed(
   () => new Set(devices.value.map((device) => device.platform)),
 );
+
+/** 把厂商名归一化到页面上的六个品牌，子品牌跟随主品牌。 */
+function deviceBrand(device: DeviceSummary): BrandKey | '' {
+  if (device.platform === 'ios') return 'apple';
+  const text = [device.brand, device.marketName, device.model, device.name]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (/redmi|xiaomi|poco/.test(text)) return 'xiaomi';
+  if (/honor/.test(text)) return 'honor';
+  if (/huawei/.test(text)) return 'huawei';
+  if (/oppo|oneplus|realme/.test(text)) return 'oppo';
+  if (/vivo|iqoo/.test(text)) return 'vivo';
+  return '';
+}
+
+const brandPresent = computed(() => {
+  const set = new Set<BrandKey>();
+  for (const device of devices.value) {
+    const key = deviceBrand(device);
+    if (key) set.add(key);
+  }
+  return set;
+});
 
 const statusPresent = computed(
   () => new Set(devices.value.map((device) => device.status)),
@@ -268,6 +303,9 @@ const filtered = computed(() => {
       if (platform.value !== 'all' && device.platform !== platform.value) {
         return false;
       }
+      if (brand.value !== 'all' && deviceBrand(device) !== brand.value) {
+        return false;
+      }
       if (status.value !== 'all' && device.status !== status.value) return false;
       if (version.value !== 'all') {
         const key = `${device.platform}:${majorVersion(device.osVersion)}`;
@@ -342,6 +380,10 @@ const activeFilters = computed(() => {
       label: platform.value === 'android' ? 'Android' : 'iOS',
     });
   }
+  if (brand.value !== 'all') {
+    const info = BRANDS.find((item) => item.key === brand.value);
+    list.push({ key: 'brand', label: `品牌: ${info?.label ?? brand.value}` });
+  }
   if (agentFilter.value !== 'all') {
     list.push({
       key: 'agent',
@@ -382,6 +424,9 @@ function removeFilter(key: string): void {
     case 'platform':
       platform.value = 'all';
       break;
+    case 'brand':
+      brand.value = 'all';
+      break;
     case 'agent':
       agentFilter.value = 'all';
       break;
@@ -421,6 +466,9 @@ watch(devices, () => {
   }
   if (platform.value !== 'all' && !platformPresent.value.has(platform.value)) {
     platform.value = 'all';
+  }
+  if (brand.value !== 'all' && !brandPresent.value.has(brand.value)) {
+    brand.value = 'all';
   }
   if (status.value !== 'all' && !statusPresent.value.has(status.value)) {
     status.value = 'all';
@@ -522,6 +570,7 @@ function batchControl(): void {
 function resetFilters(): void {
   keyword.value = '';
   platform.value = 'all';
+  brand.value = 'all';
   agentFilter.value = 'all';
   status.value = 'all';
   version.value = 'all';
@@ -622,6 +671,31 @@ function resetFilters(): void {
       </div>
 
       
+
+      <div class="filter-row">
+        <span class="filter-label">品牌:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: brand === 'all' }"
+            @click="brand = 'all'"
+          >
+            全部
+          </button>
+          <button
+            v-for="item in BRANDS"
+            :key="item.key"
+            type="button"
+            class="opt"
+            :class="{ active: brand === item.key }"
+            :disabled="!brandPresent.has(item.key)"
+            @click="brand = item.key"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+      </div>
 
       <div class="filter-row">
         <span class="filter-label">系统版本:</span>
