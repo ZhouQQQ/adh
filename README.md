@@ -31,21 +31,7 @@ docker run -d --name adh \
   ghcr.io/zhouqqq/adh:latest
 ```
 
-浏览器打开 `http://<服务器IP>:8080`，默认账号 `admin / admin`，**登录后到「系统设置 → 用户管理」改掉密码**。
-
-- 数据全在 `adh-data` 卷（容器内 `/data`），删容器不丢；**别去掉 `-v` 挂载**
-- 升级：`docker pull ghcr.io/zhouqqq/adh:latest` → `docker rm -f adh` → 重跑上面的命令
-- `ADH_LOCAL_AGENT=0` 表示关掉容器内置 Agent（容器里没有 USB）
-- 8080 被占用时把 `-p 8080:8080` 改成 `-p 9000:8080`，用 `http://<服务器IP>:9000` 访问
-
-### 或者用 docker compose
-
-仓库里的 `docker-compose.yml` 已经配好：
-
-```bash
-docker compose up -d
-docker compose logs -f
-```
+浏览器打开 `http://<服务器IP>:8080`，默认账号 `admin / admin`。
 
 ### 可选：外接 MySQL / OSS
 
@@ -191,16 +177,6 @@ packages/protocol/    消息 schema、H.264 工具
 packages/device-host/ adb / scrcpy / iOS 采集
 docs/                 设备接入与部署文档
 ```
-
-## 账号与权限
-
-首次启动自动创建超级管理员 `admin / admin`：
-
-- **超级管理员**：全部权限，可管理用户、查看审计日志
-- **管理员**：设备、应用、文件等日常操作
-- **普通用户**：控制设备，同时控制数量默认上限 2 台
-
-所有 `/api` 接口和浏览器 WebSocket 都需要登录，Agent 用 `adh_` 前缀的 Key 鉴权。
 
 ## 说明
 
