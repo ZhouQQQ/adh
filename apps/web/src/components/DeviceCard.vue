@@ -146,12 +146,12 @@ const canKick = computed(
     props.device.control?.userId !== user.value?.id,
 );
 
-/** 别人正在控制时，按钮统一变成「查看」（管理员也需要手动接管） */
+/** 别人正在控制时按钮显示「查看」，自己在控制时显示「继续控制」。 */
 const controlLabel = computed(() => {
   if (props.device.locked) return '已锁定';
-  return props.device.control && props.device.control.userId !== user.value?.id
-    ? '查看'
-    : '控制';
+  const control = props.device.control;
+  if (!control) return '控制';
+  return control.userId === user.value?.id ? '继续控制' : '查看';
 });
 
 let clockTimer: ReturnType<typeof setInterval> | null = null;
