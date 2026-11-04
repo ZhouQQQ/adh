@@ -1,4 +1,7 @@
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   captureThumbnail,
@@ -19,7 +22,24 @@ import { createLogger, type Logger } from './log.js';
 import { ThumbnailUploader } from './thumbnail-uploader.js';
 import { ensureToolPath, runInit } from './tools.js';
 
-const AGENT_VERSION = '0.1.0';
+/** 版本号：优先用打包时注入的 ADH_VERSION，其次读 package.json。 */
+function readAgentVersion(): string {
+  const injected = process.env.ADH_VERSION?.trim();
+  // 统一成不带 v 的版本号，展示时再拼 "v"
+  if (injected) return injected.replace(/^v(?=\d)/i, '');
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8'),
+    ) as { version?: unknown };
+    if (typeof pkg.version === 'string' && pkg.version) return pkg.version;
+  } catch {
+    /* 读不到就用默认值 */
+  }
+  return '0.1.0';
+}
+
+const AGENT_VERSION = readAgentVersion();
 const THUMBNAIL_INTERVAL_MS = 30_000;
 
 const HELP = `
@@ -169,7 +189,16 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     logger,
   );
 
-  logger.info({ name, capabilities }, 'adh-agent started');
+  logger.info(
+    {
+      name,
+      capabilities,
+      version: AGENT_VERSION,
+      platform: `${process.platform}/${process.arch}`,
+      node: process.version,
+    },
+    'adh-agent started',
+  );
 
   const shutdown = (): void => {
     logger.info('shutting down');

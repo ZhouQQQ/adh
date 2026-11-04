@@ -366,6 +366,9 @@ async function main(): Promise<void> {
   await app.listen({ host: config.host, port: config.port });
 
   logger.info(`adh-server v${SERVER_VERSION} ready`);
+  logger.info(
+    `platform     : ${process.platform} ${process.arch} · Node ${process.version}`,
+  );
   logger.info(`data dir     : ${config.dataDir}`);
   logger.info(
     config.db.kind === 'mysql'

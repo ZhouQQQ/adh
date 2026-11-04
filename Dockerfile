@@ -45,7 +45,11 @@ RUN test -f /out/server/node_modules/tsx/dist/cli.mjs \
 # 运行阶段
 FROM node:22-bookworm-slim AS runtime
 
+# 构建时传入版本号（CI 用 tag 名），启动日志会打印出来
+ARG VERSION=dev
+
 ENV NODE_ENV=production \
+    ADH_VERSION=${VERSION} \
     ADH_HOST=0.0.0.0 \
     ADH_PORT=8080 \
     ADH_DATA_DIR=/data \

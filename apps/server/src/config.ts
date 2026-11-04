@@ -8,7 +8,28 @@ const SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.resolve(SRC_DIR, '..');
 const REPO_ROOT = path.resolve(APP_DIR, '..', '..');
 
-export const SERVER_VERSION = '0.1.0';
+/**
+ * server 版本号。
+ *
+ * 优先用构建时注入的 ADH_VERSION（Docker 镜像 / 离线包会带 tag），
+ * 否则读 apps/server/package.json，最后回退到源码里的默认值。
+ */
+function readServerVersion(): string {
+  const injected = process.env.ADH_VERSION?.trim();
+  // 统一成不带 v 的版本号，日志里再拼 "v"，避免出现 vv0.1.6
+  if (injected) return injected.replace(/^v(?=\d)/i, '');
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(APP_DIR, 'package.json'), 'utf8'),
+    ) as { version?: unknown };
+    if (typeof pkg.version === 'string' && pkg.version) return pkg.version;
+  } catch {
+    /* 读不到就用默认值 */
+  }
+  return '0.1.0';
+}
+
+export const SERVER_VERSION = readServerVersion();
 
 export interface OssConfig {
   bucket: string;

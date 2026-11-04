@@ -114,8 +114,32 @@ function zipDir(dir, zipPath) {
   return true;
 }
 
+/** 版本号：优先 ADH_VERSION，其次最近的 tag，最后 package.json。 */
+function resolveVersion() {
+  const injected = process.env.ADH_VERSION?.trim();
+  if (injected) return injected;
+  try {
+    const tag = spawnSync('git', ['describe', '--tags', '--always'], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    if (tag.status === 0 && tag.stdout.trim()) return tag.stdout.trim();
+  } catch {
+    /* 没有 git 时用 package.json */
+  }
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, 'apps/server/package.json'), 'utf8'),
+    );
+    if (pkg.version) return pkg.version;
+  } catch {
+    /* ignore */
+  }
+  return 'dev';
+}
+
 /** 写启动脚本，数据默认落在包内的 data/ 目录。 */
-function writeLaunchers(outDir) {
+function writeLaunchers(outDir, version) {
   fs.writeFileSync(
     path.join(outDir, 'start.cmd'),
     '@echo off\r\n' +
@@ -123,6 +147,7 @@ function writeLaunchers(outDir) {
       'chcp 65001 >nul\r\n' +
       'cd /d "%~dp0"\r\n' +
       'if "%ADH_DATA_DIR%"=="" set "ADH_DATA_DIR=%~dp0data"\r\n' +
+      `if "%ADH_VERSION%"=="" set "ADH_VERSION=${version}"\r\n` +
       'node src\\index.js %*\r\n',
   );
 
@@ -130,6 +155,7 @@ function writeLaunchers(outDir) {
     '#!/usr/bin/env sh\n' +
     'cd "$(dirname "$0")"\n' +
     'export ADH_DATA_DIR="${ADH_DATA_DIR:-$PWD/data}"\n' +
+    `export ADH_VERSION="\${ADH_VERSION:-${version}}"\n` +
     'exec node src/index.js "$@"\n';
   fs.writeFileSync(path.join(outDir, 'start.sh'), sh);
   fs.chmodSync(path.join(outDir, 'start.sh'), 0o755);

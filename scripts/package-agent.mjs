@@ -216,6 +216,61 @@ function zipDir(dir, zipPath) {
   return true;
 }
 
+/** 版本号：优先 ADH_VERSION，其次最近的 git tag，最后 package.json。 */
+function resolveVersion() {
+  const injected = process.env.ADH_VERSION?.trim();
+  if (injected) return injected;
+  try {
+    const tag = spawnSync('git', ['describe', '--tags', '--always'], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    if (tag.status === 0 && tag.stdout.trim()) return tag.stdout.trim();
+  } catch {
+    /* 没有 git 时用 package.json */
+  }
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, 'apps/agent/package.json'), 'utf8'),
+    );
+    if (pkg.version) return pkg.version;
+  } catch {
+    /* ignore */
+  }
+  return 'dev';
+}
+
+/** 把版本号写进启动脚本，agent 启动日志会打印出来。 */
+function injectVersion(base, version) {
+  const cmdPath = path.join(base, 'adh-agent.cmd');
+  if (fs.existsSync(cmdPath)) {
+    const text = fs.readFileSync(cmdPath, 'utf8');
+    if (!text.includes('ADH_VERSION')) {
+      fs.writeFileSync(
+        cmdPath,
+        text.replace(
+          /^(@echo off\r?\n)/i,
+          `$1if "%ADH_VERSION%"=="" set "ADH_VERSION=${version}"\r\n`,
+        ),
+      );
+    }
+  }
+
+  const shPath = path.join(base, 'adh-agent.sh');
+  if (fs.existsSync(shPath)) {
+    const text = fs.readFileSync(shPath, 'utf8');
+    if (!text.includes('ADH_VERSION')) {
+      fs.writeFileSync(
+        shPath,
+        text.replace(
+          /^(#!.*\n)/,
+          `$1export ADH_VERSION="\${ADH_VERSION:-${version}}"\n`,
+        ),
+      );
+    }
+  }
+}
+
 async function prepareBase() {
   console.log('打包基础目录（pnpm deploy）');
   fs.rmSync(buildBase, { recursive: true, force: true });
@@ -240,6 +295,9 @@ async function prepareBase() {
   for (const stray of ['.data', 'dist']) {
     fs.rmSync(path.join(buildBase, stray), { recursive: true, force: true });
   }
+  const version = resolveVersion();
+  injectVersion(buildBase, version);
+  console.log(`  版本号: ${version}`);
   if (!isWindows) {
     fs.chmodSync(path.join(buildBase, 'adh-agent.sh'), 0o755);
   }
