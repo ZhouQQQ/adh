@@ -287,7 +287,13 @@ const wifiTitle = computed(() => {
       </button>
 
       <div class="placeholder" :class="device.platform">
-        <n-icon :size="48">
+        <img
+          v-if="brandMeta"
+          :src="brandMeta.logo"
+          :alt="brandMeta.label"
+          class="brand-logo"
+        />
+        <n-icon v-else :size="48">
           <LogoAndroid v-if="device.platform === 'android'" />
           <LogoApple v-else />
         </n-icon>
@@ -350,16 +356,7 @@ const wifiTitle = computed(() => {
     </div>
 
     <div class="body">
-      <div class="title-row">
-        <img
-          v-if="brandMeta"
-          :src="brandMeta.logo"
-          :alt="brandMeta.label"
-          class="brand-mark"
-          :title="brandMeta.label"
-        />
-        <div class="title" :title="titleText">{{ titleText }}</div>
-      </div>
+      <div class="title" :title="titleText">{{ titleText }}</div>
       <div class="subtitle">{{ subtitle }}</div>
 
       <div class="kv-grid">
@@ -526,18 +523,10 @@ const wifiTitle = computed(() => {
   opacity: 0.8;
 }
 
-/* 品牌 logo：放在设备名左侧的小图标 */
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.brand-mark {
-  width: 16px;
-  height: 16px;
-  flex: none;
+/* 品牌 logo：放在缩略图中央，覆盖 .thumb img 的 100% 规则 */
+.placeholder .brand-logo {
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   opacity: 0.9;
 }
