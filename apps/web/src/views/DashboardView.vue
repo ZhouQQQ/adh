@@ -269,7 +269,7 @@ function userText(item: DashboardData['recent'][number]): string {
                   <div
                     class="rank-fill"
                     :style="{
-                      width: `${Math.max(4, (item.seconds / Math.max(1, data.deviceRanking[0].seconds)) * 100)}%`,
+                      width: `${Math.max(4, (item.seconds / Math.max(1, data.deviceRanking[0]?.seconds ?? 0)) * 100)}%`,
                     }"
                   />
                 </div>
@@ -297,7 +297,7 @@ function userText(item: DashboardData['recent'][number]): string {
                   <div
                     class="rank-fill user"
                     :style="{
-                      width: `${Math.max(4, (item.seconds / Math.max(1, data.userRanking[0].seconds)) * 100)}%`,
+                      width: `${Math.max(4, (item.seconds / Math.max(1, data.userRanking[0]?.seconds ?? 0)) * 100)}%`,
                     }"
                   />
                 </div>

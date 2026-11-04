@@ -611,7 +611,10 @@ async function iosInput(payload: Record<string, unknown>): Promise<void> {
   }
 }
 
-function pointerPosition(event: PointerEvent): { x: number; y: number } {
+function pointerPosition(event: {
+  clientX: number;
+  clientY: number;
+}): { x: number; y: number } {
   const canvas = canvasRef.value;
   if (!canvas) return { x: 0, y: 0 };
   const rect = canvas.getBoundingClientRect();
