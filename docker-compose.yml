@@ -1,21 +1,28 @@
 services:
   adh:
-    build: .
-    image: adh-server:latest
+    # 部署直接用官方镜像（由 GitHub Actions 构建）
+    #
+    #   镜像地址如果拉取提示 denied，到 GitHub Packages 把 adh 设为 Public，
+    #   或者先执行 docker login ghcr.io
+    image: ghcr.io/zhouqqq/adh:latest
+    # 本地改代码调试时，把上面一行换成下面一行
+    # build: .
     container_name: adh
     restart: unless-stopped
     ports:
       - "8080:8080"
-    env_file:
-      - .env
     environment:
       ADH_DATA_DIR: /data
       # 容器里没有 USB，内置 Agent 关闭，设备宿主机单独跑 adh-agent
       ADH_LOCAL_AGENT: "0"
     volumes:
       - adh-data:/data
-      # 可选：把打包好的 Agent 离线包挂进来，控制台才能下载
-      - ./dist:/app/dist:ro
+      # 可选：把本地打包好的 Agent 离线包挂进来，控制台就会优先用本地包
+      # - ./dist:/app/dist:ro
+    #
+    # 需要 MySQL / OSS 时，准备好 .env 后取消注释：
+    # env_file:
+    #   - .env
 
 volumes:
   adh-data:

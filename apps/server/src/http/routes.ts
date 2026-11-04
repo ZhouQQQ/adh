@@ -538,8 +538,20 @@ export async function registerHttpRoutes(
 
   const AGENT_PLATFORMS = ['win32', 'darwin'] as const;
 
-  /** 每个平台取最新的一份 zip，兼容 adh-agent-win32.zip 与 adh-agent-win32-x64.zip。 */
-  const listAgentPackages = (): {
+  /**
+   * 本地 dist/ 没有安装包时（server 跑在容器里就是这样）回退到 GitHub Release，
+   * 由 `.github/workflows/agent.yml` 在 main 分支每次推送后更新。
+   */
+  const AGENT_RELEASE_REPO =
+    process.env.ADH_AGENT_RELEASE_REPO ?? 'ZhouQQQ/adh';
+  const AGENT_RELEASE_TAG =
+    process.env.ADH_AGENT_RELEASE_TAG ?? 'agent-latest';
+
+  const agentReleaseUrl = (platform: string): string =>
+    `https://github.com/${AGENT_RELEASE_REPO}/releases/download/${AGENT_RELEASE_TAG}/adh-agent-${platform}.zip`;
+
+  /** 每个平台取最新的一份本地 zip，兼容 adh-agent-win32.zip 与 adh-agent-win32-x64.zip。 */
+  const listLocalAgentPackages = (): {
     platform: string;
     file: string;
     size: number;
@@ -570,23 +582,50 @@ export async function registerHttpRoutes(
     return result;
   };
 
+  const listAgentPackages = (): {
+    platform: string;
+    file: string;
+    size: number;
+    updatedAt: number;
+    source: 'local' | 'release';
+    url: string;
+  }[] => {
+    const local = listLocalAgentPackages();
+    if (local.length > 0) {
+      return local.map((item) => ({
+        ...item,
+        source: 'local' as const,
+        url: `/api/agent/download?platform=${item.platform}`,
+      }));
+    }
+    return AGENT_PLATFORMS.map((platform) => ({
+      platform,
+      file: `adh-agent-${platform}.zip`,
+      size: 0,
+      updatedAt: 0,
+      source: 'release' as const,
+      url: agentReleaseUrl(platform),
+    }));
+  };
+
   app.get('/api/agent/platforms', async () => ({
     platforms: listAgentPackages(),
   }));
 
-  /** 按平台下载 `pnpm package:agent` 生成的离线包；不传平台时用服务器当前平台。 */
+  /** 按平台下载离线包：优先本地 dist/，没有就跳到 GitHub Release。 */
   app.get('/api/agent/download', async (request, reply) => {
     const { platform } = request.query as { platform?: string };
-    const packages = listAgentPackages();
+    const local = listLocalAgentPackages();
     const target =
-      packages.find((item) => item.platform === platform) ??
-      packages.find((item) => item.platform === process.platform) ??
-      packages[0];
+      local.find((item) => item.platform === platform) ??
+      local.find((item) => item.platform === process.platform) ??
+      local[0];
 
     if (!target) {
-      return reply.code(404).send({
-        error: '还没有生成 Agent 安装包，请在服务器执行 pnpm package:agent',
-      });
+      const fallback =
+        AGENT_PLATFORMS.find((item) => item === platform) ??
+        (process.platform === 'darwin' ? 'darwin' : 'win32');
+      return reply.redirect(agentReleaseUrl(fallback));
     }
 
     const data = fs.readFileSync(path.join(deps.agentDistDir, target.file));

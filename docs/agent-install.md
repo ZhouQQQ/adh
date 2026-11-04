@@ -22,29 +22,45 @@
 | Apple 设备服务 | iTunes 或「Apple Devices」 | 系统自带 | 需要 usbmuxd |
 | pnpm / 源码 | 不需要 | 不需要 | 不需要 |
 
-> 离线安装包 `dist/adh-agent-<platform>-<arch>.zip` 已经内置当前平台的 adb 与 go-ios，运行 `adh-agent init` 会解压到 `~/.adh/tools`，**不需要联网**。系统里已经装好的话可以忽略。
+> 安装包 `adh-agent-<platform>.zip` 已经内置当前平台的 adb 与 go-ios，运行 `adh-agent init` 会解压到 `~/.adh/tools`，**不需要联网**。系统里已经装好的话可以忽略。
 
 ---
 
-## 2. 准备安装包
+## 2. 下载安装包
 
-在开发机 / server 上执行一次：
+从 GitHub Release 下载对应平台，**main 分支每次推送都会自动更新**：
+
+| 平台 | 文件 | 下载 |
+| --- | --- | --- |
+| Windows | `adh-agent-win32.zip` | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-win32.zip> |
+| macOS | `adh-agent-darwin.zip` | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-darwin.zip> |
+
+发布页：<https://github.com/ZhouQQQ/adh/releases/tag/agent-latest>
+
+也可以在 Web 控制台点右上角「**下载 Agent**」直接下载。
+
+- server 用 Docker 部署时，控制台会跳转到 GitHub Release
+- 如果服务器上挂了本地 `dist/` 目录，会优先使用本地打包的 zip
+
+### 自己打包（可选）
+
+内网无法访问 GitHub 时，可以在开发机打一份离线包拷过去：
 
 ```bash
-pnpm package:agent
+pnpm package:agent                  # 默认 win32 + darwin
+pnpm package:agent --platform win32
+pnpm package:agent --no-vendor      # 不内置 adb / go-ios，目标机 init 时联网下载
 ```
 
 产物：
 
 | 路径 | 说明 |
 | --- | --- |
-| `dist/agent/` | 自包含目录，已带 tsx、sharp、scrcpy-server.jar |
-| `dist/agent/vendor/<platform>/` | 当前平台的 adb / go-ios 压缩包，init 时离线解压 |
-| `dist/adh-agent-<platform>-<arch>.zip` | 约 32MB，直接发给别人 |
+| `dist/agent-<platform>/` | 自包含目录，已带 tsx、sharp、scrcpy-server.jar |
+| `dist/agent-<platform>/vendor/` | 内置的 adb / go-ios，init 时离线解压 |
+| `dist/adh-agent-<platform>.zip` | Windows 约 100MB，macOS 约 130MB |
 
-打包完成后，Web 控制台「节点管理 → 下载 Agent」也会直接下载这个 zip。
-
-> `sharp` 与 `vendor` 都是平台相关的：Windows 上打的包只能给 Windows 用；给 Linux / macOS 分发时，在对应系统上重新执行一次 `pnpm package:agent`。
+> `sharp` 与 `vendor` 都是平台相关的：Windows 上打的包只能给 Windows 用；给 macOS 分发时，要在 macOS 上重新执行一次 `pnpm package:agent`。
 
 ---
 
@@ -88,6 +104,12 @@ curl http://<server-ip>:8080/api/health
 ---
 
 ## 4. macOS 宿主机
+
+> 从 Release 下载的 zip 没有签名，如果系统提示「无法验证开发者」，先解除隔离：
+>
+> ```bash
+> xattr -dr com.apple.quarantine /opt/adh-agent
+> ```
 
 ### 4.1 必装
 

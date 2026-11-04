@@ -17,6 +17,8 @@ interface PlatformPackage {
   file: string;
   size: number;
   updatedAt: number;
+  source?: 'local' | 'release';
+  url?: string;
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -31,7 +33,10 @@ const loading = ref(false);
 const options = computed(() =>
   packages.value.map((item) => ({
     key: item.platform,
-    label: `${PLATFORM_LABEL[item.platform] ?? item.platform} · ${(item.size / 1024 / 1024).toFixed(1)} MB`,
+    label:
+      item.size > 0
+        ? `${PLATFORM_LABEL[item.platform] ?? item.platform} · ${(item.size / 1024 / 1024).toFixed(1)} MB`
+        : `${PLATFORM_LABEL[item.platform] ?? item.platform} · GitHub Release`,
   })),
 );
 
@@ -47,7 +52,8 @@ async function load(): Promise<void> {
 }
 
 function download(platform: string): void {
-  window.location.href = api.agentPackageUrl(platform);
+  const target = packages.value.find((item) => item.platform === platform);
+  window.location.href = target?.url ?? api.agentPackageUrl(platform);
 }
 
 onMounted(load);
@@ -68,7 +74,7 @@ onMounted(load);
       :disabled="!loading && packages.length === 0"
       :title="
         packages.length === 0
-          ? '服务器还没有生成安装包，请先执行 pnpm package:agent'
+          ? '暂时拿不到 Agent 安装包，请稍后重试'
           : '选择目标平台下载'
       "
     >

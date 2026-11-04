@@ -422,7 +422,15 @@ export const api = {
   },
 
   agentPlatforms(): Promise<{
-    platforms: { platform: string; file: string; size: number; updatedAt: number }[];
+    platforms: {
+      platform: string;
+      file: string;
+      size: number;
+      updatedAt: number;
+      /** local：服务器 dist/ 里的包；release：GitHub Release。 */
+      source?: 'local' | 'release';
+      url?: string;
+    }[];
   }> {
     return request('/api/agent/platforms');
   },

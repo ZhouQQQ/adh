@@ -1,10 +1,10 @@
 # ADH · 分布式设备农场
 
-把多台机器上的 Android / iOS 真机集中到一个 Web 控制台：实时投屏、直接操作、批量安装。
+把多台电脑上的 Android / iOS 真机集中到一个 Web 控制台：实时投屏、直接操作、批量安装。
 
-- `adh-server`：控制台 + 节点/设备管理，单进程托管前后端
-- `adh-agent`：部署在设备宿主机，主动外连 server，自动上报本机设备
-- 存储可切换：默认 SQLite + 本地文件，也可用 MySQL + 阿里云 OSS
+- **adh-server**：Web 控制台 + 设备调度，用 Docker 部署在服务器上
+- **adh-agent**：跑在插着手机的电脑上，主动外连 server，不需要公网 IP
+- 存储默认 SQLite + 本地文件，也支持 MySQL + 阿里云 OSS
 
 ## 功能
 
@@ -17,137 +17,311 @@
 | 批量控制 | 多设备网格、跨平台联动、批量安装、系统级画中画 |
 | 设备信息 | 电量、内存、存储、WiFi、硬件参数、实时状态图表 |
 
-## 快速开始
+---
 
-零配置即可运行，默认使用 SQLite（`.data/adh.sqlite`）+ 本地文件：
+## 一、部署 server（Docker）
 
-```bash
-pnpm install
-pnpm dev          # web:5173  server:8080
+server 负责控制台、数据库、设备调度，本身**不需要连接手机**。
+镜像由 GitHub Actions 自动构建并推送到 GHCR：
+
+```
+ghcr.io/zhouqqq/adh:latest
 ```
 
-要用 MySQL + OSS，复制配置并填写：
+> 第一次拉取如果提示 `denied`，到 GitHub 仓库的 **Packages → adh → Package settings** 把可见性改成 **Public**，或者先 `docker login ghcr.io`。
+
+### 1.1 直接运行（最简单）
 
 ```bash
-cp .env.example .env
+docker pull ghcr.io/zhouqqq/adh:latest
+
+docker run -d --name adh \
+  -p 8080:8080 \
+  -v adh-data:/data \
+  -e ADH_DATA_DIR=/data \
+  -e ADH_LOCAL_AGENT=0 \
+  --restart unless-stopped \
+  ghcr.io/zhouqqq/adh:latest
 ```
 
-服务端启动时按配置自动选择：
+打开 `http://<服务器IP>:8080`，默认账号：
 
-| 配置 | 数据库 | 文件 |
+```
+用户名：admin
+密码：admin
+```
+
+首次登录后请在「系统设置 → 用户管理」里改掉密码。
+
+### 1.2 docker compose（推荐）
+
+`docker-compose.yml`：
+
+```yaml
+services:
+  adh:
+    image: ghcr.io/zhouqqq/adh:latest
+    container_name: adh
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADH_DATA_DIR: /data
+      # 容器里没有 USB，内置 Agent 关闭
+      ADH_LOCAL_AGENT: "0"
+    volumes:
+      - adh-data:/data
+
+volumes:
+  adh-data:
+```
+
+```bash
+docker compose up -d
+docker compose logs -f
+```
+
+### 1.3 数据持久化
+
+| 路径 | 内容 |
+| --- | --- |
+| `/data` | SQLite 数据库、安装包、缩略图、应用图标 |
+
+**一定要挂卷**（`-v adh-data:/data`），否则容器重建后数据全丢。
+
+### 1.4 接入 MySQL / OSS（可选）
+
+默认用容器内的 SQLite，单机完全够用。需要外部数据库或对象存储时，加一个 `.env`：
+
+```bash
+# MySQL
+MYSQL_HOST=192.168.1.20
+MYSQL_PORT=3306
+MYSQL_USER=adh
+MYSQL_PASSWORD=你的密码
+MYSQL_DB=adh
+
+# 阿里云 OSS
+ADH_OSS_BUCKET=your-bucket
+ADH_OSS_REGION=oss-cn-shenzhen
+ADH_OSS_ACCESS_KEY_ID=xxx
+ADH_OSS_ACCESS_KEY_SECRET=xxx
+ADH_OSS_PREFIX=adh
+```
+
+```bash
+docker run -d --name adh \
+  -p 8080:8080 \
+  -v adh-data:/data \
+  --env-file .env \
+  -e ADH_DATA_DIR=/data \
+  -e ADH_LOCAL_AGENT=0 \
+  --restart unless-stopped \
+  ghcr.io/zhouqqq/adh:latest
+```
+
+| 配置情况 | 数据库 | 文件 |
 | --- | --- | --- |
-| 什么都不配 | SQLite | `.data/` |
-| 配了 `MYSQL_HOST` | MySQL | `.data/` |
+| 什么都不配 | SQLite | `/data` |
+| 配了 `MYSQL_HOST` | MySQL | `/data` |
 | 配了 OSS | SQLite | OSS |
 | 都配了 | MySQL | OSS |
 
-也可以用 `ADH_DB=sqlite\|mysql`、`ADH_STORAGE=local\|oss` 强制指定。
+也可以用 `ADH_DB=sqlite|mysql`、`ADH_STORAGE=local|oss` 强制指定。
 
-生产模式：
+---
+
+## 二、运行 Agent（Windows / macOS）
+
+Agent 跑在**插着手机的那台电脑**上，负责发现设备、上传缩略图、转发投屏流。
+它只往外连 server 的 8080 端口，所以宿主机不需要公网 IP，也不用改路由器。
+
+### 2.1 下载安装包
+
+从 GitHub Release 下载对应平台（**滚动更新，始终是最新构建**）：
+
+| 平台 | 下载地址 |
+| --- | --- |
+| Windows | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-win32.zip> |
+| macOS | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-darwin.zip> |
+
+发布页：<https://github.com/ZhouQQQ/adh/releases/tag/agent-latest>
+
+也可以登录控制台，点右上角「**下载 Agent**」直接下。
+
+安装包已经内置当前平台的 **adb** 和 **go-ios**，不需要另外安装。
+
+### 2.2 宿主机前提
+
+| 依赖 | 说明 |
+| --- | --- |
+| Node.js 22+ | 必须，<https://nodejs.org> |
+| adb | 安装包已内置，`adh-agent init` 会解压到 `~/.adh/tools` |
+| go-ios | 接 iPhone 时需要，同样已内置 |
+| 网络 | 能访问 `http://<server-ip>:8080/api/health` |
+
+### 2.3 在控制台创建 Key
+
+控制台 →「**节点管理**」→「**新建节点**」→ 复制接入 Key（`adh_` 开头，只显示一次）。
+
+### 2.4 Windows
+
+1. 解压 `adh-agent-win32.zip` 到 `C:\adh-agent`
+2. 安装 Node.js 22 或更新版本，新开命令行确认 `node -v`
+3. 进入目录，初始化内置工具：
+
+   ```bat
+   cd C:\adh-agent
+   adh-agent.cmd init
+   ```
+
+4. 连接 server：
+
+   ```bat
+   adh-agent.cmd connect --server ws://192.168.1.10:8080 --key adh_xxxxxxxx
+   ```
+
+5. 看到 `adh-agent started` 后，设备会在 5 秒内出现在控制台「设备管理」里。
+   Key 会保存到 `%USERPROFILE%\.adh\agent.json`，以后重启只需：
+
+   ```bat
+   adh-agent.cmd connect --server ws://192.168.1.10:8080
+   ```
+
+**开机自启（计划任务）**
+
+1. 打开「任务计划程序」→ 创建任务
+2. 触发器：登录时
+3. 操作：启动程序 `C:\adh-agent\adh-agent.cmd`
+4. 参数：`connect --server ws://192.168.1.10:8080`
+
+### 2.5 macOS
+
+1. 解压 `adh-agent-darwin.zip` 到 `/opt/adh-agent`（或任意目录）
+2. 安装 Node.js 22+：`brew install node@22`，或从官网安装
+3. 如果系统提示「无法验证开发者」，解除隔离：
+
+   ```bash
+   xattr -dr com.apple.quarantine /opt/adh-agent
+   ```
+
+4. 初始化内置工具：
+
+   ```bash
+   cd /opt/adh-agent
+   chmod +x adh-agent.sh
+   ./adh-agent.sh init
+   ```
+
+5. 连接 server：
+
+   ```bash
+   ./adh-agent.sh connect --server ws://192.168.1.10:8080 --key adh_xxxxxxxx
+   ```
+
+**开机自启（launchd）**
+
+`~/Library/LaunchAgents/com.adh.agent.plist`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.adh.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/adh-agent/adh-agent.sh</string>
+    <string>connect</string>
+    <string>--server</string>
+    <string>ws://192.168.1.10:8080</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/adh-agent.log</string>
+  <key>StandardErrorPath</key><string>/tmp/adh-agent.err</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.adh.agent.plist
+```
+
+### 2.6 手机准备（简述）
+
+**Android**
+
+- 设置 → 关于手机 → 连续点「版本号」7 次，打开开发者选项
+- 打开「USB 调试」和「USB 安装」
+- 小米 / Redmi 还需要打开「USB 调试（安全设置）」
+- 插上数据线，手机上点「允许 USB 调试」
+
+**iOS**
+
+- 插上数据线，手机上点「信任此电脑」
+- iOS 16+ 需要打开「设置 → 隐私与安全性 → 开发者模式」
+- WDA 安装和启动见文档
+
+完整的设备配置、WDA 安装、常见问题见
+[`docs/agent-install.md`](docs/agent-install.md)。
+
+### 2.7 自检
+
+```bat
+adh-agent.cmd doctor
+```
+
+```bash
+./adh-agent.sh doctor
+```
+
+会检查 Node、adb、go-ios 是否可用。
+
+---
+
+## 三、常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| 控制台打不开 | 确认容器在跑、端口映射正确：`docker ps`、`curl http://<ip>:8080/api/health` |
+| 登录提示账号密码错误 | 默认 `admin / admin`；忘记密码可删掉数据卷重新初始化 |
+| Agent 连不上 server | 宿主机 `curl http://<server-ip>:8080/api/health`，检查防火墙 |
+| 设备不出现 | 宿主机执行 `adb devices`，确认是 `device` 而不是 `unauthorized` |
+| 小米能投屏但点不动 | 打开「USB 调试（安全设置）」，需要登录小米账号并等待 7 天 |
+| 密码框弹不出键盘 | 关闭厂商的「安全输入」，并确认启用了输入法 |
+| 下载 Agent 按钮不可用 | 服务器无法访问 GitHub Release，可挂载 `dist/` 使用本地包 |
+
+---
+
+## 四、本地开发（开发者）
+
+```bash
+pnpm install
+pnpm dev          # server:8080  web:5173（HTTPS）
+```
+
+- 前端默认 HTTPS，局域网 IP 访问也能用 WebCodecs 解码安卓画面
+- 自签证书首次访问需点「高级 → 继续前往」
+- `ADH_HTTPS=0 pnpm dev` 可回退到 http
+
+生产构建：
 
 ```bash
 pnpm build        # 前端产物输出到 apps/server/public
 pnpm start        # 单进程托管 API + 前端
 ```
 
-首次启动会自动建表（`adh_agents` / `adh_devices` / `adh_packages` / `adh_migrations`）。
-
-## Docker
-
-```bash
-./build.sh                 # 默认 adh-server:latest
-IMAGE=adh/adh-server:v1 ./build.sh
-```
-
-```bash
-docker compose up -d
-```
-
-`docker-compose.yml` 会读取 `.env`（没有 `.env` 时用容器内 SQLite + `/data`），数据落在 `adh-data` 卷的 `/data`。
-
-单独运行（本地模式，不需要 MySQL / OSS）：
-
-```bash
-docker run -d --name adh \
-  -p 8080:8080 \
-  -e ADH_DATA_DIR=/data \
-  -e ADH_LOCAL_AGENT=0 \
-  -v adh-data:/data \
-  adh-server:latest
-```
-
-用 MySQL + OSS 时追加 `--env-file .env`。
-
-- 容器里没有 USB，内置 Agent 默认关闭，设备宿主机单独跑 `adh-agent connect`
-- 挂载 `dist/` 后，控制台才能下载 Agent 离线包
-- 镜像地址：`ghcr.io/<owner>/adh:latest`（由 GitHub Actions 构建）
-
-## 接入设备宿主机
-
-1. 控制台「节点管理 → 新建节点」，复制接入 Key
-2. 在宿主机执行：
-
-```bash
-adh-agent connect --server ws://<server-ip>:8080 --key adh_xxxxxxxx
-```
-
-没有安装包时，在开发机打包后拷贝过去：
+自己打 Agent 离线包（不用 Release 时）：
 
 ```bash
 pnpm package:agent --platform win32    # 或 darwin
 ```
 
-产物 `dist/adh-agent-win32.zip` / `dist/adh-agent-darwin.zip`，已内置当前平台的 adb 与 go-ios：
+产物在 `dist/adh-agent-<platform>.zip`。
 
-```bat
-adh-agent.cmd init       :: 解压内置工具，无需联网
-adh-agent.cmd connect --server ws://<server-ip>:8080 --key adh_xxxxxxxx
-```
-
-Linux / macOS 用 `./adh-agent.sh`。目标机只需要 **Node.js ≥ 22** 和能访问 8080 端口。
-完整步骤见 [`docs/agent-install.md`](docs/agent-install.md)。
-
-## 配置
-
-MySQL（可选，不配则用本地 SQLite）：
-
-| 参数 | 说明 |
-| --- | --- |
-| `MYSQL_HOST` | 数据库地址 |
-| `MYSQL_PORT` | 端口，默认 `3306` |
-| `MYSQL_USER` | 用户名 |
-| `MYSQL_PASSWORD` | 密码 |
-| `MYSQL_DB` | 数据库名 |
-
-阿里云 OSS（可选，不配则文件落本地）：
-
-| 参数 | 说明 |
-| --- | --- |
-| `ADH_OSS_BUCKET` | bucket 名称 |
-| `ADH_OSS_REGION` | 区域，`cn-shenzhen` 会自动补成 `oss-cn-shenzhen` |
-| `ADH_OSS_ACCESS_KEY_ID` | AccessKey |
-| `ADH_OSS_ACCESS_KEY_SECRET` | Secret |
-| `ADH_OSS_PREFIX` | 对象根目录，默认 `adh` |
-| `ADH_OSS_ENDPOINT` | 可选，自定义 endpoint |
-
-也兼容 `OSS_BUCKET_NAME` / `OSS_REGION_ID` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`。
-
-切换开关：
-
-| 环境变量 | 可选值 | 说明 |
-| --- | --- | --- |
-| `ADH_DB` | `sqlite` / `mysql` | 不指定时，有 `MYSQL_HOST` 就用 MySQL |
-| `ADH_STORAGE` | `local` / `oss` | 不指定时，有 OSS 配置就用 OSS |
-
-对象路径：
-
-```
-adh/packages/<sha256>.<apk|ipa>
-adh/thumbnails/<deviceId>.jpg
-adh/app-icons/<hash>.png
-```
-
-服务端参数：
+### 服务端参数
 
 | 参数 | 环境变量 | 默认值 |
 | --- | --- | --- |
@@ -158,68 +332,34 @@ adh/app-icons/<hash>.png
 | — | `ADH_LOCAL_AGENT=0` | 关闭内置 Agent |
 | — | `ADH_DB` | `sqlite` / `mysql` |
 | — | `ADH_STORAGE` | `local` / `oss` |
+| — | `ADH_AGENT_RELEASE_REPO` | `ZhouQQQ/adh`，自定义 Release 仓库 |
+| — | `ADH_AGENT_RELEASE_TAG` | `agent-latest`，自定义 Release 标签 |
 
-## 数据迁移
-
-从旧版 SQLite 迁移到 MySQL，并把本地文件同步到 OSS：
-
-```bash
-pnpm migrate:data
-```
-
-读取 `.data/adh.sqlite`、`.data/packages`、`.data/thumbnails`、`.data/app-icons`，可重复执行。
-需要 Node 22.13+（脚本用 `node:sqlite`，Node 24 默认可用）。
-
-## GitHub Actions
-
-| 工作流 | 触发 | 产物 |
-| --- | --- | --- |
-| `.github/workflows/docker.yml` | push main / tag / PR | 镜像推送到 GHCR |
-| `.github/workflows/agent.yml` | push main / tag / PR | Windows + macOS Agent 离线包 |
-
-打 tag（例如 `git tag v1.0.0 && git push origin v1.0.0`）会把两个平台的 Agent zip 上传到 GitHub Release。
-
-## 技术栈
-
-| 层 | 选型 |
-| --- | --- |
-| 协议 | TypeScript + zod 共享 schema |
-| Server | Fastify 5 · MySQL 8 (Drizzle) · WebSocket |
-| Agent | Node 22+ · 长连接断线重连 |
-| Web | Vue 3 · Naive UI · Vite |
-| 存储 | 阿里云 OSS |
-| 采集 | adb / scrcpy-server · go-ios / WDA |
-
-## 目录
+### 目录
 
 ```
-apps/server/         API、WS、MySQL、内置 Agent、OSS
-apps/agent/          宿主机守护进程
-apps/web/            Vue 控制台
-packages/protocol/   消息 schema、H.264 工具
+apps/server/          API、WS、内置 Agent、OSS
+apps/agent/           宿主机守护进程
+apps/web/             Vue 控制台
+packages/protocol/    消息 schema、H.264 工具
 packages/device-host/ adb / scrcpy / iOS 采集
-docs/                部署与接入文档
+docs/                 设备接入与部署文档
 ```
 
 ## 账号与权限
 
-首次启动会自动创建超级管理员：
+首次启动会自动创建超级管理员 `admin / admin`：
 
-```
-用户名：admin
-密码：admin
-```
+- **超级管理员**：全部权限，可管理用户、查看审计日志
+- **管理员**：设备、应用、文件等日常操作
+- **普通用户**：控制设备，同时控制数量默认上限 2 台
 
-- `admin`：全部权限，可管理用户、查看审计日志
-- `operator`：设备、应用、文件等日常操作
-
-所有 `/api` 接口和浏览器 WebSocket 都需要登录，Agent 仍使用 `adh_` 前缀的 key。
-登录信息显示在页面右上角，侧边栏按角色显示菜单。
+所有 `/api` 接口和浏览器 WebSocket 都需要登录，Agent 使用 `adh_` 前缀的 key。
 
 ## 说明
 
-- 内网工具，登录后才能访问
+- 内网工具，部署在可信网络中，不要直接暴露到公网
 - 写操作自动记入审计日志；设备控制、按键、安装、文件操作记入设备日志
 - iOS 的 WiFi SSID 系统不开放，只能显示 IP
 - iOS 文件管理受限于 App 容器，且需要 `ios tunnel start`
-- 离线包与平台相关，Windows / macOS 需分别在对应系统打包
+- 离线包与平台相关，Windows / macOS 需要各自的 zip
