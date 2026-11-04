@@ -6,8 +6,8 @@
  *   pnpm package:agent --no-vendor        # 不内置 adb / go-ios，目标机 init 时联网
  *
  * 每个平台各自产出：
- *   dist/agent-<platform>/               自包含目录
- *   dist/adh-agent-<platform>.zip        Web 控制台下载的就是它
+ *   dist/agent-<platform>-<version>/      自包含目录
+ *   dist/adh-agent-<platform>.zip        Web 控制台下载的就是它（内部根目录带版本号）
  *
  * agent 依赖（含 jimp）是纯 JS，平台差异只来自内置的 adb / go-ios 压缩包，
  * 所以同一份 deploy 结果可以复用，按平台塞入不同 vendor 即可。
@@ -26,6 +26,28 @@ const isWindows = process.platform === 'win32';
 const args = process.argv.slice(2);
 
 const ALL_PLATFORMS = ['win32', 'darwin', 'linux'];
+
+/**
+ * 包内文件夹用版本号区分，例如 agent-win32-0.1.4。
+ * 优先 ADH_AGENT_VERSION，其次 CI 的 tag（GITHUB_REF_NAME=v0.1.4），
+ * 本地打包回退到 apps/agent/package.json 的 version。
+ */
+function resolveAgentVersion() {
+  const explicit = process.env.ADH_AGENT_VERSION?.trim();
+  if (explicit) return explicit.replace(/^v/, '');
+  const ref = process.env.GITHUB_REF_NAME?.trim();
+  if (ref && /^v?\d+(\.\d+)*$/.test(ref)) return ref.replace(/^v/, '');
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, 'apps/agent/package.json'), 'utf8'),
+    );
+    return pkg.version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const AGENT_VERSION = resolveAgentVersion();
 
 function argValue(name) {
   const index = args.indexOf(name);
@@ -410,7 +432,7 @@ async function main() {
 
   for (const platform of platforms) {
     console.log(`\n构建 ${platform}`);
-    const outDir = path.join(distDir, `agent-${platform}`);
+    const outDir = path.join(distDir, `agent-${platform}-${AGENT_VERSION}`);
     fs.rmSync(outDir, { recursive: true, force: true });
     fs.cpSync(buildBase, outDir, { recursive: true });
 
