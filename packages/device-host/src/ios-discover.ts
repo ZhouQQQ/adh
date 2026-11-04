@@ -35,6 +35,7 @@ let wdaCache: { at: number; available: boolean } | null = null;
 
 let tunnelProcess: ChildProcess | null = null;
 let tunnelRetryAt = 0;
+let tunnelLogged = false;
 
 /**
  * iOS 17+ 需要 go-ios 的 tunnel 才能稳定访问设备。
@@ -50,12 +51,19 @@ function ensureTunnel(command: string): void {
   });
   tunnelProcess = child;
   const startedAt = Date.now();
+  if (!tunnelLogged) {
+    tunnelLogged = true;
+    console.log('[ios] 启动隧道：ios tunnel start');
+  }
 
   const cleanup = (): void => {
     if (tunnelProcess === child) tunnelProcess = null;
     // 启动失败（常见：没有管理员权限）时一分钟后再试
     if (Date.now() - startedAt < 3_000) {
       tunnelRetryAt = Date.now() + 60_000;
+      console.warn('[ios] 隧道启动失败，一分钟后重试');
+    } else {
+      console.warn('[ios] 隧道进程已退出');
     }
   };
   child.on('exit', cleanup);
@@ -217,6 +225,9 @@ process.on('exit', stopForward);
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+let lastLoggedCount = -1;
+let lastWdaState: boolean | null = null;
+
 export async function discoverIos(): Promise<DeviceInfo[]> {
   const command = await resolveCommand();
   if (!command) return [];
@@ -225,6 +236,14 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
   ensureTunnel(command);
 
   const udids = await listUdids(command);
+  if (udids.length !== lastLoggedCount) {
+    lastLoggedCount = udids.length;
+    if (udids.length === 0) {
+      console.log('[ios] 未发现设备（请确认 USB 连接和已信任电脑）');
+    } else {
+      console.log(`[ios] 发现 ${udids.length} 台设备：${udids.join(', ')}`);
+    }
+  }
   if (udids.length === 0) {
     stopForward();
     infoCache.clear();
@@ -233,9 +252,14 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
 
   let wda = await probeWda();
   if (!wda && ensureForward(command, udids[0]!)) {
+    console.log('[ios] 建立 8100 端口转发');
     // 转发起来后给它一点时间建立连接
     await delay(1_200);
     wda = await probeWda(true);
+  }
+  if (lastWdaState !== wda) {
+    lastWdaState = wda;
+    console.log(`[ios] WDA ${wda ? '已就绪' : '未启动'}`);
   }
   // WDA 未启动时也上报设备，前端会提示并提供「启动 WDA」入口
   const capabilities = wda ? ['ios', 'wda'] : ['ios'];

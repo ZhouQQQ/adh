@@ -53,6 +53,7 @@ export class AgentClient {
   private token: string;
   private socket: WebSocket | null = null;
   private synced = new Map<string, DeviceInfo>();
+  private firstSync = true;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private syncTimer: NodeJS.Timeout | null = null;
   private reconnectAttempt = 0;
@@ -249,6 +250,16 @@ export class AgentClient {
     this.syncing = true;
     try {
       const devices = await this.options.discover();
+      if (this.firstSync) {
+        this.firstSync = false;
+        this.options.logger.info(
+          {
+            total: devices.length,
+            devices: devices.map((device) => `${device.platform}:${device.name}`),
+          },
+          '首次设备扫描完成',
+        );
+      }
       const next = new Map(devices.map((device) => [device.udid, device]));
       const add: DeviceInfo[] = [];
       const update: { udid: string; patch: Partial<DeviceInfo> }[] = [];
