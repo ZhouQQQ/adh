@@ -51,6 +51,8 @@ export interface ServerConfig {
   /** 离线 Agent 安装包（dist/*.zip）所在目录。 */
   agentDistDir: string;
   publicDir: string;
+  /** 部署前缀，例如 /adh；空串表示部署在根路径。 */
+  basePath: string;
   logLevel: string;
   /** 是否启用 server 内置的本机 Agent。默认开启，ADH_LOCAL_AGENT=0 关闭。 */
   localAgent: boolean;
@@ -128,6 +130,16 @@ function readOssConfig(): OssConfig | null {
   };
 }
 
+/**
+ * 部署前缀：ADH_BASE_PATH=/adh 时所有页面、接口、WebSocket 都在 /adh 下。
+ * 空值或 / 表示根路径。写法宽松：adh、/adh、/adh/ 都会规范化成 /adh。
+ */
+export function normalizeBasePath(raw: string | undefined): string {
+  const value = (raw ?? '').trim();
+  if (!value || value === '/') return '';
+  return `/${value.replace(/^\/+|\/+$/g, '')}`;
+}
+
 function envValue(...names: string[]): string | undefined {
   for (const name of names) {
     const value = process.env[name]?.trim();
@@ -194,6 +206,7 @@ export function loadConfig(): ServerConfig {
     appIconDir,
     agentDistDir: path.join(REPO_ROOT, 'dist'),
     publicDir: path.join(APP_DIR, 'public'),
+    basePath: normalizeBasePath(process.env.ADH_BASE_PATH),
     logLevel: cli['log-level'] ?? process.env.ADH_LOG_LEVEL ?? 'info',
     localAgent: process.env.ADH_LOCAL_AGENT !== '0',
     serveWeb: process.env.ADH_SERVE_WEB !== '0',

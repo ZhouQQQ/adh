@@ -1,6 +1,11 @@
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import Fastify, { type FastifyBaseLogger } from 'fastify';
+import Fastify, {
+  type FastifyBaseLogger,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from 'fastify';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WS_PATHS, BUILTIN_AGENT_ID } from '@adh/protocol';
@@ -76,9 +81,27 @@ async function main(): Promise<void> {
 
   const PUBLIC_API = new Set(['/api/health', '/api/auth/login']);
 
+  const basePath = config.basePath;
+
+  /** 去掉部署前缀，后面的判断统一用 /api、/ws 开头的相对路径。 */
+  const stripBase = (urlPath: string): string => {
+    if (!basePath) return urlPath;
+    if (urlPath === basePath) return '/';
+    if (urlPath.startsWith(`${basePath}/`)) {
+      return urlPath.slice(basePath.length);
+    }
+    return urlPath;
+  };
+
   // 登录校验：/api 和浏览器 WebSocket 需要 token，/ws/agent 走 agent key
   app.addHook('onRequest', async (request, reply) => {
-    const path = (request.raw.url ?? '').split('?')[0] ?? '';
+    const rawPath = (request.raw.url ?? '').split('?')[0] ?? '';
+    // 前缀之外的请求直接放行，交给 404 处理，避免误报 401
+    const underBase =
+      !basePath || rawPath === basePath || rawPath.startsWith(`${basePath}/`);
+    if (!underBase) return;
+
+    const path = stripBase(rawPath);
     const isApi = path.startsWith('/api');
     const isBrowserWs =
       path === WS_PATHS.web || path.startsWith(`${WS_PATHS.stream}/`);
@@ -118,7 +141,7 @@ async function main(): Promise<void> {
   // 删除 / 修改前先取目标名称：等响应回来时记录已经被删掉，审计里就只剩 ID 了
   app.addHook('onRequest', async (request) => {
     if (request.method !== 'DELETE' && request.method !== 'PATCH') return;
-    const path = (request.raw.url ?? '').split('?')[0] ?? '';
+    const path = stripBase((request.raw.url ?? '').split('?')[0] ?? '');
     const match = /^\/api\/(packages|devices|agents)\/([^/]+)$/.exec(path);
     if (!match) return;
     const [, kind, id] = match;
@@ -144,7 +167,7 @@ async function main(): Promise<void> {
   app.addHook('onResponse', async (request, reply) => {
     const user = request.user;
     if (!user) return;
-    const path = (request.raw.url ?? '').split('?')[0] ?? '';
+    const path = stripBase((request.raw.url ?? '').split('?')[0] ?? '');
     if (!path.startsWith('/api')) return;
     if (request.method === 'GET' || request.method === 'HEAD') return;
 
@@ -172,102 +195,152 @@ async function main(): Promise<void> {
     options: { maxPayload: 32 * 1024 * 1024 },
   });
 
-  registerAgentChannel(app, {
-    queries,
-    registry,
-    hub,
-    thumbnails,
-    commands,
-    serverVersion: SERVER_VERSION,
-    logger,
-  });
+  // 页面、API、WebSocket 统一注册在这个插件里；
+  // 配置 ADH_BASE_PATH 时整体挂到该前缀下，默认仍是根路径。
+  const registerApiRoutes = async (scope: FastifyInstance): Promise<void> => {
+    registerAgentChannel(scope, {
+      queries,
+      registry,
+      hub,
+      thumbnails,
+      commands,
+      serverVersion: SERVER_VERSION,
+      logger,
+    });
 
-  app.get(WS_PATHS.web, { websocket: true }, (socket, request) => {
-    hub.add(socket, request.user);
-    socket.on('close', () => hub.remove(socket));
-  });
+    scope.get(WS_PATHS.web, { websocket: true }, (socket, request) => {
+      hub.add(socket, request.user);
+      socket.on('close', () => hub.remove(socket));
+    });
 
-  registerStreamChannel(app, streams);
+    registerStreamChannel(scope, streams);
 
-  await registerAuthRoutes(app, {
-    auth,
-    // 单点登录：新登录把同账号的旧连接挤下线
-    onLogin: (userId) => {
-      hub.kickUser(userId);
-      streams.kickUser(userId);
-    },
-  });
-  await registerDeviceLogRoutes(app, { deviceLogs });
+    await registerAuthRoutes(scope, {
+      auth,
+      // 单点登录：新登录把同账号的旧连接挤下线
+      onLogin: (userId) => {
+        hub.kickUser(userId);
+        streams.kickUser(userId);
+      },
+    });
+    await registerDeviceLogRoutes(scope, { deviceLogs });
 
-  await registerHttpRoutes(app, {
-    queries,
-    registry,
-    hub,
-    thumbnails,
-    packages,
-    icons,
-    oss,
-    agentDistDir: config.agentDistDir,
-    commands,
-    streams,
-    deviceLogs,
-    settings,
-    port: config.port,
-  });
+    await registerHttpRoutes(scope, {
+      queries,
+      registry,
+      hub,
+      thumbnails,
+      packages,
+      icons,
+      oss,
+      agentDistDir: config.agentDistDir,
+      commands,
+      streams,
+      deviceLogs,
+      settings,
+      port: config.port,
+      basePath,
+    });
 
-  /** 仪表盘统计：用户、设备、使用时长与排行（管理员及以上）。 */
-  app.get('/api/dashboard', async (request, reply) => {
-    if (!isAdminRole(request.user?.role ?? '')) {
-      return reply.code(403).send({ error: '需要管理员权限' });
-    }
-    return loadDashboard({ db: driver, queries, packages, streams, registry });
-  });
+    /** 仪表盘统计：用户、设备、使用时长与排行（管理员及以上）。 */
+    scope.get('/api/dashboard', async (request, reply) => {
+      if (!isAdminRole(request.user?.role ?? '')) {
+        return reply.code(403).send({ error: '需要管理员权限' });
+      }
+      return loadDashboard({ db: driver, queries, packages, streams, registry });
+    });
 
-  await registerSettingsRoutes(app, { settings });
+    await registerSettingsRoutes(scope, { settings });
+  };
+
+  await app.register(registerApiRoutes, basePath ? { prefix: basePath } : {});
 
   // 静态资源与 SPA 回退：Vite 构建产物输出到 apps/server/public
   // ADH_SERVE_WEB=0 时只提供 API，页面统一走 Vite 开发服务器
-  const indexHtml = path.join(config.publicDir, 'index.html');
+  const indexHtmlPath = path.join(config.publicDir, 'index.html');
+  let indexHtmlCache: string | null | undefined;
+  const renderIndexHtml = (): string | null => {
+    if (indexHtmlCache !== undefined) return indexHtmlCache;
+    if (!fs.existsSync(indexHtmlPath)) {
+      indexHtmlCache = null;
+      return null;
+    }
+    // 运行时注入前缀：镜像不用为不同部署路径重新构建
+    const inject =
+      `<base href="${basePath}/">\n    ` +
+      `<script>window.__ADH_BASE__=${JSON.stringify(basePath)}</script>\n    `;
+    indexHtmlCache = fs
+      .readFileSync(indexHtmlPath, 'utf8')
+      .replace('<head>', `<head>\n    ${inject}`);
+    return indexHtmlCache;
+  };
+
+  const sendIndex = async (
+    _request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<unknown> => {
+    const html = renderIndexHtml();
+    if (html === null) {
+      return reply.code(404).send({
+        error: 'web console not built',
+        hint: 'run `pnpm --filter @adh/web build` or use the vite dev server',
+      });
+    }
+    return reply
+      .header('cache-control', 'no-cache, must-revalidate')
+      .type('text/html')
+      .send(html);
+  };
+
   if (config.serveWeb) {
     fs.mkdirSync(config.publicDir, { recursive: true });
+
+    if (basePath) {
+      app.get('/', (_request, reply) => reply.redirect(`${basePath}/`));
+      app.get(basePath, (_request, reply) => reply.redirect(`${basePath}/`));
+    }
+    app.get(basePath ? `${basePath}/` : '/', sendIndex);
+    app.get(basePath ? `${basePath}/index.html` : '/index.html', sendIndex);
+
     await app.register(fastifyStatic, {
       root: config.publicDir,
-      prefix: '/',
+      prefix: `${basePath}/`,
+      index: false,
       setHeaders: (res, filePath) => {
-        // 入口 HTML 必须实时校验，否则改版后浏览器会一直用旧 bundle
-        if (filePath.endsWith('index.html')) {
-          res.setHeader('cache-control', 'no-cache, must-revalidate');
-          return;
-        }
         if (filePath.includes(`${path.sep}assets${path.sep}`)) {
           res.setHeader('cache-control', 'public, max-age=31536000, immutable');
         }
       },
     });
+  }
 
-    app.setNotFoundHandler(async (request, reply) => {
-      if (request.url.startsWith('/api') || request.url.startsWith('/ws')) {
-        return reply.code(404).send({ error: 'not found' });
-      }
-      if (!fs.existsSync(indexHtml)) {
-        return reply.code(404).send({
-          error: 'web console not built',
-          hint: 'run `pnpm --filter @adh/web build` or use the vite dev server',
-        });
-      }
-      return reply.sendFile('index.html');
-    });
-  } else {
-    app.setNotFoundHandler(async (request, reply) => {
-      if (request.url.startsWith('/api') || request.url.startsWith('/ws')) {
-        return reply.code(404).send({ error: 'not found' });
-      }
+  app.setNotFoundHandler(async (request, reply) => {
+    const rawPath = (request.raw.url ?? '').split('?')[0] ?? '';
+    const underBase =
+      !basePath || rawPath === basePath || rawPath.startsWith(`${basePath}/`);
+    if (!underBase) {
+      return reply.code(404).send({
+        error: 'not found',
+        hint: `应用部署在 ${basePath}/`,
+      });
+    }
+
+    const relativePath = stripBase(rawPath);
+    if (relativePath.startsWith('/api') || relativePath.startsWith('/ws')) {
+      return reply.code(404).send({ error: 'not found' });
+    }
+    // 静态资源找不到就是 404，不要回退成页面
+    if (relativePath.startsWith('/assets/')) {
+      return reply.code(404).send({ error: 'not found' });
+    }
+    if (!config.serveWeb) {
       return reply.code(404).send({
         error: 'web console disabled',
         hint: 'ADH_SERVE_WEB=0，开发请访问 http://localhost:5173',
       });
-    });
-  }
+    }
+    return sendIndex(request, reply);
+  });
 
   await app.listen({ host: config.host, port: config.port });
 
@@ -285,9 +358,12 @@ async function main(): Promise<void> {
   );
   logger.info(
     config.serveWeb
-      ? `web console  : http://127.0.0.1:${config.port}`
+      ? `web console  : http://127.0.0.1:${config.port}${basePath}/`
       : 'web console  : 已关闭静态托管（ADH_SERVE_WEB=0），开发请用 http://localhost:5173',
   );
+  if (basePath) {
+    logger.info(`base path    : ${basePath}`);
+  }
   logger.info(
     config.localAgent
       ? '本机设备已由内置 Agent 接管，其他宿主机请在控制台新建 Agent 接入'

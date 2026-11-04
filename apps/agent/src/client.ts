@@ -23,12 +23,18 @@ export interface AgentClientOptions {
   syncIntervalMs?: number;
 }
 
+/** 保留 --server 里的路径前缀，例如 ws://host:8080/adh → /adh/ws/agent */
+function withServerPath(pathname: string, suffix: string): string {
+  const prefix = pathname.replace(/\/+$/, '');
+  return `${prefix}${suffix}`;
+}
+
 function toAgentEndpoint(serverUrl: string): string {
   const withProtocol = serverUrl
     .replace(/^http:\/\//i, 'ws://')
     .replace(/^https:\/\//i, 'wss://');
   const url = new URL(withProtocol);
-  url.pathname = '/ws/agent';
+  url.pathname = withServerPath(url.pathname, '/ws/agent');
   url.search = '';
   return url.toString();
 }

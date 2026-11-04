@@ -14,6 +14,7 @@ import {
   webCodecsHints,
   webCodecsReason,
 } from '../utils/webcodecs';
+import { withBase, wsUrl } from '../base';
 
 const props = defineProps<{
   sessionId: string;
@@ -83,7 +84,7 @@ async function measureLatency(): Promise<void> {
   const startedAt = performance.now();
   try {
     const token = localStorage.getItem('adh.token');
-    const response = await fetch('/api/health', {
+    const response = await fetch(withBase('/api/health'), {
       cache: 'no-store',
       headers: token ? { authorization: `Bearer ${token}` } : undefined,
     });
@@ -418,11 +419,8 @@ function connect(): void {
     return;
   }
 
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const token = localStorage.getItem('adh.token') ?? '';
-  const ws = new WebSocket(
-    `${protocol}://${window.location.host}/ws/stream/${props.sessionId}?token=${encodeURIComponent(token)}`,
-  );
+  const ws = new WebSocket(wsUrl(`/ws/stream/${props.sessionId}`, token ? { token } : undefined));
   ws.binaryType = 'arraybuffer';
   socket = ws;
 
@@ -535,7 +533,9 @@ async function startIosStream(): Promise<void> {
 
   try {
     const response = await fetch(
-      `/api/devices/${props.deviceId}/ios/mjpeg?quality=${props.quality ?? 'medium'}`,
+      withBase(
+        `/api/devices/${props.deviceId}/ios/mjpeg?quality=${props.quality ?? 'medium'}`,
+      ),
       { signal: controller.signal, cache: 'no-store', headers: authHeaders() },
     );
     if (!response.ok || !response.body) throw new Error('mjpeg unavailable');
@@ -575,7 +575,9 @@ async function pollIosFrame(): Promise<void> {
   if (unmounted || !isIos.value) return;
   try {
     const response = await fetch(
-      `/api/devices/${props.deviceId}/ios/screenshot?quality=${props.quality ?? 'medium'}`,
+      withBase(
+        `/api/devices/${props.deviceId}/ios/screenshot?quality=${props.quality ?? 'medium'}`,
+      ),
       { cache: 'no-store', headers: authHeaders() },
     );
     if (!response.ok) throw new Error('screenshot');
@@ -593,7 +595,7 @@ async function iosInput(payload: Record<string, unknown>): Promise<void> {
   if (!props.deviceId) return;
   try {
     const response = await fetch(
-      `/api/devices/${props.deviceId}/ios/input`,
+      withBase(`/api/devices/${props.deviceId}/ios/input`),
       {
         method: 'POST',
         headers: authHeaders({ 'content-type': 'application/json' }),
@@ -1120,7 +1122,7 @@ async function iosScreenshotPng(): Promise<Blob | null> {
 async function fetchIosFrame(): Promise<Blob | null> {
   try {
     const response = await fetch(
-      `/api/devices/${props.deviceId}/ios/screenshot?quality=ultra`,
+      withBase(`/api/devices/${props.deviceId}/ios/screenshot?quality=ultra`),
       { cache: 'no-store', headers: authHeaders() },
     );
     if (!response.ok) return null;

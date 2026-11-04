@@ -6,6 +6,47 @@ import { defineConfig, type Plugin } from 'vite';
 const SERVER = process.env.ADH_SERVER_URL ?? 'http://127.0.0.1:8080';
 
 /**
+ * 部署前缀，与 server 的 ADH_BASE_PATH 保持一致。
+ * 例如 /adh：dev 页面在 http://localhost:5173/adh/，
+ * 请求 /adh/api、/adh/ws 由 vite 代理到 server 的同名前缀。
+ */
+function readBasePath(): string {
+  const raw = (process.env.ADH_BASE_PATH ?? '').trim();
+  if (!raw || raw === '/') return '';
+  return `/${raw.replace(/^\/+|\/+$/g, '')}`;
+}
+
+const basePath = readBasePath();
+
+/**
+ * 把前缀注入 index.html：
+ * 开发环境由这里注入，生产由 server 在返回页面时注入，
+ * 这样同一个构建产物可以部署到任意路径。
+ */
+function basePathPlugin(): Plugin {
+  return {
+    name: 'adh-base-path',
+    transformIndexHtml(html) {
+      return {
+        html,
+        tags: [
+          {
+            tag: 'base',
+            attrs: { href: `${basePath}/` },
+            injectTo: 'head-prepend',
+          },
+          {
+            tag: 'script',
+            children: `window.__ADH_BASE__=${JSON.stringify(basePath)}`,
+            injectTo: 'head-prepend',
+          },
+        ],
+      };
+    },
+  };
+}
+
+/**
  * 本地 dev 默认走 HTTPS。
  *
  * 浏览器只在安全上下文（https / localhost）暴露 WebCodecs，
@@ -81,9 +122,13 @@ function httpToHttpsPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // 构建用相对路径，运行时靠 server 注入的 <base> 定位资源；
+  // dev 直接用带前缀的绝对路径，HMR / 代理都按这个前缀走。
+  base: command === 'build' ? './' : `${basePath}/`,
   plugins: [
     vue(),
+    basePathPlugin(),
     ...(useHttps ? [basicSsl(), httpToHttpsPlugin()] : []),
   ],
   server: {
@@ -94,8 +139,8 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: resolveAllowedHosts(),
     proxy: {
-      '/api': { target: SERVER, changeOrigin: true, secure: false },
-      '/ws': {
+      [`${basePath}/api`]: { target: SERVER, changeOrigin: true, secure: false },
+      [`${basePath}/ws`]: {
         target: SERVER.replace(/^http/, 'ws'),
         ws: true,
         changeOrigin: true,
@@ -106,4 +151,4 @@ export default defineConfig({
     outDir: '../server/public',
     emptyOutDir: true,
   },
-});
+}));

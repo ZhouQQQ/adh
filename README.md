@@ -103,6 +103,45 @@ Windows 解压后执行 `start.cmd`。
 
 配了 `ADH_BASE_PATH=/adh` 时，页面、接口、WebSocket 全部在 `/adh` 下：访问 `http://<服务器IP>:8080/adh/`，Agent 接入地址也要写成 `ws://<服务器IP>:8080/adh`。默认留空即部署在根路径。
 
+### 1.7 放在 nginx 后面
+
+server 配 `ADH_BASE_PATH=/adh`，nginx **保留前缀**转发（`map` 放在 `http` 块里）：
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name xiaoantech.com;
+
+    client_max_body_size 512m;   # 上传 APK / IPA 需要
+
+    location = /adh {
+        return 301 /adh/;
+    }
+
+    location /adh/ {
+        proxy_pass http://127.0.0.1:8080;   # 结尾不要加 /，否则会吃掉前缀
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+```
+
+然后访问 `http://xiaoantech.com/adh/`，控制台「新建节点」生成的接入命令会自动变成 `ws://xiaoantech.com/adh`。
+
+- 必须转发 `Upgrade` / `Connection`，否则实时事件和投屏连不上
+- 走 https 时换成 443 + 证书，接入命令会自动用 `wss`
+- 不要用 `proxy_pass http://127.0.0.1:8080/;`（带尾斜杠）把前缀剥掉，那样静态资源和页面路径会全部错位
+
 ---
 
 ## 二、接入设备（Agent）

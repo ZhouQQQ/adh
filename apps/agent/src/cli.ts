@@ -27,7 +27,7 @@ adh-agent v${AGENT_VERSION}
 
 用法:
   adh-agent init [--skip-ios] [--skip-android] [--force]
-  adh-agent connect --server <ws://host:8080> [--key <接入Key>] [--name <宿主机名>]
+  adh-agent connect --server <ws://host:8080[/前缀]> [--key <接入Key>] [--name <宿主机名>]
   adh-agent doctor
   adh-agent version
 
@@ -37,6 +37,7 @@ adh-agent v${AGENT_VERSION}
   doctor   检查 adb / go-ios / Apple 设备服务是否就绪
 
 接入 Key 在 Web 控制台的「Agent 管理 → 新建 Agent」中生成；
+server 部署在子路径时，--server 要带上前缀，例如 ws://192.168.1.10:8080/adh；
 接入成功后 Key 会保存在 ${configFilePath()}
 `.trim();
 

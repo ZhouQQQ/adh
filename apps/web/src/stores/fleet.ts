@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue';
 import type { AgentSummary, DeviceSummary, WebEvent } from '@adh/protocol';
 import { api } from '../api';
+import { wsUrl } from '../base';
 
 export type ConnectionState = 'connecting' | 'online' | 'offline';
 
@@ -49,10 +50,9 @@ function applyEvent(event: WebEvent): void {
 
 function connect(): void {
   if (closed) return;
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const token = localStorage.getItem('adh.token') ?? '';
   const ws = new WebSocket(
-    `${protocol}://${window.location.host}/ws/web?token=${encodeURIComponent(token)}`,
+    wsUrl('/ws/web', token ? { token } : undefined),
   );
   socket = ws;
   connection.value = 'connecting';

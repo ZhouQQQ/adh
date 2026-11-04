@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { BASE_PATH } from './base';
 import AgentsView from './views/AgentsView.vue';
 import AppsView from './views/AppsView.vue';
 import AuditView from './views/AuditView.vue';
@@ -12,7 +13,7 @@ import SettingsView from './views/SettingsView.vue';
 import UsersView from './views/UsersView.vue';
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(BASE_PATH ? `${BASE_PATH}/` : '/'),
   routes: [
     {
       path: '/login',

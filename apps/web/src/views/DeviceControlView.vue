@@ -57,6 +57,7 @@ import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
 import type { SafeKeyboardLayout } from '@adh/protocol';
 import { api } from '../api';
+import { withBase } from '../base';
 import { stopFleet, useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
@@ -1013,7 +1014,7 @@ function releaseIosControlOnLeave(): void {
   if (!id) return;
   const token = localStorage.getItem('adh.token') ?? '';
   // keepalive 保证页面已经关闭请求也能发出去
-  void fetch(`/api/devices/${id}/stream/stop`, {
+  void fetch(withBase(`/api/devices/${id}/stream/stop`), {
     method: 'POST',
     headers: { authorization: `Bearer ${token}` },
     keepalive: true,

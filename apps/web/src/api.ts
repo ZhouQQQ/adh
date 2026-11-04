@@ -5,6 +5,7 @@ import type {
   DeviceSummary,
   SafeKeyboardLayout,
 } from '@adh/protocol';
+import { withBase } from './base';
 
 export interface DeviceFileEntry {
   name: string;
@@ -189,7 +190,7 @@ async function request<T>(
   if (token && !headers.has('authorization')) {
     headers.set('authorization', `Bearer ${token}`);
   }
-  const response = await fetch(url, { ...init, headers });
+  const response = await fetch(withBase(url), { ...init, headers });
   if (response.status === 401) {
     localStorage.removeItem('adh.token');
     window.dispatchEvent(new Event('adh:unauthorized'));
@@ -379,11 +380,14 @@ export const api = {
     deviceId: string,
     blob: Blob,
   ): Promise<DeviceSummary> {
-    const response = await fetch(`/api/devices/${deviceId}/thumbnail`, {
-      method: 'POST',
-      headers: authHeaders({ 'content-type': 'image/jpeg' }),
-      body: blob,
-    });
+    const response = await fetch(
+      withBase(`/api/devices/${deviceId}/thumbnail`),
+      {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'image/jpeg' }),
+        body: blob,
+      },
+    );
     if (!response.ok) {
       let msg = `${response.status} ${response.statusText}`;
       try {
@@ -418,7 +422,7 @@ export const api = {
     if (platform) query.set('platform', platform);
     const token = localStorage.getItem('adh.token');
     if (token) query.set('token', token);
-    return `/api/agent/download?${query.toString()}`;
+    return withBase(`/api/agent/download?${query.toString()}`);
   },
 
   agentPlatforms(): Promise<{
@@ -468,7 +472,7 @@ export const api = {
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/packages');
+      xhr.open('POST', withBase('/api/packages'));
       for (const [key, value] of Object.entries(
         authHeaders({
           'content-type': isIpa
@@ -617,7 +621,7 @@ export const api = {
   },
 
   async uploadSiteLogo(blob: Blob): Promise<{ logoUpdatedAt: number }> {
-    const response = await fetch('/api/settings/logo', {
+    const response = await fetch(withBase('/api/settings/logo'), {
       method: 'POST',
       headers: authHeaders({ 'content-type': 'image/png' }),
       body: blob,
@@ -640,7 +644,7 @@ export const api = {
   },
 
   siteLogoUrl(updatedAt: number): string {
-    return `/api/settings/logo?v=${updatedAt}`;
+    return withBase(`/api/settings/logo?v=${updatedAt}`);
   },
 
   renamePackage(
@@ -670,7 +674,9 @@ export const api = {
 
   packageFileUrl(id: string): string {
     const token = localStorage.getItem('adh.token');
-    return `/api/packages/${id}/file${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    return withBase(
+      `/api/packages/${id}/file${token ? `?token=${encodeURIComponent(token)}` : ''}`,
+    );
   },
 
   /** iOS 切换画质：直接调整 WDA MJPEG 参数，不重建连接。 */
@@ -702,7 +708,7 @@ export const api = {
     if (token) query.set('token', token);
     if (version) query.set('v', String(version));
     const suffix = query.toString();
-    return `/api/packages/${id}/icon${suffix ? `?${suffix}` : ''}`;
+    return withBase(`/api/packages/${id}/icon${suffix ? `?${suffix}` : ''}`);
   },
 
   listDeviceApps(
@@ -717,7 +723,7 @@ export const api = {
     const query = new URLSearchParams({ package: packageName });
     const token = localStorage.getItem('adh.token');
     if (token) query.set('token', token);
-    return `/api/devices/${deviceId}/apps/export?${query.toString()}`;
+    return withBase(`/api/devices/${deviceId}/apps/export?${query.toString()}`);
   },
 
   deviceAppIconUrl(
@@ -729,7 +735,7 @@ export const api = {
     if (version) query.set('version', version);
     const token = localStorage.getItem('adh.token');
     if (token) query.set('token', token);
-    return `/api/devices/${deviceId}/apps/icon?${query.toString()}`;
+    return withBase(`/api/devices/${deviceId}/apps/icon?${query.toString()}`);
   },
 
   uninstallDeviceApp(
@@ -756,7 +762,9 @@ export const api = {
     filePath: string,
   ): Promise<{ blob: Blob; name: string }> {
     const response = await fetch(
-      `/api/devices/${deviceId}/files/download?path=${encodeURIComponent(filePath)}`,
+      withBase(
+        `/api/devices/${deviceId}/files/download?path=${encodeURIComponent(filePath)}`,
+      ),
       { headers: authHeaders() },
     );
     if (!response.ok) {
@@ -779,7 +787,9 @@ export const api = {
     file: File,
   ): Promise<{ path: string }> {
     const response = await fetch(
-      `/api/devices/${deviceId}/files/upload?dir=${encodeURIComponent(dir)}`,
+      withBase(
+        `/api/devices/${deviceId}/files/upload?dir=${encodeURIComponent(dir)}`,
+      ),
       {
         method: 'POST',
         headers: authHeaders({
@@ -806,11 +816,14 @@ export const api = {
     deviceId: string,
     paths: string[],
   ): Promise<Blob> {
-    const response = await fetch(`/api/devices/${deviceId}/files/archive`, {
-      method: 'POST',
-      headers: authHeaders({ 'content-type': 'application/json' }),
-      body: JSON.stringify({ paths }),
-    });
+    const response = await fetch(
+      withBase(`/api/devices/${deviceId}/files/archive`),
+      {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ paths }),
+      },
+    );
     if (!response.ok) {
       let msg = `${response.status} ${response.statusText}`;
       try {
@@ -862,5 +875,5 @@ export function thumbnailUrl(device: DeviceSummary): string {
   const query = new URLSearchParams({ v: String(device.thumbnailAt) });
   const token = localStorage.getItem('adh.token');
   if (token) query.set('token', token);
-  return `/api/devices/${device.id}/thumbnail?${query.toString()}`;
+  return withBase(`/api/devices/${device.id}/thumbnail?${query.toString()}`);
 }

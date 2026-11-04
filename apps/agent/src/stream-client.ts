@@ -27,7 +27,8 @@ function buildStreamUrl(
     .replace(/^http:\/\//i, 'ws://')
     .replace(/^https:\/\//i, 'wss://');
   const url = new URL(base);
-  url.pathname = `/ws/stream/${sessionId}`;
+  const prefix = url.pathname.replace(/\/+$/, '');
+  url.pathname = `${prefix}/ws/stream/${sessionId}`;
   url.search = `?role=agent&token=${encodeURIComponent(token)}`;
   return url.toString();
 }

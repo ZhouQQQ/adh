@@ -49,6 +49,6 @@ EXPOSE 8080
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "const p=(process.env.ADH_BASE_PATH||'').split('/').filter(Boolean).join('/');fetch('http://127.0.0.1:8080'+(p?'/'+p:'')+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "node_modules/tsx/dist/cli.mjs", "src/index.ts"]

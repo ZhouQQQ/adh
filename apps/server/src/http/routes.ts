@@ -66,6 +66,8 @@ export interface HttpDeps {
   deviceLogs: DeviceLogService;
   settings: SettingsService;
   port: number;
+  /** 部署前缀（空串表示根路径），生成给 Agent 的下载地址时要带上。 */
+  basePath: string;
 }
 
 const CreateAgentBody = z.object({
@@ -595,7 +597,7 @@ export async function registerHttpRoutes(
       return local.map((item) => ({
         ...item,
         source: 'local' as const,
-        url: `/api/agent/download?platform=${item.platform}`,
+        url: `${deps.basePath}/api/agent/download?platform=${item.platform}`,
       }));
     }
     return AGENT_PLATFORMS.map((platform) => ({
@@ -1401,7 +1403,16 @@ export async function registerHttpRoutes(
     }
 
     const host = request.headers.host ?? `127.0.0.1:${deps.port}`;
-    const url = `http://${host}/api/packages/${parsed.data.packageId}/download`;
+    // 走 nginx / 反代时用外部协议（https），否则 Agent 下载安装包会被重定向或失败
+    const forwarded = String(request.headers['x-forwarded-proto'] ?? '')
+      .split(',')[0]
+      ?.trim();
+    const protocol = forwarded === 'https' || forwarded === 'http'
+      ? forwarded
+      : request.protocol === 'https'
+        ? 'https'
+        : 'http';
+    const url = `${protocol}://${host}${deps.basePath}/api/packages/${parsed.data.packageId}/download`;
 
     try {
       const result = await deps.commands.send(
