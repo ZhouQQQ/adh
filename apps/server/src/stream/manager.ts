@@ -190,12 +190,12 @@ export class StreamManager {
 
   /** 当前正在控制设备的用户。 */
   getControl(deviceId: string): DeviceControlInfo | undefined {
+    // iOS 的控制权独立于投屏会话，有 iosControl 就以它为准
+    const ios = this.liveIosControl(deviceId);
+    if (ios) return this.toControlInfo(ios);
+
     const session = this.findSessionByDevice(deviceId);
-    if (!session) {
-      const ios = this.liveIosControl(deviceId);
-      return ios ? this.toControlInfo(ios) : undefined;
-    }
-    if (!session.controller) return undefined;
+    if (!session || !session.controller) return undefined;
     const meta = viewerMeta.get(session.controller);
     if (!meta?.user) return undefined;
     return {

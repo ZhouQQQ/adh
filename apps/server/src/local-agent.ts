@@ -35,6 +35,7 @@ function sameDevice(a: DeviceInfo, b: DeviceInfo): boolean {
     a.memoryMb === b.memoryMb &&
     a.rooted === b.rooted &&
     a.status === b.status &&
+    a.wdaPort === b.wdaPort &&
     a.resolution?.width === b.resolution?.width &&
     a.resolution?.height === b.resolution?.height &&
     JSON.stringify(a.capabilities) === JSON.stringify(b.capabilities)

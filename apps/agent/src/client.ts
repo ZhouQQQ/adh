@@ -2,7 +2,14 @@ import WebSocket from 'ws';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getTunnelStatus, runCommand } from '@adh/device-host';
+import {
+  getTunnelStatus,
+  runCommand,
+  startWda,
+  stopWda,
+  wdaApplyMjpegSettings,
+  wdaPortFor,
+} from '@adh/device-host';
 import {
   parseServerMessage,
   type AgentRuntimeInfo,
@@ -46,6 +53,7 @@ function sameDevice(a: DeviceInfo, b: DeviceInfo): boolean {
     a.osVersion === b.osVersion &&
     a.rooted === b.rooted &&
     a.status === b.status &&
+    a.wdaPort === b.wdaPort &&
     a.resolution?.width === b.resolution?.width &&
     a.resolution?.height === b.resolution?.height &&
     JSON.stringify(a.capabilities) === JSON.stringify(b.capabilities) &&
@@ -161,7 +169,70 @@ export class AgentClient {
       url?: string;
       quality?: string;
       platform?: string;
+      restart?: boolean;
     };
+
+    if (message.action === 'ios.wda.start' && params.udid) {
+      void startWda(params.udid, undefined, Boolean(params.restart))
+        .then((result) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: result.ok,
+            error: result.ok ? undefined : result.message,
+            data: { message: result.message, port: result.port },
+          });
+        })
+        .catch((error: unknown) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return;
+    }
+
+    if (message.action === 'ios.wda.stop' && params.udid) {
+      void stopWda(params.udid)
+        .then(() => {
+          this.send({ t: 'cmd.result', id: message.id, ok: true });
+        })
+        .catch((error: unknown) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return;
+    }
+
+    if (message.action === 'ios.quality' && params.udid && params.quality) {
+      const settings =
+        params.quality === 'low'
+          ? { framerate: 30, quality: 25, scaling: 25 }
+          : params.quality === 'high'
+            ? { framerate: 30, quality: 75, scaling: 100 }
+            : params.quality === 'ultra'
+              ? { framerate: 30, quality: 95, scaling: 100 }
+              : { framerate: 24, quality: 45, scaling: 50 };
+      void wdaApplyMjpegSettings(wdaPortFor(params.udid), settings)
+        .then(() => {
+          this.send({ t: 'cmd.result', id: message.id, ok: true });
+        })
+        .catch((error: unknown) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return;
+    }
 
     if (message.action === 'app.install' && params.udid && params.url) {
       void this.installApk(params.url, params.udid)

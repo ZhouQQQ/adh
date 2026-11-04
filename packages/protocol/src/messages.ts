@@ -75,6 +75,8 @@ export const DeviceInfoSchema = z.object({
   /** 该设备当前可用的能力，如 scrcpy / wda / shell。 */
   capabilities: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
+  /** iOS 设备在本机分配的 WDA 转发端口（agent 上报，8100 起递增）。 */
+  wdaPort: z.number().int().optional(),
 });
 export type DeviceInfo = z.infer<typeof DeviceInfoSchema>;
 
@@ -289,6 +291,11 @@ export const DeviceActionSchema = z.enum([
   'ios.tunnel.start',
   'ios.tunnel.stop',
   'ios.tunnel.status',
+  /** 设备级 iOS：一键启动 / 重启 WDA（XCTest + 端口转发）。 */
+  'ios.wda.start',
+  'ios.wda.stop',
+  /** 调整 WDA MJPEG 的帧率 / 质量 / 缩放。 */
+  'ios.quality',
 ]);
 export type DeviceAction = z.infer<typeof DeviceActionSchema>;
 

@@ -107,6 +107,12 @@ async function main(): Promise<void> {
       path === WS_PATHS.web || path.startsWith(`${WS_PATHS.stream}/`);
 
     if (!isApi && !isBrowserWs) return;
+    // agent 推流走 /ws/stream/:id?role=agent&token=<adh_...>，
+    // 用 agent key 校验（attachAgent），不适用用户 JWT
+    if (path.startsWith(`${WS_PATHS.stream}/`)) {
+      const url = new URL(request.raw.url ?? '/', 'http://127.0.0.1');
+      if (url.searchParams.get('role') === 'agent') return;
+    }
     // 站点标题与 Logo 公开读取，登录页也要展示
     const publicSiteRead =
       request.method === 'GET' &&

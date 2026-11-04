@@ -148,6 +148,8 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
       // WDA 未启动时也上报设备，前端会提示并提供「启动 XCTest + 转发」入口
       capabilities: wda ? ['ios', 'wda'] : ['ios'],
       tags: [],
+      // 这台 agent 上给该设备分配的转发端口，server 直接展示
+      wdaPort: port,
     };
 
     if (info?.ProductType) device.model = info.ProductType;

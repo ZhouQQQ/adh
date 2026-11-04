@@ -1912,8 +1912,8 @@ export async function registerHttpRoutes(
   /** 一键启动 iOS 设备上的 WebDriverAgent。 */
   app.post('/api/devices/:id/ios/wda/start', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = await requireLocalDevice(id, reply);
-    if (!device) return reply;
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
     }
@@ -1924,7 +1924,28 @@ export async function registerHttpRoutes(
       .object({ restart: z.boolean().optional() })
       .safeParse(request.body ?? {});
     const restart = body.success && body.data.restart === true;
-    const result = await startWda(device.udid, undefined, restart);
+
+    let result: { ok: boolean; message: string; port: number };
+    if (device.agentId === BUILTIN_AGENT_ID) {
+      result = await startWda(device.udid, undefined, restart);
+    } else {
+      // 远程 agent：WDA 在插着设备的那台机器上启动
+      const remote = await deps.commands.send(
+        device.agentId,
+        'ios.wda.start',
+        { udid: device.udid, restart },
+        device.id,
+        150_000,
+      );
+      const data = (remote.data ?? {}) as { message?: string; port?: number };
+      result = {
+        ok: remote.ok,
+        message:
+          remote.error ?? data.message ?? (remote.ok ? '操作完成' : '启动失败'),
+        port: data.port ?? 0,
+      };
+    }
+
     if (!result.ok) {
       return reply.code(400).send({ error: result.message });
     }
@@ -1942,8 +1963,8 @@ export async function registerHttpRoutes(
 
   app.post('/api/devices/:id/ios/quality', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = await requireLocalDevice(id, reply);
-    if (!device) return reply;
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
     }
@@ -1957,6 +1978,22 @@ export async function registerHttpRoutes(
     }
 
     const quality = body.data.quality;
+
+    // 远程 agent：参数调整交给设备所在机器执行
+    if (device.agentId !== BUILTIN_AGENT_ID) {
+      const remote = await deps.commands.send(
+        device.agentId,
+        'ios.quality',
+        { udid: device.udid, quality },
+        device.id,
+        15_000,
+      );
+      if (!remote.ok) {
+        return reply.code(400).send({ error: remote.error ?? '调整画质失败' });
+      }
+      return { ok: true };
+    }
+
     await wdaApplyMjpegSettings(
       wdaPortFor(device.udid),
       quality === 'low'

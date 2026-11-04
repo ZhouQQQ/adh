@@ -50,6 +50,8 @@ export interface DeviceRow {
   locked: number | null;
   lockedBy: string | null;
   lockedAt: number | null;
+  /** iOS 设备所在 agent 分配的 WDA 转发端口。 */
+  wdaPort: number | null;
 }
 
 export interface PackageRow {

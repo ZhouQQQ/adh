@@ -32,7 +32,8 @@ const DEVICE_COLUMNS = `
   thumbnail_at AS thumbnailAt,
   thumbnail_source AS thumbnailSource, published_at AS publishedAt,
   safe_keyboard AS safeKeyboard,
-  locked, locked_by AS lockedBy, locked_at AS lockedAt
+  locked, locked_by AS lockedBy, locked_at AS lockedAt,
+  wda_port AS wdaPort
 `;
 
 function parseStringArray(raw: string | null): string[] {
@@ -167,13 +168,14 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
 
   if (row.lockedBy) summary.lockedBy = row.lockedBy;
 
-  // iOS 设备的 WDA 端口按设备分配；本机接入的设备才有实际意义
-  if (
-    row.platform === 'ios' &&
-    row.agentId === BUILTIN_AGENT_ID &&
-    row.status === 'online'
-  ) {
-    summary.wdaPort = wdaPortFor(row.udid);
+  // iOS 设备的 WDA 端口：优先用设备所在 agent 上报的值；
+  // 本机接入且没有上报时，按 server 进程内分配的端口兜底。
+  if (row.platform === 'ios') {
+    if (row.wdaPort != null) {
+      summary.wdaPort = Number(row.wdaPort);
+    } else if (row.agentId === BUILTIN_AGENT_ID && row.status === 'online') {
+      summary.wdaPort = wdaPortFor(row.udid);
+    }
   }
 
   return summary;
@@ -437,6 +439,7 @@ export function createQueries(db: SqlDriver) {
         tags: JSON.stringify(info.tags),
         lastSeen: now,
         connectedAt,
+        wdaPort: info.wdaPort ?? null,
       };
 
       if (existing) {
@@ -445,7 +448,7 @@ export function createQueries(db: SqlDriver) {
              platform = ?, name = ?, model = ?, market_name = ?, brand = ?,
              os_version = ?, sdk = ?, cpu = ?, cpu_vendor = ?, cpu_model = ?,
              cpu_cores = ?, cpu_arch = ?, cpu_code = ?, memory_mb = ?, rooted = ?, resolution = ?, status = ?,
-             capabilities = ?, tags = ?, last_seen = ?, connected_at = ?
+             capabilities = ?, tags = ?, last_seen = ?, connected_at = ?, wda_port = ?
            WHERE id = ?`,
           [
             values.platform,
@@ -469,6 +472,7 @@ export function createQueries(db: SqlDriver) {
             values.tags,
             values.lastSeen,
             values.connectedAt,
+            values.wdaPort,
             existing.id,
           ],
         );
@@ -494,8 +498,8 @@ export function createQueries(db: SqlDriver) {
            os_version, sdk, cpu, cpu_vendor, cpu_model, cpu_cores, cpu_arch, cpu_code,
            memory_mb, rooted, resolution, status, capabilities, tags, last_seen,
            connected_at, use_count, last_used_at,
-           thumbnail_at, thumbnail_source, published_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           thumbnail_at, thumbnail_source, published_at, wda_port)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.id,
           row.agentId,
@@ -526,6 +530,7 @@ export function createQueries(db: SqlDriver) {
           row.thumbnailAt,
           row.thumbnailSource,
           row.publishedAt,
+          row.wdaPort,
         ],
       );
       return rowToDevice(row);
@@ -577,6 +582,7 @@ export function createQueries(db: SqlDriver) {
           'resolution',
           patch.resolution ? JSON.stringify(patch.resolution) : null,
         );
+      if (patch.wdaPort !== undefined) set('wda_port', patch.wdaPort ?? null);
 
       params.push(existing.id);
       await db.execute(
