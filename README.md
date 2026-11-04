@@ -51,7 +51,7 @@ Windows 解压后执行 `start.cmd`。
 内置 Agent 默认开启，设备会在 5 秒内出现在「设备管理」：
 
 - Android：连续点「版本号」7 次打开开发者选项 → 开启「USB 调试」「USB 安装」→ 插线后手机上点「允许 USB 调试」
-- iOS：server 必须跑在插着 iPhone 的这台机器上，然后在设备菜单里启动 WDA
+- iOS：插线后在设备菜单里点「启动 WDA」，首次会自动安装并拉起 WebDriverAgent
 
 改端口或数据目录：
 
@@ -123,7 +123,7 @@ chmod +x adh-agent.sh
 - Key 会保存到 `~/.adh/agent.json`，之后重启只带 `--server`
 - macOS 提示「无法验证开发者」时先执行 `xattr -dr com.apple.quarantine /opt/adh-agent`
 - server 配了 `ADH_BASE_PATH` 时，`--server` 要带上同样前缀，如 `ws://<服务器IP>:8080/adh`
-- iOS 目前要求设备直接插在 server 所在机器上（内置 Agent），远程 Agent 只支持 Android
+- iOS 也可以接在任意宿主机（含远程 Agent），在设备菜单里启动 WDA 即可；Windows 宿主机需先安装 iTunes 或「Apple Devices」
 
 开机自启、WDA 安装等细节见 [`docs/agent-install.md`](docs/agent-install.md)。
 

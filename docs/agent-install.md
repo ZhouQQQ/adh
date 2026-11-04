@@ -238,7 +238,8 @@ adb start-server
 
 ## 6. iOS 手机配置（WDA）
 
-> iOS 目前要求设备连接在 **server 所在机器**上（内置 Agent）。WDA 的 8100 端口转发由 server 自动建立，远程 Agent 暂不支持 iOS。
+> iOS 设备可以接在任意宿主机（包括远程 Agent）。WDA 运行在设备所在宿主机上，
+> 端口转发由 agent 自动处理，控制台可直接投屏和操作。
 
 ### 6.1 准备工作
 
