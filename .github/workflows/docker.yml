@@ -1,4 +1,4 @@
-name: Docker Image
+name: adh-server Docker build 
 
 on:
   push:
