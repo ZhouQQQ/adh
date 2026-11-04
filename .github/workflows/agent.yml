@@ -8,6 +8,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 包内目录版本号，例如 0.1.5（留空则用 package.json 的版本）
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -20,6 +25,9 @@ jobs:
   build:
     name: packages (linux runner)
     runs-on: ubuntu-latest
+    env:
+      # 手动触发时可指定版本号；tag 触发时脚本自己读 GITHUB_REF_NAME
+      ADH_AGENT_VERSION: ${{ inputs.version }}
 
     steps:
       - uses: actions/checkout@v4
