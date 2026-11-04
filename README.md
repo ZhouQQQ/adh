@@ -147,36 +147,6 @@ ADH_OSS_ACCESS_KEY_SECRET=xxx
 ADH_OSS_PREFIX=adh
 ```
 
-### 可选：子路径与 nginx
-
-要部署到 `http://example.com/adh`，server 加 `-e ADH_BASE_PATH=/adh`，nginx 保留前缀转发：
-
-```nginx
-map $http_upgrade $connection_upgrade {
-    default upgrade;
-    ''      close;
-}
-
-server {
-    listen 80;
-    server_name example.com;
-    client_max_body_size 512m;          # 上传 APK / IPA
-
-    location = /adh { return 301 /adh/; }
-
-    location /adh/ {
-        proxy_pass http://127.0.0.1:8080;   # 结尾不要加 /
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-    }
-}
-```
-
-访问 `http://example.com/adh/`，控制台生成的接入命令会自动变成 `wss://example.com/adh`。
-
 ### 可选参数
 
 | 环境变量 | 默认值 | 说明 |
