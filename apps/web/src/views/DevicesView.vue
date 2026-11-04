@@ -102,8 +102,28 @@ const cpuModel = ref<string | 'all'>('all');
 const cores = ref<number | 'all'>('all');
 const memory = ref<number | 'all'>('all');
 const usage = ref<'all' | 'idle' | 'busy'>('all');
+type SortKey = 'default' | 'connectedAt' | 'platform' | 'useCount';
+type SortDir = 'asc' | 'desc';
+/** 各字段第一次点选时的默认方向：时间 / 频率看最近最多的，类型按平台名正序。 */
+const SORT_DEFAULTS: Record<Exclude<SortKey, 'default'>, SortDir> = {
+  connectedAt: 'desc',
+  platform: 'asc',
+  useCount: 'desc',
+};
+const sortKey = ref<SortKey>('default');
+const sortDir = ref<SortDir>('desc');
 const collapsed = ref(false);
 const selectedIds = ref<string[]>([]);
+
+/** 点已选字段切换升降序，点其他字段切过去并使用默认方向。 */
+function pickSort(key: Exclude<SortKey, 'default'>): void {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  sortKey.value = key;
+  sortDir.value = SORT_DEFAULTS[key];
+}
 
 /** 默认内置候选，配合设备实际值一起展示，没有设备命中的置灰。 */
 const DEFAULT_ANDROID_VERSIONS = [
@@ -341,10 +361,24 @@ const filtered = computed(() => {
       return true;
     })
     .sort((a, b) => {
+      const byName = a.name.localeCompare(b.name, 'zh-CN');
+      const dir = sortDir.value === 'asc' ? 1 : -1;
+      if (sortKey.value === 'connectedAt') {
+        const diff = a.connectedAt - b.connectedAt;
+        return diff !== 0 ? diff * dir : byName;
+      }
+      if (sortKey.value === 'useCount') {
+        const diff = a.useCount - b.useCount;
+        return diff !== 0 ? diff * dir : byName;
+      }
+      if (sortKey.value === 'platform') {
+        const diff = a.platform.localeCompare(b.platform);
+        return diff !== 0 ? diff * dir : byName;
+      }
       const rank = (value: DeviceStatus) =>
         value === 'online' ? 0 : value === 'unauthorized' ? 1 : 2;
       const diff = rank(a.status) - rank(b.status);
-      return diff !== 0 ? diff : a.name.localeCompare(b.name, 'zh-CN');
+      return diff !== 0 ? diff : byName;
     });
 });
 
@@ -579,6 +613,8 @@ function resetFilters(): void {
   cores.value = 'all';
   memory.value = 'all';
   usage.value = 'all';
+  sortKey.value = 'default';
+  sortDir.value = 'desc';
 }
 </script>
 
@@ -621,6 +657,63 @@ function resetFilters(): void {
 
       <n-collapse-transition :show="!collapsed">
         <div class="filter-body">
+      <div class="filter-row">
+        <span class="filter-label">排序:</span>
+        <div class="filter-options">
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: sortKey === 'default' }"
+            @click="sortKey = 'default'"
+          >
+            默认
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: sortKey === 'connectedAt' }"
+            @click="pickSort('connectedAt')"
+          >
+            接入时间
+            <span v-if="sortKey === 'connectedAt'" class="sort-arrow">
+              {{ sortDir === 'asc' ? '↑' : '↓' }}
+            </span>
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: sortKey === 'platform' }"
+            @click="pickSort('platform')"
+          >
+            类型
+            <span v-if="sortKey === 'platform'" class="sort-arrow">
+              {{ sortDir === 'asc' ? '↑' : '↓' }}
+            </span>
+          </button>
+          <button
+            type="button"
+            class="opt"
+            :class="{ active: sortKey === 'useCount' }"
+            @click="pickSort('useCount')"
+          >
+            使用频率
+            <span v-if="sortKey === 'useCount'" class="sort-arrow">
+              {{ sortDir === 'asc' ? '↑' : '↓' }}
+            </span>
+          </button>
+          <template v-if="sortKey !== 'default'">
+            <span class="sort-sep">|</span>
+            <button
+              type="button"
+              class="opt direction"
+              @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
+            >
+              {{ sortDir === 'asc' ? '升序' : '降序' }}
+            </button>
+          </template>
+        </div>
+      </div>
+
       <div class="filter-row">
         <span class="filter-label">关键字:</span>
         <div class="filter-options">
@@ -1055,6 +1148,25 @@ function resetFilters(): void {
 
 .opt.active:hover {
   background: #27272a;
+}
+
+.sort-arrow {
+  margin-left: 2px;
+  font-size: 11px;
+}
+
+.sort-sep {
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.opt.direction {
+  color: var(--text-dim);
+}
+
+.opt.direction:hover {
+  color: var(--text);
 }
 
 .empty-tip {

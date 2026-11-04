@@ -29,6 +29,8 @@ const AGENT_ATTACH_TIMEOUT_MS = 15_000;
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 /** iOS 没有 WebSocket 会话，用带心跳的控制权记录，超时自动释放。 */
 const IOS_CONTROL_TTL_MS = 40_000;
+/** 同一设备短时间内重复进入控制（刷新重连）只计一次使用。 */
+const USAGE_DEDUPE_MS = 60_000;
 
 interface IosControl {
   userId: string;
@@ -98,6 +100,8 @@ export class StreamManager {
   private readonly sessions = new Map<string, StreamSession>();
   /** iOS 设备的控制权（无 WebSocket 会话，按心跳 + TTL 维护）。 */
   private readonly iosControls = new Map<string, IosControl>();
+  /** 设备最近一次计入使用次数的时间，用于去重。 */
+  private readonly usageRecordedAt = new Map<string, number>();
 
   constructor(private readonly deps: StreamManagerDeps) {}
 
@@ -142,8 +146,8 @@ export class StreamManager {
     };
     entry.touchedAt = Date.now();
     this.iosControls.set(deviceId, entry);
-    // 首次拿到控制权时广播，让其他端的设备卡片立即显示「谁在使用」
-    if (!existing) this.notifyDevice(deviceId);
+    // 首次拿到控制权时记一次使用，并广播让其他端的设备卡片立即显示「谁在使用」
+    if (!existing) void this.recordUsage(deviceId);
     return { granted: true, control: this.toControlInfo(entry) };
   }
 
@@ -435,7 +439,7 @@ export class StreamManager {
         since: Date.now(),
         touchedAt: Date.now(),
       });
-      this.notifyDevice(deviceId);
+      void this.recordUsage(deviceId);
       return true;
     }
 
@@ -468,7 +472,7 @@ export class StreamManager {
     if (previous) sendJson(previous, { t: 'role', controller: false });
     sendJson(target, { t: 'role', controller: true });
 
-    this.notifyDevice(deviceId);
+    void this.recordUsage(deviceId);
     return true;
   }
 
@@ -575,8 +579,8 @@ export class StreamManager {
 
     viewerMeta.set(socket, { user, ip, lastTouch: 0 });
 
-    // 控制权发生变化时立刻推送设备卡片（控制者、使用中）
-    if (becomesController) this.notifyDevice(session.device.id);
+    // 控制权发生变化时立刻记录使用并推送设备卡片（控制者、使用中）
+    if (becomesController) void this.recordUsage(session.device.id);
 
     if (user) {
       void this.deps.deviceLogs.write({
@@ -709,6 +713,26 @@ export class StreamManager {
 
     this.notifyDevice(session.device.id);
     this.deps.logger.info({ sessionId, reason }, 'stream session closed');
+  }
+
+  /**
+   * 记录一次使用（开始控制），用于设备列表按使用频率排序。
+   * 同一设备 60 秒内重复进入（刷新重连）只算一次；计数后广播最新数据。
+   */
+  private async recordUsage(deviceId: string): Promise<void> {
+    const now = Date.now();
+    if (now - (this.usageRecordedAt.get(deviceId) ?? 0) >= USAGE_DEDUPE_MS) {
+      this.usageRecordedAt.set(deviceId, now);
+      try {
+        await this.deps.queries.incrementDeviceUsage(deviceId);
+      } catch (error) {
+        this.deps.logger.warn(
+          { err: String(error), deviceId },
+          'record device usage failed',
+        );
+      }
+    }
+    this.notifyDevice(deviceId);
   }
 
   private notifyDevice(deviceId: string): void {

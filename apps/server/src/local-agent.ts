@@ -4,6 +4,7 @@ import {
   captureThumbnail,
   discoverAndroid,
   discoverIos,
+  getTunnelStatus,
   isAdbAvailable,
 } from '@adh/device-host';
 import type { Queries } from './db/queries.js';
@@ -51,6 +52,8 @@ export class LocalAgent {
   private discovering = false;
   private capturing = false;
   private started = false;
+  /** 每 3 次扫描刷新一次隧道状态，约 15 秒。 */
+  private tunnelTick = 0;
 
   constructor(private readonly deps: LocalAgentDeps) {}
 
@@ -129,10 +132,30 @@ export class LocalAgent {
       this.tracked.clear();
       for (const [udid, info] of next) this.tracked.set(udid, info);
       await queries.touchAgent(BUILTIN_AGENT_ID);
+      await this.refreshTunnel();
     } catch (error) {
       this.deps.logger.debug({ err: String(error) }, 'local device scan failed');
     } finally {
       this.discovering = false;
+    }
+  }
+
+  /** 内置 Agent 不走 WebSocket，直接写库并广播隧道状态。 */
+  private async refreshTunnel(): Promise<void> {
+    this.tunnelTick += 1;
+    if (this.tunnelTick % 3 !== 0) return;
+    try {
+      const status = await getTunnelStatus();
+      await this.deps.queries.updateAgentTunnel(BUILTIN_AGENT_ID, status);
+      const agent = await this.deps.queries.getAgent(BUILTIN_AGENT_ID);
+      if (agent) {
+        this.deps.hub.broadcast({
+          t: 'agent.updated',
+          agent: { ...agent, online: true },
+        });
+      }
+    } catch (error) {
+      this.deps.logger.debug({ err: String(error) }, 'local tunnel status failed');
     }
   }
 

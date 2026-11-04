@@ -40,6 +40,9 @@ export interface DeviceRow {
   capabilities: string;
   tags: string;
   lastSeen: number;
+  connectedAt: number;
+  useCount: number;
+  lastUsedAt: number;
   thumbnailAt: number;
   thumbnailSource: string;
   publishedAt: number;

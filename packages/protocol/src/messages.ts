@@ -96,6 +96,12 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   id: z.string(),
   agentId: z.string(),
   lastSeen: z.number(),
+  /** 最近一次上线的毫秒时间戳，0 表示还没有上线记录。 */
+  connectedAt: z.number().default(0),
+  /** 累计被控制次数，用于按使用频率排序。 */
+  useCount: z.number().int().default(0),
+  /** 最近一次被控制的毫秒时间戳，0 表示从未使用。 */
+  lastUsedAt: z.number().default(0),
   /** 缩略图最后更新时间，0 表示暂无。 */
   thumbnailAt: z.number().default(0),
   /** 缩略图来源：自动截图或手动上传。 */

@@ -1832,6 +1832,23 @@ onBeforeUnmount(() => {
   gap: 14px;
 }
 
+.share-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.share-tip {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.share-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .toolbar-user {
   display: flex;
   align-items: center;

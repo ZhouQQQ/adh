@@ -136,9 +136,10 @@ async function migrateRows(sqlite, pool) {
       `INSERT INTO adh_devices
         (id, agent_id, udid, platform, name, model, market_name, brand,
          os_version, sdk, cpu, cpu_vendor, cpu_model, cpu_cores, memory_mb,
-         resolution, status, capabilities, tags, last_seen, thumbnail_at,
+         resolution, status, capabilities, tags, last_seen, connected_at,
+         use_count, last_used_at, thumbnail_at,
          thumbnail_source, published_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          name = VALUES(name), model = VALUES(model), market_name = VALUES(market_name),
          brand = VALUES(brand), os_version = VALUES(os_version), sdk = VALUES(sdk),
@@ -146,7 +147,9 @@ async function migrateRows(sqlite, pool) {
          cpu_cores = VALUES(cpu_cores), memory_mb = VALUES(memory_mb),
          resolution = VALUES(resolution), status = VALUES(status),
          capabilities = VALUES(capabilities), tags = VALUES(tags),
-         last_seen = VALUES(last_seen), thumbnail_at = VALUES(thumbnail_at),
+         last_seen = VALUES(last_seen), connected_at = VALUES(connected_at),
+         use_count = VALUES(use_count), last_used_at = VALUES(last_used_at),
+         thumbnail_at = VALUES(thumbnail_at),
          thumbnail_source = VALUES(thumbnail_source), published_at = VALUES(published_at)`,
       [
         row.id,
@@ -169,6 +172,9 @@ async function migrateRows(sqlite, pool) {
         row.capabilities,
         row.tags,
         row.last_seen,
+        row.connected_at ?? 0,
+        row.use_count ?? 0,
+        row.last_used_at ?? 0,
         row.thumbnail_at ?? 0,
         row.thumbnail_source ?? 'auto',
         row.published_at ?? 0,

@@ -27,7 +27,9 @@ const DEVICE_COLUMNS = `
   cpu, cpu_vendor AS cpuVendor, cpu_model AS cpuModel, cpu_cores AS cpuCores,
   cpu_arch AS cpuArch, cpu_code AS cpuCode,
   memory_mb AS memoryMb, rooted, resolution, status, capabilities, tags,
-  last_seen AS lastSeen, thumbnail_at AS thumbnailAt,
+  last_seen AS lastSeen, connected_at AS connectedAt,
+  use_count AS useCount, last_used_at AS lastUsedAt,
+  thumbnail_at AS thumbnailAt,
   thumbnail_source AS thumbnailSource, published_at AS publishedAt,
   safe_keyboard AS safeKeyboard,
   locked, locked_by AS lockedBy, locked_at AS lockedAt
@@ -135,6 +137,9 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
     capabilities: parseStringArray(row.capabilities),
     tags: parseStringArray(row.tags),
     lastSeen: Number(row.lastSeen),
+    connectedAt: Number(row.connectedAt ?? 0),
+    useCount: Number(row.useCount ?? 0),
+    lastUsedAt: Number(row.lastUsedAt ?? 0),
     thumbnailAt: Number(row.thumbnailAt ?? 0),
     thumbnailSource: (row.thumbnailSource as 'auto' | 'manual') ?? 'auto',
     publishedAt: Number(row.publishedAt ?? 0),
@@ -400,6 +405,14 @@ export function createQueries(db: SqlDriver) {
     async upsertDevice(agentId: string, info: DeviceInfo): Promise<DeviceSummary> {
       const now = Date.now();
       const existing = await this.findDevice(agentId, info.udid);
+      // 从离线 / 未授权恢复为在线时刷新接入时间；首次发现也算一次接入
+      const onlineNow = info.status === 'online';
+      const connectedAt =
+        existing && Number(existing.connectedAt) > 0 && !(onlineNow && existing.status !== 'online')
+          ? Number(existing.connectedAt)
+          : onlineNow
+            ? now
+            : 0;
       const values = {
         agentId,
         udid: info.udid,
@@ -423,6 +436,7 @@ export function createQueries(db: SqlDriver) {
         capabilities: JSON.stringify(info.capabilities),
         tags: JSON.stringify(info.tags),
         lastSeen: now,
+        connectedAt,
       };
 
       if (existing) {
@@ -431,7 +445,7 @@ export function createQueries(db: SqlDriver) {
              platform = ?, name = ?, model = ?, market_name = ?, brand = ?,
              os_version = ?, sdk = ?, cpu = ?, cpu_vendor = ?, cpu_model = ?,
              cpu_cores = ?, cpu_arch = ?, cpu_code = ?, memory_mb = ?, rooted = ?, resolution = ?, status = ?,
-             capabilities = ?, tags = ?, last_seen = ?
+             capabilities = ?, tags = ?, last_seen = ?, connected_at = ?
            WHERE id = ?`,
           [
             values.platform,
@@ -454,6 +468,7 @@ export function createQueries(db: SqlDriver) {
             values.capabilities,
             values.tags,
             values.lastSeen,
+            values.connectedAt,
             existing.id,
           ],
         );
@@ -462,6 +477,8 @@ export function createQueries(db: SqlDriver) {
 
       const row: DeviceRow = {
         id: randomUUID(),
+        useCount: 0,
+        lastUsedAt: 0,
         thumbnailAt: 0,
         thumbnailSource: 'auto',
         publishedAt: 0,
@@ -476,8 +493,9 @@ export function createQueries(db: SqlDriver) {
           (id, agent_id, udid, platform, name, model, market_name, brand,
            os_version, sdk, cpu, cpu_vendor, cpu_model, cpu_cores, cpu_arch, cpu_code,
            memory_mb, rooted, resolution, status, capabilities, tags, last_seen,
+           connected_at, use_count, last_used_at,
            thumbnail_at, thumbnail_source, published_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.id,
           row.agentId,
@@ -502,6 +520,9 @@ export function createQueries(db: SqlDriver) {
           row.capabilities,
           row.tags,
           row.lastSeen,
+          row.connectedAt,
+          row.useCount,
+          row.lastUsedAt,
           row.thumbnailAt,
           row.thumbnailSource,
           row.publishedAt,
@@ -541,7 +562,13 @@ export function createQueries(db: SqlDriver) {
       if (patch.cpuCode !== undefined) set('cpu_code', patch.cpuCode ?? null);
       if (patch.memoryMb !== undefined) set('memory_mb', patch.memoryMb ?? null);
       if (patch.rooted !== undefined) set('rooted', patch.rooted ? 1 : 0);
-      if (patch.status !== undefined) set('status', patch.status);
+      if (patch.status !== undefined) {
+        set('status', patch.status);
+        // 从离线 / 未授权恢复为在线，按新一次接入计时
+        if (patch.status === 'online' && existing.status !== 'online') {
+          set('connected_at', Date.now());
+        }
+      }
       if (patch.capabilities !== undefined)
         set('capabilities', JSON.stringify(patch.capabilities));
       if (patch.tags !== undefined) set('tags', JSON.stringify(patch.tags));
@@ -578,6 +605,14 @@ export function createQueries(db: SqlDriver) {
         [at, deviceId],
       );
       return this.getDevice(deviceId);
+    },
+
+    /** 记录一次使用（开始控制），用于按使用频率排序。 */
+    async incrementDeviceUsage(id: string): Promise<void> {
+      await db.execute(
+        'UPDATE adh_devices SET use_count = use_count + 1, last_used_at = ? WHERE id = ?',
+        [Date.now(), id],
+      );
     },
 
     /** 手动上传的设备图片，标记后自动截图不再覆盖。 */
