@@ -445,6 +445,56 @@ export const ViewerRequestIdrSchema = z.object({
   t: z.literal('requestIdr'),
 });
 
+/* ------------------------------------------------------------------ */
+/* iOS 输入：远程 agent 收到后由本机 WDA 执行                          */
+/* ------------------------------------------------------------------ */
+
+export const IosInputSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('tap'),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+  }),
+  z.object({
+    type: z.literal('swipe'),
+    fromX: z.number().min(0).max(1),
+    fromY: z.number().min(0).max(1),
+    toX: z.number().min(0).max(1),
+    toY: z.number().min(0).max(1),
+    duration: z.number().min(0).max(5).optional(),
+  }),
+  /** 双指缩放：scale > 1 放大，< 1 缩小。 */
+  z.object({
+    type: z.literal('pinch'),
+    scale: z.number().min(0.1).max(10),
+    duration: z.number().min(0.1).max(2).optional(),
+  }),
+  z.object({
+    type: z.literal('button'),
+    name: z.enum(['home', 'volumeUp', 'volumeDown']),
+  }),
+  z.object({ type: z.literal('appSwitcher') }),
+  /** 锁屏 / 唤醒：模拟电源键。 */
+  z.object({ type: z.literal('screen'), on: z.boolean() }),
+  z.object({ type: z.literal('screenToggle') }),
+  /** 静音：把音量连续降到 0。 */
+  z.object({ type: z.literal('mute') }),
+  z.object({
+    type: z.literal('text'),
+    text: z.string().min(1).max(2000),
+  }),
+]);
+export type IosInput = z.infer<typeof IosInputSchema>;
+
+/**
+ * viewer → stream：iOS 输入透传给 agent。
+ * 浏览器仍然走 HTTP 接口，由 server 决定本地执行还是转发给远程 agent。
+ */
+export const ViewerIosInputSchema = z.object({
+  t: z.literal('iosInput'),
+  input: IosInputSchema,
+});
+
 export const ViewerToStreamMessageSchema = z.discriminatedUnion('t', [
   ViewerTouchSchema,
   ViewerKeySchema,
@@ -455,6 +505,7 @@ export const ViewerToStreamMessageSchema = z.discriminatedUnion('t', [
   ViewerScreenSchema,
   ViewerPanelSchema,
   ViewerRequestIdrSchema,
+  ViewerIosInputSchema,
 ]);
 export type ViewerToStreamMessage = z.infer<typeof ViewerToStreamMessageSchema>;
 

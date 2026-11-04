@@ -327,8 +327,15 @@ function stopWatchdog(): void {
 }
 
 function handleBinary(data: ArrayBuffer): void {
-  if (!decoder || decoder.state !== 'configured') return;
   const { kind, payload } = decodeFrame(new Uint8Array(data));
+
+  // 远程 iOS：agent 推的是完整 JPEG 帧，直接画到 canvas
+  if (kind === FRAME_KIND.jpeg) {
+    void drawIosFrame(payload);
+    return;
+  }
+
+  if (!decoder || decoder.state !== 'configured') return;
   if (kind !== FRAME_KIND.h264) return;
 
   // 参数集走 description，帧内再带 SPS/PPS 容易让解码器颜色错乱（绿屏）
@@ -368,6 +375,18 @@ function handleText(raw: string): void {
 
   if (message.t === 'ready') {
     const ready = message as unknown as StreamReady;
+    // 远程 iOS 用 JPEG 帧，不需要 WebCodecs
+    if (ready.codec === 'jpeg' || ready.platform === 'ios') {
+      const canvas = canvasRef.value;
+      if (canvas && ready.width > 0 && ready.height > 0) {
+        canvas.width = ready.width;
+        canvas.height = ready.height;
+      }
+      connected.value = true;
+      starting.value = false;
+      emit('ready');
+      return;
+    }
     configureDecoder(ready);
     starting.value = false;
     emit('ready');
@@ -406,8 +425,13 @@ function connect(): void {
     // 控制权由服务端分配，只读用户也能看流但不能操作
     controller.value = props.controlAllowed ?? true;
     emit('controller-change', controller.value);
-    void startIosStream();
-    return;
+
+    if (!props.sessionId) {
+      // 本机 iOS：server 直接连 WDA，走 HTTP MJPEG
+      void startIosStream();
+      return;
+    }
+    // 远程 iOS：agent 推 JPEG 帧，下面按普通会话连 WebSocket
   }
 
   // 安卓走 H.264 + WebCodecs：不支持就直接提示，不必白白建立一个会话占着设备

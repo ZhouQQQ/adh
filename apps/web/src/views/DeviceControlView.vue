@@ -55,7 +55,7 @@ import DeviceStats from '../components/DeviceStats.vue';
 import InstallAppModal from '../components/InstallAppModal.vue';
 import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
-import type { SafeKeyboardLayout } from '@adh/protocol';
+import { BUILTIN_AGENT_ID, type SafeKeyboardLayout } from '@adh/protocol';
 import { api } from '../api';
 import { withBase } from '../base';
 import { stopFleet, useFleet } from '../stores/fleet';
@@ -712,9 +712,7 @@ async function createSession(): Promise<void> {
 
   // iOS 走 WDA，没有 scrcpy 会话，但要向服务端申请控制权
   if (device.value.platform === 'ios') {
-    sessionId.value = null;
     errorText.value = null;
-    loading.value = false;
     try {
       const result = await api.claimIosControl(device.value.id);
       controller.value = result.granted;
@@ -727,10 +725,22 @@ async function createSession(): Promise<void> {
         readonlyBannerClosed.value = false;
         await refresh();
       }
+
+      // 远程 agent 上的 iOS 由 agent 拉 WDA 流推给 server，需要建投屏会话；
+      // 本机 iOS 直接走 WDA 的 HTTP MJPEG，不建会话。
+      if (device.value.agentId !== BUILTIN_AGENT_ID) {
+        loading.value = true;
+        const stream = await api.createStream(device.value.id, quality.value);
+        sessionId.value = stream.sessionId;
+      } else {
+        sessionId.value = null;
+      }
     } catch (error) {
       controller.value = false;
       errorText.value =
         error instanceof Error ? error.message : '无法获取控制权';
+    } finally {
+      loading.value = false;
     }
     return;
   }

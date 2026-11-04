@@ -7,6 +7,7 @@ import {
   parseViewerMessage,
   type DeviceControlInfo,
   type DeviceSummary,
+  type IosInput,
   type StreamReady,
   type ViewerToStreamMessage,
 } from '@adh/protocol';
@@ -483,17 +484,33 @@ export class StreamManager {
     );
   }
 
+  /**
+   * 把 iOS 输入转发给设备所在 agent（远程设备）。
+   * 设备插在 server 本机时调用方直接执行 WDA，不走这里。
+   */
+  sendIosInput(deviceId: string, input: IosInput): boolean {
+    const session = this.findSessionByDevice(deviceId);
+    if (!session?.agentSocket || session.agentSocket.readyState !== 1) {
+      return false;
+    }
+    sendJson(session.agentSocket, { t: 'iosInput', input });
+    return true;
+  }
+
   async create(
     deviceId: string,
     quality: string = 'medium',
-  ): Promise<{ sessionId: string }> {
-    // 同一台设备复用已有会话：第二个进入的人只会拿到只读权限
+  ): Promise<{ sessionId: string }> {    // 同一台设备复用已有会话：第二个进入的人只会拿到只读权限
     const reuse = this.findSessionByDevice(deviceId);
     if (reuse) return { sessionId: reuse.id };
 
     const device = await this.deps.queries.getDevice(deviceId);
     if (!device) throw new Error('设备不存在');
-    if (device.platform !== 'android') throw new Error('目前只支持 Android 投屏');
+    // 本机 iOS 设备走 WDA 直连（HTTP MJPEG + 输入接口），不需要投屏会话；
+    // 远程 agent 上的 iOS 才通过会话推流。
+    if (device.platform !== 'android' && device.agentId === BUILTIN_AGENT_ID) {
+      throw new Error('本机 iOS 设备使用 WDA 直连，不需要投屏会话');
+    }
 
     const isBuiltin = device.agentId === BUILTIN_AGENT_ID;
     const live = this.deps.registry.get(device.agentId);
@@ -565,8 +582,11 @@ export class StreamManager {
     const previousController = session.controller;
     // 已有人控制时，只有原控制者本人重连才能恢复，其他人保持只读
     const sameUser = Boolean(user && session.controllerUserId === user.id);
+    // iOS 的控制权由 ios/control 接口单独管理，会话里只负责推流
     const becomesController =
-      !previousController && (!session.controllerUserId || sameUser);
+      session.device.platform !== 'ios' &&
+      !previousController &&
+      (!session.controllerUserId || sameUser);
 
     session.viewers.add(socket);
     if (becomesController) {
@@ -601,10 +621,13 @@ export class StreamManager {
       // 中途加入的观看者先补一个关键帧，避免等下一帧时黑屏
       if (session.lastKeyFrame) socket.send(session.lastKeyFrame);
     }
-    sendJson(socket, {
-      t: 'role',
-      controller: session.controller === socket,
-    });
+    // iOS 的控制权由 ios/control 管理，这里不回 role，避免覆盖前端状态
+    if (session.device.platform !== 'ios') {
+      sendJson(socket, {
+        t: 'role',
+        controller: session.controller === socket,
+      });
+    }
     sendJson(socket, { t: 'viewers', allow: session.allowViewers });
 
     socket.on('message', (raw: Buffer, isBinary: boolean) => {
@@ -819,6 +842,7 @@ export class StreamManager {
         sessionId: session.id,
         udid: session.device.udid,
         quality: session.quality,
+        platform: session.device.platform,
       },
     });
 

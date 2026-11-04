@@ -160,6 +160,7 @@ export class AgentClient {
       udid?: string;
       url?: string;
       quality?: string;
+      platform?: string;
     };
 
     if (message.action === 'app.install' && params.udid && params.url) {
@@ -188,6 +189,7 @@ export class AgentClient {
         params.sessionId,
         params.udid,
         typeof params.quality === 'string' ? params.quality : 'medium',
+        params.platform === 'ios' ? 'ios' : 'android',
       );
     } else if (message.action === 'screen.stop' && params.sessionId) {
       this.streams.stop(params.sessionId);

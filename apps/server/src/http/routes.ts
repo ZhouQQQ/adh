@@ -1972,8 +1972,8 @@ export async function registerHttpRoutes(
 
   app.post('/api/devices/:id/ios/input', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = await requireLocalDevice(id, reply);
-    if (!device) return reply;
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
     if (device.platform !== 'ios') {
       return reply.code(400).send({ error: '仅支持 iOS 设备' });
     }
@@ -1988,6 +1988,31 @@ export async function registerHttpRoutes(
     }
 
     const payload = parsed.data;
+
+    // 远程 agent 上的 iOS：转发给 agent，由它调用本机 WDA
+    if (device.agentId !== BUILTIN_AGENT_ID) {
+      if (!deps.streams.sendIosInput(id, payload)) {
+        return reply.code(409).send({
+          error: '投屏连接还没就绪，请重新打开设备后重试',
+        });
+      }
+      if (payload.type === 'text') {
+        logDevice(
+          request,
+          device,
+          'input.text',
+          `输入 ${payload.text.length} 个字符`,
+        );
+      } else if (payload.type === 'button') {
+        logDevice(request, device, 'input.key', payload.name);
+      } else if (payload.type === 'appSwitcher') {
+        logDevice(request, device, 'input.key', '任务切换');
+      } else if (payload.type === 'mute') {
+        logDevice(request, device, 'input.key', '静音');
+      }
+      return { ok: true };
+    }
+
     const port = wdaPortFor(device.udid);
     try {
       if (payload.type === 'tap') {
