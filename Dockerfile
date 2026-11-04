@@ -28,6 +28,19 @@ RUN pnpm --filter @adh/web build
 # 只保留 @adh/server 的生产依赖（含 workspace 包与 scrcpy-server.jar）
 RUN pnpm --filter @adh/server deploy --prod /out/server
 
+# deploy 只保证依赖；源码、前端产物、package.json 显式补一份，避免不同 pnpm 版本行为差异
+RUN mkdir -p /out/server/src /out/server/public \
+  && cp -a apps/server/src/. /out/server/src/ \
+  && cp -a apps/server/public/. /out/server/public/ \
+  && cp apps/server/package.json /out/server/package.json
+
+# 构建期校验部署布局，路径不对就直接失败，不要等容器跑起来才报 MODULE_NOT_FOUND
+RUN test -f /out/server/node_modules/tsx/dist/cli.mjs \
+  && test -f /out/server/node_modules/@adh/protocol/src/index.ts \
+  && test -f /out/server/node_modules/@adh/device-host/resources/scrcpy-server.jar \
+  && test -f /out/server/src/index.ts \
+  && test -f /out/server/public/index.html
+
 
 # 运行阶段
 FROM node:22-bookworm-slim AS runtime
@@ -51,4 +64,4 @@ VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "const p=(process.env.ADH_BASE_PATH||'').split('/').filter(Boolean).join('/');fetch('http://127.0.0.1:8080'+(p?'/'+p:'')+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "node_modules/tsx/dist/cli.mjs", "src/index.ts"]
+CMD ["node", "apps/server/node_modules/tsx/dist/cli.mjs", "apps/server/src/index.ts"]
