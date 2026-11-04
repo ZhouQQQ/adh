@@ -18,6 +18,8 @@ const props = defineProps<{
   controlAllowed?: boolean;
   /** 批量控制等场景：去掉画面四周留白，贴满容器。 */
   flush?: boolean;
+  /** 实时预览左上角显示网络延迟（低 / 中 / 高）。 */
+  showLatency?: boolean;
 }>();
 const emit = defineEmits<{
   'controller-change': [value: boolean];
@@ -36,6 +38,57 @@ const connected = ref(false);
 const controller = ref(false);
 const starting = ref(true);
 const isIos = computed(() => props.platform === 'ios');
+
+/* ------------------------- 实时预览延迟 ------------------------- */
+
+const latencyMs = ref<number | null>(null);
+const latencyLevel = computed<'low' | 'medium' | 'high' | null>(() => {
+  if (latencyMs.value === null) return null;
+  if (latencyMs.value < 80) return 'low';
+  if (latencyMs.value < 200) return 'medium';
+  return 'high';
+});
+const latencyLabel = computed(() => {
+  if (latencyLevel.value === 'low') return '低';
+  if (latencyLevel.value === 'medium') return '中';
+  if (latencyLevel.value === 'high') return '高';
+  return '';
+});
+
+let latencyTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 用 /api/health 测浏览器到 server 的往返延迟。
+ * 它反映预览链路的网络段（不含设备端编码），足以区分低 / 中 / 高。
+ */
+async function measureLatency(): Promise<void> {
+  const startedAt = performance.now();
+  try {
+    const token = localStorage.getItem('adh.token');
+    const response = await fetch('/api/health', {
+      cache: 'no-store',
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
+    });
+    if (response.ok) {
+      latencyMs.value = Math.round(performance.now() - startedAt);
+    }
+  } catch {
+    /* 单次失败保留上一次结果，避免角标闪烁 */
+  }
+}
+
+function startLatencyProbe(): void {
+  if (!props.showLatency || latencyTimer) return;
+  void measureLatency();
+  latencyTimer = setInterval(() => void measureLatency(), 2_000);
+}
+
+function stopLatencyProbe(): void {
+  if (latencyTimer) {
+    clearInterval(latencyTimer);
+    latencyTimer = null;
+  }
+}
 
 // 父组件拿到 iOS 控制权后同步给播放器，只读时不能操作
 watch(
@@ -145,6 +198,7 @@ function applyInput(message: ViewerToStreamMessage): void {
 
   if (message.t === 'key') {
     if (message.key === 'home') void iosInput({ type: 'button', name: 'home' });
+    else if (message.key === 'back') iosBackGesture();
     else if (message.key === 'recent') void iosInput({ type: 'appSwitcher' });
     else if (message.key === 'volumeUp') {
       void iosInput({ type: 'button', name: 'volumeUp' });
@@ -710,11 +764,24 @@ function onWheel(event: WheelEvent): void {
   });
 }
 
+/** iOS 没有系统返回键，用左边缘右滑模拟返回上一级。 */
+function iosBackGesture(): void {
+  if (!controller.value) return;
+  void iosInput({
+    type: 'swipe',
+    fromX: 0.004,
+    fromY: 0.5,
+    toX: 0.45,
+    toY: 0.5,
+    duration: 0.28,
+  });
+}
+
 /** 右键 = 系统返回键。 */
 function onContextMenu(event: MouseEvent): void {
   event.preventDefault();
   if (isIos.value) {
-    void iosInput({ type: 'button', name: 'home' });
+    iosBackGesture();
     return;
   }
   if (!controller.value) return;
@@ -893,7 +960,9 @@ function sendKey(
     | 'mute',
 ): void {
   if (isIos.value) {
-    if (key === 'home') void iosInput({ type: 'button', name: 'home' });
+    if (!controller.value) return;
+    if (key === 'back') iosBackGesture();
+    else if (key === 'home') void iosInput({ type: 'button', name: 'home' });
     else if (key === 'recent') void iosInput({ type: 'appSwitcher' });
     else if (key === 'power') void iosInput({ type: 'screenToggle' });
     else if (key === 'mute') void iosInput({ type: 'mute' });

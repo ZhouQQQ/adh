@@ -13,6 +13,7 @@ export interface AgentRow {
   token: string;
   lastSeen: number;
   createdAt: number;
+  tunnelStatus: string | null;
 }
 
 export interface DeviceRow {

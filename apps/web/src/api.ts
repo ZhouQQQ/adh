@@ -648,12 +648,14 @@ export const api = {
     });
   },
 
-  /** iOS 一键启动 WDA（XCTest + 端口转发）。 */
+  /** iOS 一键启动 WDA（XCTest + 端口转发）；restart 会先停掉旧实例。 */
   startIosWda(
     deviceId: string,
+    restart = false,
   ): Promise<{ ok: boolean; message: string; port: number }> {
     return request(`/api/devices/${deviceId}/ios/wda/start`, {
       method: 'POST',
+      body: JSON.stringify({ restart }),
     });
   },
 

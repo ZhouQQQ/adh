@@ -58,7 +58,15 @@ export async function probeWda(port: number, timeoutMs = 800): Promise<boolean> 
     const response = await fetch(`http://127.0.0.1:${port}/status`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
-    return response.ok;
+    if (!response.ok) return false;
+
+    // 端口上可能挂着失效的 forward，或 go-ios 的 DeviceKit 等其他服务；
+    // 它们对未实现的路由也会返回 HTTP 200 + "Unhandled endpoint"。
+    // 只有真正的 WDA 才会给出 ready/state。
+    const body = (await response.json()) as {
+      value?: { state?: string; ready?: boolean };
+    };
+    return body?.value?.ready === true || body?.value?.state === 'success';
   } catch {
     return false;
   }
@@ -79,6 +87,59 @@ async function resolveCommand(): Promise<string | null> {
   }
   commandCache = { at: Date.now(), command: null };
   return null;
+}
+
+/**
+ * 从设备已安装应用里找 WebDriverAgent runner 的 bundle id。
+ *
+ * 个人免费账号重签时，签名工具可能给 bundle id 追加/更换后缀，
+ * 所以不能把 `ADH_WDA_BUNDLE_ID` 当成固定值；配置缺失时以设备为准。
+ * 找不到（还没装 WDA）返回 null。
+ */
+export async function findWdaBundleId(udid: string): Promise<string | null> {
+  const command = await resolveCommand();
+  if (!command) return null;
+
+  const result = await runCommand(command, ['apps', `--udid=${udid}`], 15_000);
+  if (result.code !== 0) return null;
+
+  // `ios apps` 输出是 JSON 数组，可能混入日志行
+  const start = result.stdout.indexOf('[');
+  const end = result.stdout.lastIndexOf(']');
+  if (start < 0 || end <= start) return null;
+
+  let apps: unknown;
+  try {
+    apps = JSON.parse(result.stdout.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(apps)) return null;
+
+  const entries = apps as Array<{
+    CFBundleIdentifier?: unknown;
+    CFBundleExecutable?: unknown;
+  }>;
+
+  // 改 bundle id 时签名工具不会改二进制名，这是最稳的锚点；
+  // bundle id 只用来兜底（com.facebook.* / com.xiaoan.* 都可能出现）
+  const executableMatch = entries.find(
+    (app) => app.CFBundleExecutable === 'WebDriverAgentRunner-Runner',
+  )?.CFBundleIdentifier;
+
+  if (typeof executableMatch === 'string' && executableMatch) {
+    return executableMatch;
+  }
+
+  const ids = entries
+    .map((app) => app.CFBundleIdentifier)
+    .filter(
+      (id): id is string =>
+        typeof id === 'string' && id.includes('WebDriverAgentRunner'),
+    );
+
+  // 优先 xctrunner（runner app），而不是同名的 xctest 插件
+  return ids.find((id) => id.includes('xctrunner')) ?? ids[0] ?? null;
 }
 
 export function stopWdaForward(udid: string): void {

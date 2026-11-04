@@ -119,6 +119,26 @@ export type DeviceSummary = z.infer<typeof DeviceSummarySchema>;
 /* Agent                                                               */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* iOS 隧道（节点级，iOS 17+ 依赖 go-ios tunnel）                      */
+/* ------------------------------------------------------------------ */
+
+export const IosTunnelSchema = z.object({
+  udid: z.string(),
+  address: z.string().optional(),
+  rsdPort: z.number().optional(),
+});
+export type IosTunnel = z.infer<typeof IosTunnelSchema>;
+
+export const IosTunnelStatusSchema = z.object({
+  running: z.boolean().default(false),
+  tunnels: z.array(IosTunnelSchema).default([]),
+  /** 最近一次启动失败的原因（Windows 常见：缺 wintun.dll / 非管理员权限）。 */
+  error: z.string().optional(),
+  updatedAt: z.number().default(0),
+});
+export type IosTunnelStatus = z.infer<typeof IosTunnelStatusSchema>;
+
 export const AgentRuntimeInfoSchema = z.object({
   name: z.string().min(1),
   os: z.string(),
@@ -148,6 +168,8 @@ export const AgentSummarySchema = z.object({
   pending: z.boolean().default(false),
   /** server 自带的本机 Agent。 */
   builtin: z.boolean().default(false),
+  /** iOS 17+ 隧道状态，节点离线时保留最后一次上报值。 */
+  tunnel: IosTunnelStatusSchema.optional(),
 });
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 
@@ -208,9 +230,16 @@ export const CmdResultMessageSchema = z.object({
 });
 export type CmdResultMessage = z.infer<typeof CmdResultMessageSchema>;
 
+export const AgentStatusMessageSchema = z.object({
+  t: z.literal('agent.status'),
+  tunnel: IosTunnelStatusSchema,
+});
+export type AgentStatusMessage = z.infer<typeof AgentStatusMessageSchema>;
+
 export const AgentToServerMessageSchema = z.discriminatedUnion('t', [
   HelloMessageSchema,
   DevicesSyncMessageSchema,
+  AgentStatusMessageSchema,
   PongMessageSchema,
   CmdResultMessageSchema,
 ]);
@@ -250,6 +279,10 @@ export const DeviceActionSchema = z.enum([
   'logcat.start',
   'logcat.stop',
   'device.reboot',
+  /** 节点级 iOS 隧道管理（iOS 17+）。 */
+  'ios.tunnel.start',
+  'ios.tunnel.stop',
+  'ios.tunnel.status',
 ]);
 export type DeviceAction = z.infer<typeof DeviceActionSchema>;
 

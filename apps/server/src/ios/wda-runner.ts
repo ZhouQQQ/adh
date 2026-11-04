@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   ensureWdaForward,
+  findWdaBundleId,
   probeWda,
+  stopWdaForward,
   wdaPortFor,
   runCommand,
 } from '@adh/device-host';
@@ -86,17 +88,75 @@ async function waitForWda(
   };
 }
 
+/**
+ * 停掉本机托管的 runwda / ui run wda 进程，并清理设备上残留的 runner。
+ *
+ * server 重启后 runners 里的 child 会丢，所以不能只 kill 子进程：
+ * 再按进程名兜底杀一次设备上的 WebDriverAgentRunner-Runner。
+ */
+async function stopWda(udid: string): Promise<void> {
+  const child = runners.get(udid);
+  if (child && child.exitCode === null) {
+    try {
+      child.kill();
+    } catch {
+      /* 进程可能已经退出 */
+    }
+  }
+  runners.delete(udid);
+  stopWdaForward(udid);
+
+  const command = await resolveCommand();
+  if (!command) return;
+
+  const result = await runCommand(command, ['ps', `--udid=${udid}`], 10_000);
+  if (result.code !== 0) return;
+
+  const start = result.stdout.indexOf('[');
+  const end = result.stdout.lastIndexOf(']');
+  if (start < 0 || end <= start) return;
+
+  let processes: unknown;
+  try {
+    processes = JSON.parse(result.stdout.slice(start, end + 1));
+  } catch {
+    return;
+  }
+  if (!Array.isArray(processes)) return;
+
+  const pids = processes
+    .filter(
+      (proc) =>
+        (proc as { Name?: unknown })?.Name === 'WebDriverAgentRunner-Runner',
+    )
+    .map((proc) => (proc as { Pid?: unknown }).Pid)
+    .filter((pid): pid is number => typeof pid === 'number');
+
+  for (const pid of pids) {
+    await runCommand(command, ['kill', `--pid=${pid}`, `--udid=${udid}`], 5_000);
+  }
+}
+
 export async function startWda(
   udid: string,
   port = wdaPortFor(udid),
+  force = false,
 ): Promise<WdaStartResult> {
-  if (await probeWda(port)) {
+  // force=true 表示「重启」：即使探测到旧实例也要先停掉再拉起，
+  // 否则设备上的 XCTest 已经挂了、只剩一条失效转发时会被误判为「已在运行」。
+  if (!force && (await probeWda(port))) {
     return { ok: true, message: `WDA 已在运行（端口 ${port}）`, port };
   }
 
   const running = runners.get(udid);
   if (running && running.exitCode === null) {
-    return { ok: false, message: 'WDA 正在启动，请稍候', port };
+    if (!force) return { ok: false, message: 'WDA 正在启动，请稍候', port };
+  }
+
+  if (force) {
+    await stopWda(udid);
+    // 给 testmanagerd 一点时间回收设备上的 XCTest 会话
+    await sleep(1_000);
   }
 
   // 设备上的 WDA 可能已经在跑，只是没有端口转发：先补一条。
@@ -112,7 +172,10 @@ export async function startWda(
     return { ok: false, message: '未找到 go-ios，请先安装后重试', port };
   }
 
-  const bundleId = process.env.ADH_WDA_BUNDLE_ID?.trim();
+  // 重签后 bundle id 的前缀/后缀都可能变化（com.facebook.* / com.xiaoan.*），
+  // 所以环境变量缺失时以设备上实际安装的 runner 为准。
+  const configuredBundleId = process.env.ADH_WDA_BUNDLE_ID?.trim();
+  const bundleId = configuredBundleId ?? (await findWdaBundleId(udid));
   const args = bundleId
     ? [
         'runwda',

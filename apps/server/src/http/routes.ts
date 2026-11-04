@@ -1758,7 +1758,11 @@ export async function registerHttpRoutes(
     if (!isAdminRole(request.user?.role ?? '')) {
       return reply.code(403).send({ error: '需要管理员权限' });
     }
-    const result = await startWda(device.udid);
+    const body = z
+      .object({ restart: z.boolean().optional() })
+      .safeParse(request.body ?? {});
+    const restart = body.success && body.data.restart === true;
+    const result = await startWda(device.udid, undefined, restart);
     if (!result.ok) {
       return reply.code(400).send({ error: result.message });
     }

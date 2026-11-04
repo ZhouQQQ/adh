@@ -5,6 +5,7 @@ import type {
   DeviceInfo,
   DeviceStatus,
   DeviceSummary,
+  IosTunnelStatus,
   Platform,
   Resolution,
   SafeKeyboardLayout,
@@ -16,7 +17,8 @@ import type { AgentRow, DeviceRow } from './schema.js';
 
 const AGENT_COLUMNS = `
   id, name, host_name AS hostName, os, arch, version, capabilities,
-  token, last_seen AS lastSeen, created_at AS createdAt
+  token, last_seen AS lastSeen, created_at AS createdAt,
+  tunnel_status AS tunnelStatus
 `;
 
 const DEVICE_COLUMNS = `
@@ -86,6 +88,22 @@ export function generateAgentKey(): string {
   return `adh_${randomBytes(16).toString('hex')}`;
 }
 
+function parseTunnelStatus(raw: string | null): IosTunnelStatus | undefined {
+  if (!raw) return undefined;
+  try {
+    const value = JSON.parse(raw) as Partial<IosTunnelStatus>;
+    if (typeof value.running !== 'boolean') return undefined;
+    return {
+      running: value.running,
+      tunnels: Array.isArray(value.tunnels) ? value.tunnels : [],
+      error: typeof value.error === 'string' ? value.error : undefined,
+      updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
   return {
     id: row.id,
@@ -102,6 +120,7 @@ export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
     online: false,
     pending: Number(row.lastSeen) === 0,
     builtin: row.id === BUILTIN_AGENT_ID,
+    tunnel: parseTunnelStatus(row.tunnelStatus),
   };
 }
 
@@ -222,6 +241,7 @@ export function createQueries(db: SqlDriver) {
         token: generateAgentKey(),
         lastSeen: 0,
         createdAt: now,
+        tunnelStatus: null,
       };
       await db.execute(
         `INSERT INTO adh_agents
@@ -272,6 +292,7 @@ export function createQueries(db: SqlDriver) {
         token: generateAgentKey(),
         lastSeen: now,
         createdAt: now,
+        tunnelStatus: null,
       };
       await db.execute(
         `INSERT INTO adh_agents

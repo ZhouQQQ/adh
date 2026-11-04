@@ -1397,7 +1397,7 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">导航</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
+              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('back')">
                 <n-icon :size="13"><ArrowBackOutline /></n-icon>
                 返回
               </button>
@@ -1499,7 +1499,7 @@ onBeforeUnmount(() => {
         <section class="section">
           <div class="section-title">导航</div>
           <div class="grid-3">
-            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="sendKey('back')">
+            <n-button size="small" :disabled="!controller" @click="sendKey('back')">
               <template #icon>
                 <n-icon><ArrowBackOutline /></n-icon>
               </template>

@@ -98,7 +98,10 @@ async function onMoreSelect(key: string): Promise<void> {
     duration: 0,
   });
   try {
-    const result = await api.startIosWda(props.device.id);
+    // 已经是 WDA 就绪状态时，这个按钮的语义是「重启」：先停掉旧实例再拉起，
+    // 不能因为端口还能响应就直接返回。
+    const restart = props.device.capabilities?.includes('wda') ?? false;
+    const result = await api.startIosWda(props.device.id, restart);
     message.success(result.message || '操作完成');
     emit('refresh');
   } catch (error) {
