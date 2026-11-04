@@ -19,6 +19,7 @@ import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
 import { useSite } from '../stores/site';
+import { BRANDS, deviceBrand, type BrandKey } from '../utils/brand';
 import { memoryGb } from '../utils/format';
 
 const router = useRouter();
@@ -83,16 +84,6 @@ async function applyLock(device: DeviceSummary, locked: boolean): Promise<void> 
 
 const keyword = ref('');
 const platform = ref<Platform | 'all'>('all');
-type BrandKey = 'apple' | 'huawei' | 'xiaomi' | 'honor' | 'oppo' | 'vivo';
-/** 品牌筛选：按厂商归一化，覆盖常见子品牌。 */
-const BRANDS: Array<{ key: BrandKey; label: string }> = [
-  { key: 'apple', label: '苹果' },
-  { key: 'huawei', label: '华为' },
-  { key: 'xiaomi', label: '小米' },
-  { key: 'honor', label: '荣耀' },
-  { key: 'oppo', label: 'OPPO' },
-  { key: 'vivo', label: 'vivo' },
-];
 const brand = ref<BrandKey | 'all'>('all');
 const agentFilter = ref<string>('all');
 const status = ref<DeviceStatus | 'all'>('all');
@@ -198,21 +189,6 @@ const versionOptions = computed(() => {
 const platformPresent = computed(
   () => new Set(devices.value.map((device) => device.platform)),
 );
-
-/** 把厂商名归一化到页面上的六个品牌，子品牌跟随主品牌。 */
-function deviceBrand(device: DeviceSummary): BrandKey | '' {
-  if (device.platform === 'ios') return 'apple';
-  const text = [device.brand, device.marketName, device.model, device.name]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  if (/redmi|xiaomi|poco/.test(text)) return 'xiaomi';
-  if (/honor/.test(text)) return 'honor';
-  if (/huawei/.test(text)) return 'huawei';
-  if (/oppo|oneplus|realme/.test(text)) return 'oppo';
-  if (/vivo|iqoo/.test(text)) return 'vivo';
-  return '';
-}
 
 const brandPresent = computed(() => {
   const set = new Set<BrandKey>();
@@ -377,8 +353,11 @@ const filtered = computed(() => {
       }
       const rank = (value: DeviceStatus) =>
         value === 'online' ? 0 : value === 'unauthorized' ? 1 : 2;
-      const diff = rank(a.status) - rank(b.status);
-      return diff !== 0 ? diff : byName;
+      const statusDiff = rank(a.status) - rank(b.status);
+      if (statusDiff !== 0) return statusDiff;
+      // 同一状态内 Android 排在 iOS 前面
+      const platformDiff = a.platform.localeCompare(b.platform);
+      return platformDiff !== 0 ? platformDiff : byName;
     });
 });
 
@@ -658,63 +637,6 @@ function resetFilters(): void {
       <n-collapse-transition :show="!collapsed">
         <div class="filter-body">
       <div class="filter-row">
-        <span class="filter-label">排序:</span>
-        <div class="filter-options">
-          <button
-            type="button"
-            class="opt"
-            :class="{ active: sortKey === 'default' }"
-            @click="sortKey = 'default'"
-          >
-            默认
-          </button>
-          <button
-            type="button"
-            class="opt"
-            :class="{ active: sortKey === 'connectedAt' }"
-            @click="pickSort('connectedAt')"
-          >
-            接入时间
-            <span v-if="sortKey === 'connectedAt'" class="sort-arrow">
-              {{ sortDir === 'asc' ? '↑' : '↓' }}
-            </span>
-          </button>
-          <button
-            type="button"
-            class="opt"
-            :class="{ active: sortKey === 'platform' }"
-            @click="pickSort('platform')"
-          >
-            类型
-            <span v-if="sortKey === 'platform'" class="sort-arrow">
-              {{ sortDir === 'asc' ? '↑' : '↓' }}
-            </span>
-          </button>
-          <button
-            type="button"
-            class="opt"
-            :class="{ active: sortKey === 'useCount' }"
-            @click="pickSort('useCount')"
-          >
-            使用频率
-            <span v-if="sortKey === 'useCount'" class="sort-arrow">
-              {{ sortDir === 'asc' ? '↑' : '↓' }}
-            </span>
-          </button>
-          <template v-if="sortKey !== 'default'">
-            <span class="sort-sep">|</span>
-            <button
-              type="button"
-              class="opt direction"
-              @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
-            >
-              {{ sortDir === 'asc' ? '升序' : '降序' }}
-            </button>
-          </template>
-        </div>
-      </div>
-
-      <div class="filter-row">
         <span class="filter-label">关键字:</span>
         <div class="filter-options">
           <n-input
@@ -732,7 +654,7 @@ function resetFilters(): void {
       </div>
 
       <div class="filter-row">
-        <span class="filter-label">类型:</span>
+        <span class="filter-label">系统类型:</span>
         <div class="filter-options">
           <button
             type="button"
@@ -975,6 +897,63 @@ function resetFilters(): void {
       </n-collapse-transition>
     </div>
 
+    <div class="sort-bar">
+      <span class="sort-label">排序</span>
+      <div class="sort-options">
+        <button
+          type="button"
+          class="opt"
+          :class="{ active: sortKey === 'default' }"
+          @click="sortKey = 'default'"
+        >
+          默认
+        </button>
+        <button
+          type="button"
+          class="opt"
+          :class="{ active: sortKey === 'connectedAt' }"
+          @click="pickSort('connectedAt')"
+        >
+          接入时间
+          <span v-if="sortKey === 'connectedAt'" class="sort-arrow">
+            {{ sortDir === 'asc' ? '↑' : '↓' }}
+          </span>
+        </button>
+        <button
+          type="button"
+          class="opt"
+          :class="{ active: sortKey === 'platform' }"
+          @click="pickSort('platform')"
+        >
+          系统类型
+          <span v-if="sortKey === 'platform'" class="sort-arrow">
+            {{ sortDir === 'asc' ? '↑' : '↓' }}
+          </span>
+        </button>
+        <button
+          type="button"
+          class="opt"
+          :class="{ active: sortKey === 'useCount' }"
+          @click="pickSort('useCount')"
+        >
+          使用频率
+          <span v-if="sortKey === 'useCount'" class="sort-arrow">
+            {{ sortDir === 'asc' ? '↑' : '↓' }}
+          </span>
+        </button>
+        <template v-if="sortKey !== 'default'">
+          <span class="sort-sep">|</span>
+          <button
+            type="button"
+            class="opt direction"
+            @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
+          >
+            {{ sortDir === 'asc' ? '升序' : '降序' }}
+          </button>
+        </template>
+      </div>
+    </div>
+
     <div v-if="filtered.length > 0" class="grid">
       <DeviceCard
         v-for="device in filtered"
@@ -1040,6 +1019,29 @@ function resetFilters(): void {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 2px 16px;
+}
+
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.sort-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.sort-options {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
 }
 
 .filter-header {

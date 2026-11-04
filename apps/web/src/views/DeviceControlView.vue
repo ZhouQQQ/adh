@@ -28,6 +28,7 @@ import {
   ExpandOutline,
   FolderOpenOutline,
   HomeOutline,
+  InformationCircleOutline,
   KeypadOutline,
   LockClosedOutline,
   LockOpenOutline,
@@ -271,6 +272,15 @@ const publishedText = computed(() => {
 const isIos = computed(() => device.value?.platform === 'ios');
 /** iOS 端不支持的操作统一提示。 */
 const iosTip = 'iOS 暂不支持该操作';
+
+/** iOS 帧率说明：关掉后记住，不再打扰。 */
+const IOS_FPS_TIP_KEY = 'adh.ios-fps-tip.dismissed';
+const iosFpsTipVisible = ref(localStorage.getItem(IOS_FPS_TIP_KEY) !== '1');
+
+function dismissIosFpsTip(): void {
+  iosFpsTipVisible.value = false;
+  localStorage.setItem(IOS_FPS_TIP_KEY, '1');
+}
 const quality = ref<'low' | 'medium' | 'high' | 'ultra'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
@@ -1370,6 +1380,30 @@ onBeforeUnmount(() => {
         </div>
 
         <div
+          v-if="isIos && iosFpsTipVisible"
+          class="ios-fps-tip"
+        >
+          <n-icon :size="16" class="ios-fps-tip-icon">
+            <InformationCircleOutline />
+          </n-icon>
+          <div class="ios-fps-tip-body">
+            <strong>iOS 投屏帧率说明</strong>
+            <span>
+              iOS 画面由 WebDriverAgent 逐帧抓取，每帧都要单独编码、传输，
+              因此帧率约 10fps；快速滑动或动画场景会感觉不够跟手。后续会优化取流方式。
+            </span>
+          </div>
+          <button
+            type="button"
+            class="ios-fps-tip-close"
+            title="不再显示"
+            @click="dismissIosFpsTip"
+          >
+            ×
+          </button>
+        </div>
+
+        <div
           v-if="(sessionId || isIos) && !allowViewers && !controller && !isAdmin"
           class="viewers-closed-overlay"
         >
@@ -2398,6 +2432,64 @@ onBeforeUnmount(() => {
 
 .readonly-banner.released {
   background: rgba(37, 99, 235, 0.94);
+}
+
+.ios-fps-tip {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 11;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(580px, calc(100% - 32px));
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 18, 24, 0.86);
+  backdrop-filter: blur(8px);
+  color: #d4d4d8;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.ios-fps-tip-icon {
+  flex: none;
+  margin-top: 1px;
+  color: #38bdf8;
+}
+
+.ios-fps-tip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ios-fps-tip-body strong {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ios-fps-tip-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ios-fps-tip-close:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .offline-overlay {

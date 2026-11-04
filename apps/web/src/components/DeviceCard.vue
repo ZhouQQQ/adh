@@ -26,6 +26,7 @@ import type { DeviceSummary } from '@adh/protocol';
 import DeviceBattery from './DeviceBattery.vue';
 import { api } from '../api';
 import { useAuth } from '../stores/auth';
+import { BRAND_META, deviceBrand } from '../utils/brand';
 import {
   formatMemory,
   formatAgo,
@@ -119,6 +120,12 @@ const controlName = computed(() =>
     ? props.device.control.displayName || props.device.control.username
     : '',
 );
+
+/** 品牌 logo：小米 / 华为 / 荣耀 / OPPO / vivo / 苹果。 */
+const brandMeta = computed(() => {
+  const key = deviceBrand(props.device);
+  return key ? BRAND_META[key] : null;
+});
 
 /** 卡片状态色：红=锁定，蓝=我在用，黄=别人在用。 */
 const usageTone = computed(() => {
@@ -280,7 +287,13 @@ const wifiTitle = computed(() => {
       </button>
 
       <div class="placeholder" :class="device.platform">
-        <n-icon :size="48">
+        <img
+          v-if="brandMeta"
+          :src="brandMeta.logo"
+          :alt="brandMeta.label"
+          class="brand-logo"
+        />
+        <n-icon v-else :size="48">
           <LogoAndroid v-if="device.platform === 'android'" />
           <LogoApple v-else />
         </n-icon>
@@ -508,6 +521,19 @@ const wifiTitle = computed(() => {
 .placeholder.ios {
   color: #18181b;
   opacity: 0.8;
+}
+
+/* 品牌 logo：白底圆角，保证黑色 logo 在深色缩略图上可见 */
+.brand-logo {
+  width: 56px;
+  height: 56px;
+  padding: 10px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  object-fit: contain;
+  opacity: 0.95;
 }
 
 .thumb-badges {
