@@ -1,9 +1,32 @@
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import vue from '@vitejs/plugin-vue';
 import { defineConfig, type Plugin } from 'vite';
 
 const SERVER = process.env.ADH_SERVER_URL ?? 'http://127.0.0.1:8080';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+/** 构建时写入页面的版本号：优先 ADH_VERSION（CI tag），否则 server package.json。 */
+function readVersion(): string {
+  const explicit = process.env.ADH_VERSION?.trim();
+  if (explicit) return explicit.replace(/^v(?=\d)/i, '');
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(HERE, '..', 'server', 'package.json'), 'utf8'),
+    ) as { version?: unknown };
+    if (typeof pkg.version === 'string' && pkg.version) return pkg.version;
+  } catch {
+    /* 读不到就用 dev */
+  }
+  return 'dev';
+}
+
+const APP_VERSION = readVersion();
+const BUILD_TIME = new Date().toISOString();
 
 /**
  * 部署前缀，与 server 的 ADH_BASE_PATH 保持一致。
@@ -129,6 +152,10 @@ export default defineConfig(({ command }) => ({
   // 构建用相对路径，运行时靠 server 注入的 <base> 定位资源；
   // dev 直接用带前缀的绝对路径，HMR / 代理都按这个前缀走。
   base: command === 'build' ? './' : `${basePath}/`,
+  define: {
+    __ADH_VERSION__: JSON.stringify(APP_VERSION),
+    __ADH_BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   plugins: [
     vue(),
     basePathPlugin(),

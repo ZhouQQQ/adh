@@ -23,6 +23,10 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 COPY . .
 
+# 前端构建时注入版本号（页面底部显示），和运行阶段共用同一个 build arg
+ARG VERSION=dev
+ENV ADH_VERSION=${VERSION}
+
 RUN pnpm --filter @adh/web build
 
 # 只保留 @adh/server 的生产依赖（含 workspace 包与 scrcpy-server.jar）

@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   captureThumbnail,
   discoverAndroid,
   discoverIos,
-  isAdbAvailable,
+  runCommand,
 } from '@adh/device-host';
 import {
   PROTOCOL_VERSION,
@@ -128,6 +129,42 @@ function startThumbnailLoop(
   return setInterval(() => void tick(), THUMBNAIL_INTERVAL_MS);
 }
 
+/** 跑一条命令确认工具可用，返回版本信息；失败返回 null。 */
+async function probeCommand(
+  command: string,
+  args: string[] = ['version'],
+): Promise<string | null> {
+  const result = await runCommand(command, args, 8_000);
+  if (result.failedToStart) return null;
+  const raw = (result.stdout || result.stderr).trim();
+  if (!raw) return '已安装';
+  const first = raw.split(/\r?\n/)[0] ?? '';
+  // go-ios 的 version 输出是 JSON：{"version":"1.3.2"}
+  try {
+    const parsed = JSON.parse(first) as { version?: unknown };
+    if (typeof parsed.version === 'string' && parsed.version) {
+      return parsed.version;
+    }
+  } catch {
+    /* 普通文本版本号 */
+  }
+  return first || '已安装';
+}
+
+/** 交互式确认；非 TTY（计划任务 / systemd）时直接放行。 */
+async function confirmContinue(): Promise<boolean> {
+  if (!process.stdin.isTTY) return true;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question('是否继续启动？[Y/n] '))
+      .trim()
+      .toLowerCase();
+    return answer === '' || answer === 'y' || answer === 'yes';
+  } finally {
+    rl.close();
+  }
+}
+
 async function commandConnect(values: Record<string, unknown>): Promise<void> {
   const serverUrl = values.server as string | undefined;
   if (!serverUrl) {
@@ -149,13 +186,51 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
 
   const logger = createLogger((values['log-level'] as string | undefined) ?? 'info');
 
-  const adbAvailable = await isAdbAvailable();
-  const capabilities: AgentCapability[] = [];
-  if (adbAvailable) capabilities.push('android');
-  else logger.warn('未检测到 adb，Android 设备将不会被上报');
+  // 先把安装包内置的工具目录放到 PATH 最前面，再检查
+  ensureToolPath();
 
-  const iosDevices = await discoverIos();
-  if (iosDevices.length > 0) capabilities.push('ios');
+  const adb = await probeCommand('adb');
+  const goIos =
+    (await probeCommand('ios')) ?? (await probeCommand('go-ios'));
+
+  console.log('\n环境检查：');
+  console.log(`  adb     ${adb ?? '未检测到'}`);
+  console.log(`  go-ios  ${goIos ?? '未检测到'}`);
+
+  const missing: string[] = [];
+  if (!adb) missing.push('Android（adb）');
+  if (!goIos) missing.push('iOS（go-ios）');
+
+  if (missing.length > 0) {
+    console.log(`\n缺少：${missing.join('、')}`);
+    console.log('  安装：adh-agent init（安装包内置工具，可离线安装）');
+    console.log(
+      '  手动安装：adb → Android Platform Tools；go-ios → github.com/danielpaulus/go-ios/releases',
+    );
+    console.log('  继续启动后，对应平台的设备将无法被发现和控制。\n');
+
+    logger.warn(
+      { missing },
+      '环境检查未通过，对应平台的设备将无法控制',
+    );
+
+    if (!(await confirmContinue())) {
+      console.log('已取消启动。');
+      process.exit(1);
+    }
+  }
+
+  const androidOk = Boolean(adb);
+  const iosOk = Boolean(goIos);
+
+  const capabilities: AgentCapability[] = [];
+  if (androidOk) capabilities.push('android');
+
+  // iOS 首次发现时会自动执行 `ios tunnel start`（iOS 17+ 需要）
+  if (iosOk) {
+    const iosDevices = await discoverIos();
+    if (iosDevices.length > 0) capabilities.push('ios');
+  }
 
   const name = (values.name as string | undefined) ?? local.name ?? os.hostname();
 
@@ -176,8 +251,10 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     runtime,
     logger,
     discover: async (): Promise<DeviceInfo[]> => {
-      const android = await discoverAndroid();
-      const ios = await discoverIos();
+      const android = androidOk
+        ? await discoverAndroid()
+        : { devices: [] as DeviceInfo[] };
+      const ios = iosOk ? await discoverIos() : [];
       return [...android.devices, ...ios];
     },
   });

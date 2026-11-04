@@ -33,6 +33,7 @@ import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
 import { useSite } from '../stores/site';
 import { api } from '../api';
+import { APP_VERSION, BUILD_TIME } from '../utils/version';
 import FloatingPreviews from '../components/FloatingPreviews.vue';
 
 const route = useRoute();
@@ -251,6 +252,10 @@ const onlineAgents = computed(
 const onlineDevices = computed(
   () => devices.value.filter((device) => device.status === 'online').length,
 );
+
+/** 构建时注入的版本与构建时间，显示在侧边栏底部。 */
+const appVersion = APP_VERSION;
+const buildTime = BUILD_TIME;
 </script>
 
 <template>
@@ -275,8 +280,13 @@ const onlineDevices = computed(
       </div>
 
       <div class="sider-footer">
-        <span class="dot" />
-        <span>{{ onlineAgents }} 节点 · {{ onlineDevices }} 设备</span>
+        <div class="sider-stat">
+          <span class="dot" />
+          <span>{{ onlineAgents }} 节点 · {{ onlineDevices }} 设备</span>
+        </div>
+        <div class="sider-version" :title="`构建于 ${buildTime}`">
+          ADH {{ appVersion }} · {{ buildTime }}
+        </div>
       </div>
     </n-layout-sider>
 
@@ -499,13 +509,27 @@ const onlineDevices = computed(
   left: 0;
   right: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 16px;
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-faint);
+}
+
+.sider-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sider-version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  opacity: 0.75;
+  white-space: nowrap;
 }
 
 .dot {

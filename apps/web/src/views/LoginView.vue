@@ -5,6 +5,7 @@ import { NButton, NInput, useMessage } from 'naive-ui';
 import { useAuth } from '../stores/auth';
 import { useSite } from '../stores/site';
 import { api } from '../api';
+import { APP_VERSION, BUILD_TIME } from '../utils/version';
 
 const route = useRoute();
 const router = useRouter();
@@ -89,6 +90,9 @@ async function submit(): Promise<void> {
         </n-button>
       </form>
     </div>
+    <div class="login-version">
+      ADH {{ APP_VERSION }} · 构建于 {{ BUILD_TIME }}
+    </div>
   </div>
 </template>
 
@@ -99,6 +103,18 @@ async function submit(): Promise<void> {
   min-height: 100vh;
   padding: 24px;
   background: var(--bg, #f6f6f7);
+}
+
+.login-version {
+  position: fixed;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-faint, #a1a1aa);
+  opacity: 0.8;
 }
 
 .login-card {
