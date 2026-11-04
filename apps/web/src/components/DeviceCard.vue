@@ -525,10 +525,10 @@ const wifiTitle = computed(() => {
 
 /* 品牌 logo：放在缩略图中央，覆盖 .thumb img 的 100% 规则 */
 .placeholder .brand-logo {
-  width: 44px;
-  height: 44px;
+  width: 68px;
+  height: 68px;
   object-fit: contain;
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 .thumb-badges {
