@@ -12,7 +12,7 @@ const message = useMessage();
 const { login } = useAuth();
 const { title: siteTitle, subtitle: siteSubtitle, logoUpdatedAt } = useSite();
 
-const username = ref('admin');
+const username = ref('');
 const password = ref('');
 const loading = ref(false);
 
