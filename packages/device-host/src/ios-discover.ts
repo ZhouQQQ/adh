@@ -29,6 +29,49 @@ const infoCache = new Map<string, CacheEntry>();
 let commandCache: { at: number; command: string | null } | null = null;
 let wdaCache: { at: number; available: boolean } | null = null;
 
+/* ------------------------------------------------------------------ */
+/* iOS 17+ 隧道                                                        */
+/* ------------------------------------------------------------------ */
+
+let tunnelProcess: ChildProcess | null = null;
+let tunnelRetryAt = 0;
+
+/**
+ * iOS 17+ 需要 go-ios 的 tunnel 才能稳定访问设备。
+ * 发现设备前确保它在跑；已经启动过或刚失败过就跳过，避免反复拉起。
+ */
+function ensureTunnel(command: string): void {
+  if (tunnelProcess && tunnelProcess.exitCode === null) return;
+  if (Date.now() < tunnelRetryAt) return;
+
+  const child = spawn(command, ['tunnel', 'start'], {
+    windowsHide: true,
+    stdio: 'ignore',
+  });
+  tunnelProcess = child;
+  const startedAt = Date.now();
+
+  const cleanup = (): void => {
+    if (tunnelProcess === child) tunnelProcess = null;
+    // 启动失败（常见：没有管理员权限）时一分钟后再试
+    if (Date.now() - startedAt < 3_000) {
+      tunnelRetryAt = Date.now() + 60_000;
+    }
+  };
+  child.on('exit', cleanup);
+  child.on('error', cleanup);
+}
+
+process.on('exit', () => {
+  if (tunnelProcess && tunnelProcess.exitCode === null) {
+    try {
+      tunnelProcess.kill();
+    } catch {
+      /* ignore */
+    }
+  }
+});
+
 /** WDA 启动成功后清掉探测缓存，让下一次发现立即带上 wda 能力。 */
 export function invalidateWdaCache(): void {
   wdaCache = null;
@@ -177,6 +220,9 @@ const delay = (ms: number): Promise<void> =>
 export async function discoverIos(): Promise<DeviceInfo[]> {
   const command = await resolveCommand();
   if (!command) return [];
+
+  // iOS 17+ 需要 tunnel 才能稳定访问设备，发现前先确保启动
+  ensureTunnel(command);
 
   const udids = await listUdids(command);
   if (udids.length === 0) {
