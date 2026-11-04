@@ -236,32 +236,24 @@ adb start-server
    - 设置 → 隐私与安全性 → 开发者模式
    - 打开后设备会重启，重启后再次确认开启
 
-### 6.2 一键安装与启动（Web 控制台）
+### 6.2 一键启动（Web 控制台）
 
-设备卡片右上角菜单对 iOS 提供两个操作：
+设备卡片右上角菜单对 iOS 提供「**启动 XCTest + 转发**」：
 
-| 菜单项 | 用途 |
-| --- | --- |
-| **启动 WDA** | 设备已安装 WDA，只是没在运行，自动执行 go-ios 并等待 8100 就绪 |
-| **安装 / 更新 WDA** | 全新设备，需要服务端先配置签名材料 |
+- 设备上已安装 WDA 时，自动执行 go-ios 拉起 XCTest 并等待对应端口就绪
+- 如果 WDA 已经在设备上运行、只是没做端口转发，会先复用现有实例，不会重复启动
+- 菜单里会显示该设备使用的端口；多台 iOS 设备接同一节点时端口各不相同（见 6.4）
 
-签名材料配置在 server 的 `.env`：
+设备还没装 WDA 时，需要先按 6.3 手动安装。
+
+如果已经有签名好的 WDA，可以在 server 的 `.env` 指定 bundle，避免每次自动查找：
 
 ```bash
-ADH_WDA_P12=D:\certs\wda.p12
-ADH_WDA_PROFILE=D:\certs\wda.mobileprovision
-ADH_WDA_P12_PASSWORD=xxxx
-
-# 可选：已经有签名好的 WDA 时直接指定 bundle
 ADH_WDA_BUNDLE_ID=com.facebook.WebDriverAgentRunner.xctrunner.XXXX
 ADH_WDA_TEST_BUNDLE_ID=com.facebook.WebDriverAgentRunner.xctrunner.XXXX
 ```
 
-配置后重启 server。安装完成还需要在手机上手动信任证书：
-
-**设置 → 通用 → VPN 与设备管理 → 开发者 App → 信任**
-
-没有签名材料时「安装 / 更新 WDA」会提示未配置，只能手动用 Xcode 或 go-ios 安装。
+配置后重启 server。
 
 ### 6.3 手动安装并启动 WDA
 
@@ -290,20 +282,24 @@ ios runwda \
 
 - 终端出现 `Running wda`、`authorized`
 - 手机屏幕出现「Automation Running」提示
-- 本机访问 `http://127.0.0.1:8100/status` 返回 `state: success`
+- 本机访问 `http://127.0.0.1:<端口>/status` 返回 `state: success`（端口见下一节）
 
 ### 6.4 端口转发
 
-WDA 默认监听设备侧的 8100，需要转发到本机：
+WDA 默认监听设备侧的 8100，需要转发到本机。**一台宿主机接多台 iOS 设备时，
+每台设备使用不同的本地端口**（8100、8101...），避免互相覆盖：
 
-- server 检测到 iOS 设备后会自动执行 `ios forward 8100 8100 --udid=<udid>`
+- server 检测到 iOS 设备后会自动执行 `ios forward <本地端口> 8100 --udid=<udid>`
+- 端口按设备首次出现的顺序分配，设备卡片上会显示当前端口
+- 起始端口可以用 `ADH_WDA_PORT_BASE` 修改（默认 8100）
 - 手动执行也可以：
 
   ```bash
-  ios forward 8100 8100 --udid=<udid>
+  ios forward 8101 8100 --udid=<udid>
   ```
 
-如果 server 和 WDA 不在同一台机器，可以用环境变量指定地址：
+如果 server 和 WDA 不在同一台机器，可以用环境变量指定地址（单设备场景，
+设置后所有 iOS 设备都走这个地址）：
 
 ```bash
 ADH_WDA_URL=http://<wda-host>:8100

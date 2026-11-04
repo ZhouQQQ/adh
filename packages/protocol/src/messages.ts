@@ -104,6 +104,8 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   publishedAt: z.number().default(0),
   /** 支付密码等黑屏页面用的模拟键盘位置。 */
   safeKeyboard: SafeKeyboardLayoutSchema.optional(),
+  /** iOS 设备 WDA 在本机使用的端口；多台 iOS 设备各不相同。 */
+  wdaPort: z.number().int().optional(),
   /** 当前是否被某个控制会话占用。 */
   inUse: z.boolean().default(false),
   /** 正在控制的人；只读观看不算占用。 */

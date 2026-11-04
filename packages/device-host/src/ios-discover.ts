@@ -2,6 +2,12 @@ import type { DeviceInfo } from '@adh/protocol';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { runCommand } from './exec.js';
 import { lookupIosHardware, lookupIosResolution } from './ios-models.js';
+import {
+  ensureWdaForward,
+  probeWda,
+  releaseWdaPort,
+  wdaPortFor,
+} from './ios-wda.js';
 
 /**
  * iOS 设备发现：通过 go-ios 列出设备并读取基本信息。
@@ -23,11 +29,9 @@ interface CacheEntry {
 }
 
 const INFO_TTL_MS = 30_000;
-const WDA_TTL_MS = 15_000;
 const infoCache = new Map<string, CacheEntry>();
 
 let commandCache: { at: number; command: string | null } | null = null;
-let wdaCache: { at: number; available: boolean } | null = null;
 
 /* ------------------------------------------------------------------ */
 /* iOS 17+ 隧道                                                        */
@@ -80,9 +84,12 @@ process.on('exit', () => {
   }
 });
 
-/** WDA 启动成功后清掉探测缓存，让下一次发现立即带上 wda 能力。 */
+/**
+ * WDA 启动成功后调用。
+ * 现在每次发现都会实时探测每台设备的端口，这里保留为空实现以兼容调用方。
+ */
 export function invalidateWdaCache(): void {
-  wdaCache = null;
+  /* no-op */
 }
 
 async function resolveCommand(): Promise<string | null> {
@@ -140,93 +147,8 @@ async function loadInfo(command: string, udid: string): Promise<IosInfo | null> 
   return info;
 }
 
-/** WDA 默认监听 8100，有端口转发时才算可用。 */
-async function probeWda(force = false): Promise<boolean> {
-  if (!force && wdaCache && Date.now() - wdaCache.at < WDA_TTL_MS) {
-    return wdaCache.available;
-  }
-
-  let available = false;
-  try {
-    const response = await fetch('http://127.0.0.1:8100/status', {
-      signal: AbortSignal.timeout(800),
-    });
-    available = response.ok;
-  } catch {
-    available = false;
-  }
-  wdaCache = { at: Date.now(), available };
-  return available;
-}
-
-/* ------------------------------------------------------------------ */
-/* WDA 端口转发                                                        */
-/* ------------------------------------------------------------------ */
-
-let forwardProcess: ChildProcess | null = null;
-let forwardUdid: string | null = null;
-let forwardRetryAt = 0;
-
-/**
- * 手机上 WDA 已经在跑、但没做端口转发时，本机 8100 是打不开的。
- * 这里自动补一条 `ios forward 8100 8100 --udid=<udid>`，让 WDA 立即可用。
- * @returns 是否新起了转发进程
- */
-function ensureForward(command: string, udid: string): boolean {
-  if (
-    forwardProcess &&
-    forwardUdid === udid &&
-    forwardProcess.exitCode === null
-  ) {
-    return false;
-  }
-  // 端口被别的进程占用时会立刻退出，退避一分钟再试
-  if (Date.now() < forwardRetryAt) return false;
-
-  stopForward();
-
-  const child = spawn(command, ['forward', '8100', '8100', `--udid=${udid}`], {
-    windowsHide: true,
-    stdio: 'ignore',
-  });
-  forwardProcess = child;
-  forwardUdid = udid;
-  const startedAt = Date.now();
-
-  const cleanup = (): void => {
-    if (forwardProcess !== child) return;
-    forwardProcess = null;
-    forwardUdid = null;
-    // 刚起来就退出多半是端口被占用；跑过一会儿才退出说明设备断开了
-    if (Date.now() - startedAt < 3_000) {
-      forwardRetryAt = Date.now() + 60_000;
-    }
-  };
-  child.on('exit', cleanup);
-  child.on('error', cleanup);
-
-  return true;
-}
-
-function stopForward(): void {
-  const child = forwardProcess;
-  forwardProcess = null;
-  forwardUdid = null;
-  if (!child || child.exitCode !== null) return;
-  try {
-    child.kill();
-  } catch {
-    /* 进程可能已经退出 */
-  }
-}
-
-process.on('exit', stopForward);
-
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
 let lastLoggedCount = -1;
-let lastWdaState: boolean | null = null;
+const wdaStates = new Map<string, boolean>();
 
 export async function discoverIos(): Promise<DeviceInfo[]> {
   const command = await resolveCommand();
@@ -245,36 +167,37 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
     }
   }
   if (udids.length === 0) {
-    stopForward();
+    for (const udid of infoCache.keys()) releaseWdaPort(udid);
     infoCache.clear();
+    wdaStates.clear();
     return [];
   }
-
-  let wda = await probeWda();
-  if (!wda && ensureForward(command, udids[0]!)) {
-    console.log('[ios] 建立 8100 端口转发');
-    // 转发起来后给它一点时间建立连接
-    await delay(1_200);
-    wda = await probeWda(true);
-  }
-  if (lastWdaState !== wda) {
-    lastWdaState = wda;
-    console.log(`[ios] WDA ${wda ? '已就绪' : '未启动'}`);
-  }
-  // WDA 未启动时也上报设备，前端会提示并提供「启动 WDA」入口
-  const capabilities = wda ? ['ios', 'wda'] : ['ios'];
 
   const devices: DeviceInfo[] = [];
 
   for (const udid of udids) {
     const info = await loadInfo(command, udid);
+
+    // 每台设备用自己的端口：先探测，不通再补一条 `ios forward` 转发。
+    // 设备上 WDA 已经在跑、只是没转发时，这一步就能让它立即可用。
+    const port = wdaPortFor(udid);
+    let wda = await probeWda(port);
+    if (!wda) {
+      if (await ensureWdaForward(udid, port)) wda = await probeWda(port);
+    }
+    if (wdaStates.get(udid) !== wda) {
+      wdaStates.set(udid, wda);
+      console.log(`[ios] ${udid} WDA ${wda ? `已就绪（:${port}）` : '未启动'}`);
+    }
+
     const device: DeviceInfo = {
       udid,
       platform: 'ios',
       name: info?.DeviceName ?? udid,
       brand: 'Apple',
       status: 'online',
-      capabilities,
+      // WDA 未启动时也上报设备，前端会提示并提供「启动 XCTest + 转发」入口
+      capabilities: wda ? ['ios', 'wda'] : ['ios'],
       tags: [],
     };
 
@@ -302,6 +225,13 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
 
   for (const udid of [...infoCache.keys()]) {
     if (!udids.includes(udid)) infoCache.delete(udid);
+  }
+  // 设备拔掉后释放它的端口，避免端口号一直往后涨
+  for (const udid of [...wdaStates.keys()]) {
+    if (!udids.includes(udid)) {
+      wdaStates.delete(udid);
+      releaseWdaPort(udid);
+    }
   }
 
   return devices;

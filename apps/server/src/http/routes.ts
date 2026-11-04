@@ -16,6 +16,7 @@ import {
   runCommandBuffer,
   resolveQuality,
   invalidateWdaCache,
+  wdaPortFor,
 } from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
 import type { CommandBus } from '../command-bus.js';
@@ -49,7 +50,7 @@ import {
   wdaWindow,
 } from '../ios/wda.js';
 import { ensureMjpegPort } from '../ios/mjpeg.js';
-import { installWda, startWda } from '../ios/wda-runner.js';
+import { startWda } from '../ios/wda-runner.js';
 
 export interface HttpDeps {
   queries: Queries;
@@ -1649,7 +1650,7 @@ export async function registerHttpRoutes(
       const [batteryResult, diskResult, wda] = await Promise.all([
         runIos(['batterycheck', `--udid=${device.udid}`]),
         runIos(['diskspace', `--udid=${device.udid}`]),
-        wdaStatus(),
+        wdaStatus(wdaPortFor(device.udid)),
       ]);
 
       const stats: RuntimeStats = {
@@ -1723,10 +1724,11 @@ export async function registerHttpRoutes(
     const { preset } = resolveQuality(
       (request.query as { quality?: string }).quality,
     );
-    const png = await wdaScreenshot();
+    const port = wdaPortFor(device.udid);
+    const png = await wdaScreenshot(port);
     if (!png) {
       return reply.code(503).send({
-        error: '无法从 WDA 获取截图，请确认 WebDriverAgent 正在运行并已端口转发到 8100',
+        error: `无法从 WDA 获取截图，请确认 WebDriverAgent 正在运行并已端口转发到 ${port}`,
       });
     }
 
@@ -1767,26 +1769,10 @@ export async function registerHttpRoutes(
     await deps.queries.patchDevice(device.agentId, device.udid, {
       capabilities: [...caps],
     });
-    return { ok: true, message: result.message };
+    return { ok: true, message: result.message, port: result.port };
   });
 
-  /** 为 iOS 设备安装 / 更新 WDA（需要配置签名材料）。 */
-  app.post('/api/devices/:id/ios/wda/install', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const device = await requireLocalDevice(id, reply);
-    if (!device) return reply;
-    if (device.platform !== 'ios') {
-      return reply.code(400).send({ error: '仅支持 iOS 设备' });
-    }
-    if (!isAdminRole(request.user?.role ?? '')) {
-      return reply.code(403).send({ error: '需要管理员权限' });
-    }
-    const result = await installWda(device.udid);
-    if (!result.ok) {
-      return reply.code(400).send({ error: result.message });
-    }
-    return { ok: true, message: result.message };
-  });
+  
 
   app.post('/api/devices/:id/ios/quality', async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -1806,6 +1792,7 @@ export async function registerHttpRoutes(
 
     const quality = body.data.quality;
     await wdaApplyMjpegSettings(
+      wdaPortFor(device.udid),
       quality === 'low'
         ? { framerate: 30, quality: 25, scaling: 25 }
         : quality === 'medium'
@@ -1835,13 +1822,15 @@ export async function registerHttpRoutes(
     }
 
     const payload = parsed.data;
+    const port = wdaPortFor(device.udid);
     try {
       if (payload.type === 'tap') {
-        const size = await wdaWindow();
-        await wdaTap(payload.x * size.width, payload.y * size.height);
+        const size = await wdaWindow(port);
+        await wdaTap(port, payload.x * size.width, payload.y * size.height);
       } else if (payload.type === 'swipe') {
-        const size = await wdaWindow();
+        const size = await wdaWindow(port);
         await wdaSwipe(
+          port,
           payload.fromX * size.width,
           payload.fromY * size.height,
           payload.toX * size.width,
@@ -1850,14 +1839,14 @@ export async function registerHttpRoutes(
         );
       } else if (payload.type === 'pinch') {
         // duration 是期望耗时（秒），换算成 WDA 的每秒缩放倍率
-        await wdaPinch(payload.scale, 1 / (payload.duration ?? 0.4));
+        await wdaPinch(port, payload.scale, 1 / (payload.duration ?? 0.4));
       } else if (payload.type === 'button') {
-        await wdaPressButton(payload.name);
+        await wdaPressButton(port, payload.name);
       } else if (payload.type === 'appSwitcher') {
-        await wdaAppSwitcher();
+        await wdaAppSwitcher(port);
       } else if (payload.type === 'screen') {
-        if (payload.on) await wdaUnlock();
-        else await wdaLock();
+        if (payload.on) await wdaUnlock(port);
+        else await wdaLock(port);
         logDevice(
           request,
           device,
@@ -1866,8 +1855,8 @@ export async function registerHttpRoutes(
         );
       } else if (payload.type === 'screenToggle') {
         const unlocked = iosScreenUnlocked.get(device.id) ?? true;
-        if (unlocked) await wdaLock();
-        else await wdaUnlock();
+        if (unlocked) await wdaLock(port);
+        else await wdaUnlock(port);
         iosScreenUnlocked.set(device.id, !unlocked);
         logDevice(
           request,
@@ -1878,11 +1867,11 @@ export async function registerHttpRoutes(
       } else if (payload.type === 'mute') {
         // iOS 没有静音接口，连续按音量减到 0
         for (let i = 0; i < 10; i += 1) {
-          await wdaPressButton('volumeDown');
+          await wdaPressButton(port, 'volumeDown');
         }
         logDevice(request, device, 'input.key', '静音');
       } else {
-        await wdaTypeText(payload.text);
+        await wdaTypeText(port, payload.text);
       }
 
       // 记录 iOS 输入操作（触摸日志暂时关闭，后期需要时取消注释）
@@ -1921,7 +1910,7 @@ export async function registerHttpRoutes(
     if (!device) return reply;
 
     if (device.platform === 'ios') {
-      const status = await wdaStatus();
+      const status = await wdaStatus(wdaPortFor(device.udid));
       return {
         platform: 'ios',
         connected: Boolean(status),
@@ -1994,6 +1983,7 @@ export async function registerHttpRoutes(
     // 直接透传 WDA 的 MJPEG：帧率/质量/缩放交给 WDA 自己控制，
     // 避免服务端逐帧解码再编码，延迟可以降一个数量级
     await wdaApplyMjpegSettings(
+      wdaPortFor(device.udid),
       quality === 'low'
         ? { framerate: 30, quality: 25, scaling: 25 }
         : quality === 'medium'

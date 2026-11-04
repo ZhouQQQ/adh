@@ -648,16 +648,11 @@ export const api = {
     });
   },
 
-  /** iOS 一键启动 WDA。 */
-  startIosWda(deviceId: string): Promise<{ ok: boolean; message: string }> {
+  /** iOS 一键启动 WDA（XCTest + 端口转发）。 */
+  startIosWda(
+    deviceId: string,
+  ): Promise<{ ok: boolean; message: string; port: number }> {
     return request(`/api/devices/${deviceId}/ios/wda/start`, {
-      method: 'POST',
-    });
-  },
-
-  /** iOS 安装 / 更新 WDA（需要服务端配置签名材料）。 */
-  installIosWda(deviceId: string): Promise<{ ok: boolean; message: string }> {
-    return request(`/api/devices/${deviceId}/ios/wda/install`, {
       method: 'POST',
     });
   },

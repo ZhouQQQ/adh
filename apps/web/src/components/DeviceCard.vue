@@ -10,7 +10,6 @@ import {
 } from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import {
-  CloudDownloadOutline,
   EllipsisVerticalOutline,
   FingerPrintOutline,
   HardwareChipOutline,
@@ -55,7 +54,7 @@ const message = useMessage();
 const now = ref(Date.now());
 const wdaBusy = ref(false);
 
-/** 卡片右上角三点菜单：锁定 / 解锁，iOS 额外提供 WDA 安装与启动。 */
+/** 卡片右上角三点菜单：锁定 / 解锁，iOS 额外提供启动 XCTest + 转发。 */
 const moreOptions = computed<DropdownOption[]>(() => {
   const options: DropdownOption[] = [
     {
@@ -71,20 +70,15 @@ const moreOptions = computed<DropdownOption[]>(() => {
 
   if (props.device.platform === 'ios') {
     const wdaReady = props.device.capabilities?.includes('wda');
-    if (!wdaReady) {
-      options.push({
-        label: wdaBusy.value ? '正在启动 WDA…' : '启动 WDA',
-        key: 'start-wda',
-        disabled: wdaBusy.value,
-        icon: () => h(NIcon, null, { default: () => h(PlayCircleOutline) }),
-      });
-    }
+    // 每台 iOS 设备各自一个本地端口，多台设备接同一节点时不会互相覆盖
+    const port = props.device.wdaPort;
     options.push({
-      label: '安装 / 更新 WDA',
-      key: 'install-wda',
+      label: wdaBusy.value
+        ? '正在启动 XCTest…'
+        : `${wdaReady ? '重启' : '启动'} XCTest + 转发${port ? `（:${port}）` : ''}`,
+      key: 'start-wda',
       disabled: wdaBusy.value,
-      icon: () =>
-        h(NIcon, null, { default: () => h(CloudDownloadOutline) }),
+      icon: () => h(NIcon, null, { default: () => h(PlayCircleOutline) }),
     });
   }
 
@@ -96,19 +90,15 @@ async function onMoreSelect(key: string): Promise<void> {
     emit('lock', props.device);
     return;
   }
-  if (key !== 'start-wda' && key !== 'install-wda') return;
+  if (key !== 'start-wda') return;
   if (wdaBusy.value) return;
 
   wdaBusy.value = true;
-  const loading = message.loading(
-    key === 'start-wda' ? '正在启动 WDA…' : '正在安装 WDA，可能需要 1–2 分钟…',
-    { duration: 0 },
-  );
+  const loading = message.loading('正在启动 XCTest 并建立端口转发…', {
+    duration: 0,
+  });
   try {
-    const result =
-      key === 'start-wda'
-        ? await api.startIosWda(props.device.id)
-        : await api.installIosWda(props.device.id);
+    const result = await api.startIosWda(props.device.id);
     message.success(result.message || '操作完成');
     emit('refresh');
   } catch (error) {
@@ -175,6 +165,11 @@ const statusMeta = computed(() => {
       return { type: 'default' as const, label: '离线' };
   }
 });
+
+/** 标题优先显示机型市场名（如 iPhone 16 Pro），回退到设备名。 */
+const titleText = computed(
+  () => props.device.marketName || props.device.name,
+);
 
 const subtitle = computed(
   () =>
@@ -305,7 +300,11 @@ const wifiTitle = computed(() => {
         />
       </div>
 
-      <div v-if="device.status === 'offline'" class="offline-tag">
+      <div
+        v-if="device.status === 'offline'"
+        class="offline-tag"
+        :class="{ shifted: selectable }"
+      >
         最后在线 {{ formatAgo(device.lastSeen) }}
       </div>
 
@@ -326,7 +325,7 @@ const wifiTitle = computed(() => {
           :bordered="false"
           round
         >
-          WDA 未启动
+          WDA 未启动{{ device.wdaPort ? ` · :${device.wdaPort}` : '' }}
         </n-tag>
         <n-tag
           v-if="device.locked"
@@ -341,7 +340,7 @@ const wifiTitle = computed(() => {
     </div>
 
     <div class="body">
-      <div class="title" :title="device.name">{{ device.name }}</div>
+      <div class="title" :title="device.name">{{ titleText }}</div>
       <div class="subtitle">{{ subtitle }}</div>
 
       <div class="kv-grid">
@@ -680,8 +679,9 @@ const wifiTitle = computed(() => {
 
 .offline-tag {
   position: absolute;
-  top: 32px;
-  right: 8px;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
   padding: 2px 7px;
   border-radius: 999px;
   background: rgba(255, 251, 235, 0.9);
@@ -689,6 +689,11 @@ const wifiTitle = computed(() => {
   font-size: 10px;
   white-space: nowrap;
   backdrop-filter: blur(6px);
+}
+
+/* 批量选择时让开左上角的勾选框 */
+.offline-tag.shifted {
+  left: 34px;
 }
 
 .actions {

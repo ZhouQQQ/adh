@@ -1,16 +1,28 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { runCommand } from '@adh/device-host';
+import {
+  ensureWdaForward,
+  probeWda,
+  wdaPortFor,
+  runCommand,
+} from '@adh/device-host';
 
 /**
- * 一键启动 WebDriverAgent。
+ * 一键启动 WebDriverAgent（XCTest + 端口转发）。
+ *
+ * 一台宿主机可以接多台 iOS 设备：每台设备用自己的本地端口
+ * （wdaPortFor(udid)，从 8100 开始按设备分配），互不覆盖。
  *
  * 优先使用环境变量里配置的已签名 WDA：
  *   ADH_WDA_BUNDLE_ID / ADH_WDA_TEST_BUNDLE_ID
- * 没配置时退回 go-ios 的 `ui run wda`（自动查找 / 下载 WDA）。
+ * 没配置时退回 go-ios 的 `ui run wda`（自动查找 / 下载 WDA，
+ * 并通过 --host-port 同时建立转发）。
  */
 
 const runners = new Map<string, ChildProcess>();
 let commandCache: string | null = null;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 async function resolveCommand(): Promise<string | null> {
   if (commandCache) return commandCache;
@@ -24,32 +36,80 @@ async function resolveCommand(): Promise<string | null> {
   return null;
 }
 
-export async function isWdaReady(): Promise<boolean> {
-  try {
-    const response = await fetch('http://127.0.0.1:8100/status', {
-      signal: AbortSignal.timeout(1_200),
-    });
-    return response.ok;
-  } catch {
-    return false;
+export interface WdaStartResult {
+  ok: boolean;
+  message: string;
+  port: number;
+}
+
+/** 该设备当前使用的本地 WDA 端口（不会启动进程）。 */
+export function deviceWdaPort(udid: string): number {
+  return wdaPortFor(udid);
+}
+
+/**
+ * 等待 WDA 就绪。
+ * needsForward=true 时（runwda 分支不会自己转发）定期补一条 `ios forward`。
+ */
+async function waitForWda(
+  udid: string,
+  port: number,
+  child: ChildProcess | null,
+  needsForward: boolean,
+): Promise<WdaStartResult> {
+  const deadline = Date.now() + 45_000;
+  let lastForwardAt = 0;
+  while (Date.now() < deadline) {
+    await sleep(1_000);
+    if (child && child.exitCode !== null) {
+      return {
+        ok: false,
+        message: 'WDA 启动失败，请确认手机已信任电脑并开启开发者模式',
+        port,
+      };
+    }
+    if (await probeWda(port)) {
+      return { ok: true, message: `WDA 已启动（端口 ${port}）`, port };
+    }
+    if (needsForward && Date.now() - lastForwardAt > 5_000) {
+      lastForwardAt = Date.now();
+      await ensureWdaForward(udid, port, true);
+      if (await probeWda(port)) {
+        return { ok: true, message: `WDA 已启动（端口 ${port}）`, port };
+      }
+    }
   }
+  return {
+    ok: false,
+    message: `WDA 启动超时，请检查设备后手动启动（端口 ${port}）`,
+    port,
+  };
 }
 
 export async function startWda(
   udid: string,
-): Promise<{ ok: boolean; message: string }> {
-  if (await isWdaReady()) {
-    return { ok: true, message: 'WDA 已在运行' };
+  port = wdaPortFor(udid),
+): Promise<WdaStartResult> {
+  if (await probeWda(port)) {
+    return { ok: true, message: `WDA 已在运行（端口 ${port}）`, port };
   }
 
   const running = runners.get(udid);
   if (running && running.exitCode === null) {
-    return { ok: false, message: 'WDA 正在启动，请稍候' };
+    return { ok: false, message: 'WDA 正在启动，请稍候', port };
+  }
+
+  // 设备上的 WDA 可能已经在跑，只是没有端口转发：先补一条。
+  // 这是用户主动操作，跳过失败退避。
+  if (await ensureWdaForward(udid, port, true)) {
+    if (await probeWda(port)) {
+      return { ok: true, message: `WDA 已就绪（端口 ${port}）`, port };
+    }
   }
 
   const command = await resolveCommand();
   if (!command) {
-    return { ok: false, message: '未找到 go-ios，请先安装后重试' };
+    return { ok: false, message: '未找到 go-ios，请先安装后重试', port };
   }
 
   const bundleId = process.env.ADH_WDA_BUNDLE_ID?.trim();
@@ -61,7 +121,7 @@ export async function startWda(
         `--testrunnerbundleid=${process.env.ADH_WDA_TEST_BUNDLE_ID?.trim() || bundleId}`,
         '--xctestconfig=WebDriverAgentRunner.xctest',
       ]
-    : ['ui', 'run', 'wda', '--host-port=8100'];
+    : ['ui', 'run', 'wda', `--udid=${udid}`, `--host-port=${port}`];
 
   const child = spawn(command, args, {
     windowsHide: true,
@@ -69,71 +129,13 @@ export async function startWda(
   });
   runners.set(udid, child);
   const cleanup = (): void => {
-    runners.delete(udid);
+    if (runners.get(udid) === child) runners.delete(udid);
   };
   child.on('exit', cleanup);
   child.on('error', cleanup);
 
-  // 等待 8100 就绪，最多 45 秒
-  for (let i = 0; i < 45; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    if (await isWdaReady()) {
-      return { ok: true, message: 'WDA 已启动' };
-    }
-    if (child.exitCode !== null) {
-      return {
-        ok: false,
-        message: 'WDA 启动失败，请确认手机已信任电脑并开启开发者模式',
-      };
-    }
-  }
-  return { ok: false, message: 'WDA 启动超时，请检查设备后手动启动' };
+  // go-ios 的 `ui run wda` 自带 --host-port 转发；
+  // runwda 只负责拉起 XCTest，需要我们自己补转发
+  return waitForWda(udid, port, child, Boolean(bundleId));
 }
 
-/**
- * 安装（或更新）WDA。
- * 需要先在服务端配置签名材料：
- *   ADH_WDA_P12 / ADH_WDA_PROFILE / ADH_WDA_P12_PASSWORD
- */
-export async function installWda(
-  udid: string,
-): Promise<{ ok: boolean; message: string }> {
-  const p12 = process.env.ADH_WDA_P12?.trim();
-  const profile = process.env.ADH_WDA_PROFILE?.trim();
-  if (!p12 || !profile) {
-    return {
-      ok: false,
-      message:
-        '未配置 WDA 签名材料：请设置 ADH_WDA_P12 和 ADH_WDA_PROFILE 后重启 server',
-    };
-  }
-
-  const command = await resolveCommand();
-  if (!command) {
-    return { ok: false, message: '未找到 go-ios，请先安装' };
-  }
-
-  const args = [
-    'ui',
-    'install',
-    'wda',
-    `--udid=${udid}`,
-    `--p12file=${p12}`,
-    `--profile=${profile}`,
-  ];
-  const password = process.env.ADH_WDA_P12_PASSWORD?.trim();
-  if (password) args.push(`--p12password=${password}`);
-
-  const result = await runCommand(command, args, 180_000);
-  if (result.code !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim();
-    return {
-      ok: false,
-      message: detail || 'WDA 安装失败，请检查签名证书与描述文件',
-    };
-  }
-  return {
-    ok: true,
-    message: 'WDA 已安装，请在手机上到「设置 → 通用 → VPN 与设备管理」信任证书',
-  };
-}

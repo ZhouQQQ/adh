@@ -10,6 +10,7 @@ import type {
   SafeKeyboardLayout,
 } from '@adh/protocol';
 import { BUILTIN_AGENT_ID } from '@adh/protocol';
+import { wdaPortFor } from '@adh/device-host';
 import type { SqlDriver } from './driver.js';
 import type { AgentRow, DeviceRow } from './schema.js';
 
@@ -141,6 +142,15 @@ export function rowToDevice(row: DeviceRow): DeviceSummary {
   if (safeKeyboard) summary.safeKeyboard = safeKeyboard;
 
   if (row.lockedBy) summary.lockedBy = row.lockedBy;
+
+  // iOS 设备的 WDA 端口按设备分配；本机接入的设备才有实际意义
+  if (
+    row.platform === 'ios' &&
+    row.agentId === BUILTIN_AGENT_ID &&
+    row.status === 'online'
+  ) {
+    summary.wdaPort = wdaPortFor(row.udid);
+  }
 
   return summary;
 }

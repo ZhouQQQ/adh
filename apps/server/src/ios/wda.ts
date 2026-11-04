@@ -1,19 +1,77 @@
-const WDA_BASE = (process.env.ADH_WDA_URL ?? 'http://127.0.0.1:8100').replace(
-  /\/+$/,
-  '',
-);
+/**
+ * WDA HTTP 封装。
+ *
+ * 一台宿主机可能接多台 iOS 设备，每台设备转发到不同的本地端口
+ * （见 @adh/device-host 的 wdaPortFor），所以所有接口都要显式传端口。
+ * 设置 ADH_WDA_URL 时退回到固定地址（兼容单设备 / 远端 WDA 的旧部署）。
+ */
+
+const REMOTE_BASE = process.env.ADH_WDA_URL?.replace(/\/+$/, '') ?? null;
+
+function baseUrl(port: number): string {
+  return REMOTE_BASE ?? `http://127.0.0.1:${port}`;
+}
+
+interface SessionEntry {
+  id: string;
+  at: number;
+}
+
+const sessions = new Map<number, SessionEntry>();
+const windows = new Map<number, { size: { width: number; height: number }; at: number }>();
+
+const SESSION_TTL_MS = 5 * 60_000;
+const WINDOW_TTL_MS = 60_000;
+
+interface WdaResponse<T> {
+  value: T;
+  sessionId?: string;
+}
+
+async function request<T>(
+  port: number,
+  path: string,
+  init?: { method?: string; body?: unknown; timeoutMs?: number },
+): Promise<T> {
+  const response = await fetch(`${baseUrl(port)}${path}`, {
+    method: init?.method ?? 'GET',
+    headers:
+      init?.body === undefined
+        ? undefined
+        : { 'content-type': 'application/json' },
+    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+    signal: AbortSignal.timeout(init?.timeoutMs ?? 15_000),
+  });
+  const text = await response.text();
+  let parsed: unknown = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const value = (parsed as { value?: { error?: string; message?: string } })
+      ?.value;
+    throw new Error(value?.error ?? value?.message ?? `WDA ${response.status}`);
+  }
+  return ((parsed as WdaResponse<T>)?.value ?? null) as T;
+}
 
 /**
  * 调整 WDA 内置 MJPEG 服务的帧率、JPEG 质量与缩放。
  * 直接改服务端参数比在转发时逐帧转码快得多。
  */
-export async function wdaApplyMjpegSettings(input: {
-  framerate: number;
-  quality: number;
-  scaling: number;
-}): Promise<void> {
+export async function wdaApplyMjpegSettings(
+  port: number,
+  input: {
+    framerate: number;
+    quality: number;
+    scaling: number;
+  },
+): Promise<void> {
   try {
-    await fetch(`${WDA_BASE}/appium/settings`, {
+    await fetch(`${baseUrl(port)}/appium/settings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -30,51 +88,13 @@ export async function wdaApplyMjpegSettings(input: {
   }
 }
 
-let sessionId: string | null = null;
-let sessionAt = 0;
-let windowSize: { width: number; height: number } | null = null;
-let windowSizeAt = 0;
-
-const SESSION_TTL_MS = 5 * 60_000;
-const WINDOW_TTL_MS = 60_000;
-
-interface WdaResponse<T> {
-  value: T;
-  sessionId?: string;
-}
-
-async function request<T>(
-  path: string,
-  init?: { method?: string; body?: unknown; timeoutMs?: number },
-): Promise<T> {
-  const response = await fetch(`${WDA_BASE}${path}`, {
-    method: init?.method ?? 'GET',
-    headers: init?.body === undefined ? undefined : { 'content-type': 'application/json' },
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-    signal: AbortSignal.timeout(init?.timeoutMs ?? 15_000),
-  });
-  const text = await response.text();
-  let parsed: unknown = null;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = null;
-  }
-
-  if (!response.ok) {
-    const value = (parsed as { value?: { error?: string; message?: string } })?.value;
-    throw new Error(value?.error ?? value?.message ?? `WDA ${response.status}`);
-  }
-  return ((parsed as WdaResponse<T>)?.value ?? null) as T;
-}
-
 /**
  * XCUITest 默认把设备当成连着硬件键盘，iOS 因此不弹软键盘，
  * 画面上只能看到输入辅助栏（截图底部那条「完成」）。
  */
-async function applyKeyboardSettings(): Promise<void> {
+async function applyKeyboardSettings(port: number): Promise<void> {
   try {
-    await fetch(`${WDA_BASE}/appium/settings`, {
+    await fetch(`${baseUrl(port)}/appium/settings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -87,59 +107,67 @@ async function applyKeyboardSettings(): Promise<void> {
   }
 }
 
-async function createSession(): Promise<string> {
-  const value = await request<{ sessionId?: string }>('/session', {
+async function createSession(port: number): Promise<string> {
+  const value = await request<{ sessionId?: string }>(port, '/session', {
     method: 'POST',
     body: { capabilities: {} },
     timeoutMs: 20_000,
   });
   const id = value?.sessionId;
   if (!id) throw new Error('WDA 会话创建失败');
-  sessionId = id;
-  sessionAt = Date.now();
-  await applyKeyboardSettings();
+  sessions.set(port, { id, at: Date.now() });
+  await applyKeyboardSettings(port);
   return id;
 }
 
-async function ensureSession(): Promise<string> {
-  if (sessionId && Date.now() - sessionAt < SESSION_TTL_MS) return sessionId;
-  return createSession();
+async function ensureSession(port: number): Promise<string> {
+  const entry = sessions.get(port);
+  if (entry && Date.now() - entry.at < SESSION_TTL_MS) return entry.id;
+  return createSession(port);
 }
 
 /** 会话失效时 WDA 会返回 unknown command / session does not exist，重试一次。 */
-async function withSession<T>(task: (id: string) => Promise<T>): Promise<T> {
-  const id = await ensureSession();
+async function withSession<T>(
+  port: number,
+  task: (id: string) => Promise<T>,
+): Promise<T> {
+  const id = await ensureSession(port);
   try {
     return await task(id);
   } catch {
-    sessionId = null;
-    const retried = await createSession();
+    sessions.delete(port);
+    const retried = await createSession(port);
     return task(retried);
   }
 }
 
 /** 锁屏（模拟电源键）。 */
-export async function wdaLock(): Promise<void> {
-  await withSession((id) =>
-    request(`/session/${id}/wda/lock`, { method: 'POST', timeoutMs: 5_000 }),
+export async function wdaLock(port: number): Promise<void> {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/wda/lock`, {
+      method: 'POST',
+      timeoutMs: 5_000,
+    }),
   );
 }
 
 /** 唤醒屏幕。 */
-export async function wdaUnlock(): Promise<void> {
-  await withSession((id) =>
-    request(`/session/${id}/wda/unlock`, { method: 'POST', timeoutMs: 5_000 }),
+export async function wdaUnlock(port: number): Promise<void> {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/wda/unlock`, {
+      method: 'POST',
+      timeoutMs: 5_000,
+    }),
   );
 }
 
-export function wdaConfigured(): boolean {
-  return Boolean(WDA_BASE);
-}
-
 /** WDA 截图，返回原始 PNG。 */
-export async function wdaScreenshot(timeoutMs = 8_000): Promise<Buffer | null> {
+export async function wdaScreenshot(
+  port: number,
+  timeoutMs = 8_000,
+): Promise<Buffer | null> {
   try {
-    const response = await fetch(`${WDA_BASE}/screenshot`, {
+    const response = await fetch(`${baseUrl(port)}/screenshot`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) return null;
@@ -152,9 +180,11 @@ export async function wdaScreenshot(timeoutMs = 8_000): Promise<Buffer | null> {
 }
 
 /** WDA 状态，包含设备 IP（iOS 拿不到 SSID，只能给 IP）。 */
-export async function wdaStatus(): Promise<{ ip: string | null } | null> {
+export async function wdaStatus(
+  port: number,
+): Promise<{ ip: string | null } | null> {
   try {
-    const response = await fetch(`${WDA_BASE}/status`, {
+    const response = await fetch(`${baseUrl(port)}/status`, {
       signal: AbortSignal.timeout(3_000),
     });
     if (!response.ok) return null;
@@ -168,19 +198,22 @@ export async function wdaStatus(): Promise<{ ip: string | null } | null> {
   }
 }
 
-export async function wdaWindow(): Promise<{ width: number; height: number }> {
-  if (windowSize && Date.now() - windowSizeAt < WINDOW_TTL_MS) return windowSize;
-  const value = await withSession((id) =>
-    request<{ width: number; height: number }>(`/session/${id}/window/size`),
+export async function wdaWindow(
+  port: number,
+): Promise<{ width: number; height: number }> {
+  const cached = windows.get(port);
+  if (cached && Date.now() - cached.at < WINDOW_TTL_MS) return cached.size;
+  const value = await withSession(port, (id) =>
+    request<{ width: number; height: number }>(port, `/session/${id}/window/size`),
   );
-  windowSize = { width: value.width, height: value.height };
-  windowSizeAt = Date.now();
-  return windowSize;
+  const size = { width: value.width, height: value.height };
+  windows.set(port, { size, at: Date.now() });
+  return size;
 }
 
-export async function wdaTap(x: number, y: number): Promise<void> {
-  await withSession((id) =>
-    request(`/session/${id}/wda/tap`, {
+export async function wdaTap(port: number, x: number, y: number): Promise<void> {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/wda/tap`, {
       method: 'POST',
       body: { x, y },
       timeoutMs: 10_000,
@@ -189,14 +222,15 @@ export async function wdaTap(x: number, y: number): Promise<void> {
 }
 
 export async function wdaSwipe(
+  port: number,
   fromX: number,
   fromY: number,
   toX: number,
   toY: number,
   durationSeconds: number,
 ): Promise<void> {
-  await withSession((id) =>
-    request(`/session/${id}/wda/dragfromtoforduration`, {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/wda/dragfromtoforduration`, {
       method: 'POST',
       body: {
         fromX,
@@ -214,9 +248,13 @@ export async function wdaSwipe(
  * 双指缩放：使用 WDA 原生 pinch。
  * scale > 1 放大，< 1 缩小；velocity 为每秒缩放倍率。
  */
-export async function wdaPinch(scale: number, velocity = 1): Promise<void> {
-  await withSession((id) =>
-    request(`/session/${id}/wda/pinch`, {
+export async function wdaPinch(
+  port: number,
+  scale: number,
+  velocity = 1,
+): Promise<void> {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/wda/pinch`, {
       method: 'POST',
       body: {
         scale: Math.min(10, Math.max(0.1, scale)),
@@ -229,9 +267,12 @@ export async function wdaPinch(scale: number, velocity = 1): Promise<void> {
 
 export type WdaButton = 'home' | 'volumeUp' | 'volumeDown';
 
-export async function wdaPressButton(name: WdaButton): Promise<void> {
-  await withSession((id) =>
-    request(`/session/${id}/wda/pressButton`, {
+export async function wdaPressButton(
+  port: number,
+  name: WdaButton,
+): Promise<void> {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/wda/pressButton`, {
       method: 'POST',
       body: { name },
       timeoutMs: 10_000,
@@ -240,11 +281,11 @@ export async function wdaPressButton(name: WdaButton): Promise<void> {
 }
 
 /** 从底部上滑并停顿，调出 iOS 多任务后台（App Switcher）。 */
-export async function wdaAppSwitcher(): Promise<void> {
-  const size = await wdaWindow();
+export async function wdaAppSwitcher(port: number): Promise<void> {
+  const size = await wdaWindow(port);
   const x = Math.round(size.width / 2);
-  await withSession((id) =>
-    request(`/session/${id}/actions`, {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/actions`, {
       method: 'POST',
       body: {
         actions: [
@@ -278,10 +319,10 @@ export async function wdaAppSwitcher(): Promise<void> {
   );
 }
 
-export async function wdaTypeText(text: string): Promise<void> {
+export async function wdaTypeText(port: number, text: string): Promise<void> {
   if (!text) return;
-  await withSession((id) =>
-    request(`/session/${id}/wda/keys`, {
+  await withSession(port, (id) =>
+    request(port, `/session/${id}/wda/keys`, {
       method: 'POST',
       body: { value: [...text] },
       timeoutMs: 20_000,
