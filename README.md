@@ -91,23 +91,31 @@ docker compose logs -f
 
 ### 1.4 接入 MySQL / OSS（可选）
 
-默认用容器内的 SQLite，单机完全够用。需要外部数据库或对象存储时，加一个 `.env`：
+默认用容器内的 SQLite，单机够用。需要外部数据库或对象存储时，准备 `.env` 后加 `--env-file .env` 启动。
+
+**MySQL**
 
 ```bash
-# MySQL
+# .env
 MYSQL_HOST=192.168.1.20
 MYSQL_PORT=3306
 MYSQL_USER=adh
 MYSQL_PASSWORD=你的密码
 MYSQL_DB=adh
+```
 
-# 阿里云 OSS
+**阿里云 OSS**
+
+```bash
+# .env 追加
 ADH_OSS_BUCKET=your-bucket
 ADH_OSS_REGION=oss-cn-shenzhen
 ADH_OSS_ACCESS_KEY_ID=xxx
 ADH_OSS_ACCESS_KEY_SECRET=xxx
 ADH_OSS_PREFIX=adh
 ```
+
+两个都要就写进同一个 `.env`，然后启动：
 
 ```bash
 docker run -d --name adh \
@@ -119,15 +127,6 @@ docker run -d --name adh \
   --restart unless-stopped \
   ghcr.io/zhouqqq/adh:latest
 ```
-
-| 配置情况 | 数据库 | 文件 |
-| --- | --- | --- |
-| 什么都不配 | SQLite | `/data` |
-| 配了 `MYSQL_HOST` | MySQL | `/data` |
-| 配了 OSS | SQLite | OSS |
-| 都配了 | MySQL | OSS |
-
-也可以用 `ADH_DB=sqlite|mysql`、`ADH_STORAGE=local|oss` 强制指定。
 
 ---
 
