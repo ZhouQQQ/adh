@@ -1,4 +1,4 @@
-name: adh-server Docker build 
+name: Docker Image
 
 on:
   push:
@@ -11,6 +11,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  ALIYUN_REGISTRY: registry.cn-shenzhen.aliyuncs.com
+  ALIYUN_IMAGE: registry.cn-shenzhen.aliyuncs.com/xiaoantest/adh-server
 
 jobs:
   build:
@@ -24,9 +26,30 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # 小写镜像名：GHCR 不接受大写
       - name: 小写镜像名
         id: image
         run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # 配了阿里云密码就同时推两份，没配就只推 GHCR
+      - name: 计算推送目标
+        id: targets
+        env:
+          ALIYUN_PASSWORD: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+        run: |
+          {
+            echo "images<<EOF"
+            echo "${REGISTRY}/${GITHUB_REPOSITORY,,}"
+            if [ -n "${ALIYUN_PASSWORD}" ]; then
+              echo "${ALIYUN_IMAGE}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "${ALIYUN_PASSWORD}" ]; then
+            echo "has_aliyun=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_aliyun=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: 登录 GHCR
         if: github.event_name != 'pull_request'
@@ -36,11 +59,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 登录阿里云 ACR
+        if: github.event_name != 'pull_request' && steps.targets.outputs.has_aliyun == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
       - name: 生成标签
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ steps.image.outputs.name }}
+          images: ${{ steps.targets.outputs.images }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr

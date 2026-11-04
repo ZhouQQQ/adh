@@ -2,6 +2,7 @@ node_modules/
 dist/
 .data/
 apps/server/public/
+.tmp-deploy/
 *.log
 .env
 .env.local
