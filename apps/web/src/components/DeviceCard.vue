@@ -287,13 +287,7 @@ const wifiTitle = computed(() => {
       </button>
 
       <div class="placeholder" :class="device.platform">
-        <img
-          v-if="brandMeta"
-          :src="brandMeta.logo"
-          :alt="brandMeta.label"
-          class="brand-logo"
-        />
-        <n-icon v-else :size="48">
+        <n-icon :size="48">
           <LogoAndroid v-if="device.platform === 'android'" />
           <LogoApple v-else />
         </n-icon>
@@ -356,7 +350,16 @@ const wifiTitle = computed(() => {
     </div>
 
     <div class="body">
-      <div class="title" :title="device.name">{{ titleText }}</div>
+      <div class="title-row">
+        <img
+          v-if="brandMeta"
+          :src="brandMeta.logo"
+          :alt="brandMeta.label"
+          class="brand-mark"
+          :title="brandMeta.label"
+        />
+        <div class="title" :title="titleText">{{ titleText }}</div>
+      </div>
       <div class="subtitle">{{ subtitle }}</div>
 
       <div class="kv-grid">
@@ -523,17 +526,20 @@ const wifiTitle = computed(() => {
   opacity: 0.8;
 }
 
-/* 品牌 logo：白底圆角，保证黑色 logo 在深色缩略图上可见 */
-.brand-logo {
-  width: 56px;
-  height: 56px;
-  padding: 10px;
-  box-sizing: border-box;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+/* 品牌 logo：放在设备名左侧的小图标 */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 16px;
+  height: 16px;
+  flex: none;
   object-fit: contain;
-  opacity: 0.95;
+  opacity: 0.9;
 }
 
 .thumb-badges {
@@ -654,6 +660,7 @@ const wifiTitle = computed(() => {
 }
 
 .title {
+  min-width: 0;
   font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
