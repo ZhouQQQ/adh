@@ -1,16 +1,23 @@
 #!/usr/bin/env node
-// adh-agent 启动器：用 node --import tsx 直接跑 TypeScript 入口，
-// 这样打包后的目录不需要 pnpm / 全局 tsx，只要有 Node 就能运行。
+// adh-agent 启动器。
+// 分发包里 src 已由打包脚本编译成 JS，直接用 node 运行，不依赖 tsx；
+// 在源码目录里没有 cli.js 时回退到 tsx，方便开发调试。
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const entry = path.join(here, '..', 'src', 'cli.ts');
+const compiled = path.join(here, '..', 'src', 'cli.js');
+const source = path.join(here, '..', 'src', 'cli.ts');
+
+const args = fs.existsSync(compiled)
+  ? [compiled]
+  : ['--import', 'tsx', source];
 
 const child = spawn(
   process.execPath,
-  ['--import', 'tsx', entry, ...process.argv.slice(2)],
+  [...args, ...process.argv.slice(2)],
   { stdio: 'inherit' },
 );
 

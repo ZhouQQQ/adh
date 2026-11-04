@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { build } from 'esbuild';
 
 const root = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(root, 'dist');
@@ -196,8 +197,22 @@ function zipDir(dir, zipPath) {
 async function prepareBase() {
   console.log('打包基础目录（pnpm deploy）');
   fs.rmSync(buildBase, { recursive: true, force: true });
-  const deploy = runPnpm(['--filter', '@adh/agent', 'deploy', '--prod', buildBase]);
+  const deploy = runPnpm([
+    '--filter',
+    '@adh/agent',
+    'deploy',
+    '--prod',
+    // 扁平 node_modules：pnpm 默认的符号链接结构在复制/压缩后会断，跨平台复用时更明显
+    '--config.node-linker=hoisted',
+    buildBase,
+  ]);
   if (deploy.status !== 0) process.exit(deploy.status ?? 1);
+
+  // 依赖已经全部平铺到顶层，虚拟目录只剩重复副本
+  fs.rmSync(path.join(buildBase, 'node_modules', '.pnpm'), {
+    recursive: true,
+    force: true,
+  });
 
   // pnpm deploy 可能把仓库里既有的打包产物目录一起带进来
   for (const stray of ['.data', 'dist']) {
@@ -209,9 +224,187 @@ async function prepareBase() {
   return buildBase;
 }
 
+/** 递归列出目录里的 .ts 源文件（排除 .d.ts）。 */
+function listTsFiles(dir) {
+  const result = [];
+  const walk = (current) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
+        result.push(full);
+      }
+    }
+  };
+  walk(dir);
+  return result;
+}
+
+function patchPackageJson(file, patch) {
+  if (!fs.existsSync(file)) return;
+  const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const [key, value] of Object.entries(patch)) {
+    pkg[key] = value;
+  }
+  // pnpm 的包文件可能是硬链接，先断开再写，否则会改到仓库里的源码
+  fs.rmSync(file, { force: true });
+  fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
+}
+
+/** 删除包本体与 pnpm 虚拟目录里的副本，同时清理 .bin 残余链接。 */
+function removePackage(base, name, pnpmPrefix) {
+  const direct = path.join(base, 'node_modules', name);
+  try {
+    const stat = fs.lstatSync(direct);
+    if (stat.isSymbolicLink()) fs.unlinkSync(direct);
+    else fs.rmSync(direct, { recursive: true, force: true });
+  } catch {
+    /* 不存在 */
+  }
+
+  const pnpmDir = path.join(base, 'node_modules', '.pnpm');
+  if (fs.existsSync(pnpmDir)) {
+    for (const entry of fs.readdirSync(pnpmDir)) {
+      if (entry.startsWith(pnpmPrefix)) {
+        fs.rmSync(path.join(pnpmDir, entry), { recursive: true, force: true });
+      }
+    }
+  }
+
+  const binDir = path.join(base, 'node_modules', '.bin');
+  if (fs.existsSync(binDir)) {
+    for (const entry of fs.readdirSync(binDir)) {
+      if (entry.startsWith(name.replace('@', '').split('/')[0])) {
+        fs.rmSync(path.join(binDir, entry), { force: true });
+      }
+    }
+  }
+}
+
+/**
+ * pnpm 的 file: 依赖可能是指向仓库源码的符号链接，
+ * 直接改写会污染源码，先复制成实体目录再处理。
+ */
+function materialize(dir) {
+  let stat;
+  try {
+    stat = fs.lstatSync(dir);
+  } catch {
+    return;
+  }
+  if (!stat.isSymbolicLink()) return;
+  const real = fs.realpathSync(dir);
+  fs.unlinkSync(dir);
+  fs.cpSync(real, dir, { recursive: true });
+}
+
+/**
+ * 把 TypeScript 就地编译成 JS。
+ *
+ * 保持目录结构（不做 bundle）：device-host 用 import.meta.url 定位
+ * scrcpy-server.jar，agent 用它定位 vendor/，打包成单文件会破坏这些路径。
+ * 编译后产物只含纯 JS，三个平台可以共用同一份，不再需要 macOS/Windows runner。
+ */
+async function compileTypeScript(base) {
+  console.log('编译 TypeScript（产物不再依赖 tsx / esbuild）');
+
+  // 防止 deploy 产物里的 workspace 包还是符号链接（会把改动写回仓库）
+  for (const name of ['protocol', 'device-host']) {
+    materialize(path.join(base, 'node_modules', '@adh', name));
+  }
+
+  const targets = [
+    path.join(base, 'src'),
+    path.join(base, 'node_modules', '@adh', 'protocol', 'src'),
+    path.join(base, 'node_modules', '@adh', 'device-host', 'src'),
+  ];
+
+  for (const dir of targets) {
+    if (!fs.existsSync(dir)) continue;
+    const files = listTsFiles(dir);
+    if (files.length === 0) continue;
+    await build({
+      entryPoints: files,
+      outdir: dir,
+      outbase: dir,
+      format: 'esm',
+      platform: 'node',
+      target: 'node22',
+      bundle: false,
+      sourcemap: false,
+      allowOverwrite: true,
+      logLevel: 'warning',
+      // deploy 目录里没有 tsconfig.base.json，直接用命令行参数，避免解析警告
+      tsconfigRaw: {},
+    });
+    for (const file of files) fs.rmSync(file, { force: true });
+  }
+
+  patchPackageJson(path.join(base, 'package.json'), { main: './src/cli.js' });
+  for (const name of ['protocol', 'device-host']) {
+    patchPackageJson(
+      path.join(base, 'node_modules', '@adh', name, 'package.json'),
+      { exports: { '.': { default: './src/index.js' } } },
+    );
+  }
+
+  // 运行时用不到，而且 esbuild 自带平台二进制，删掉才能三平台共用一个包
+  removePackage(base, 'tsx', 'tsx@');
+  removePackage(base, 'esbuild', 'esbuild@');
+  removePackage(base, '@esbuild', '@esbuild+');
+
+  stripTypeScriptSources(base);
+}
+
+/** 第三方包自带的 TS 源码（如 jimp）运行时用不到，删掉减小体积。 */
+function stripTypeScriptSources(base) {
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
+        fs.rmSync(full, { force: true });
+      }
+    }
+  };
+  walk(path.join(base, 'node_modules'));
+}
+
+/** 打包后自检：确认是编译产物、没有被平台限制的依赖，当前平台还能跑起来。 */
+function selfCheck(dir, platform) {
+  const required = [
+    'src/cli.js',
+    'node_modules/@adh/protocol/src/index.js',
+    'node_modules/@adh/device-host/src/index.js',
+    'node_modules/@adh/device-host/resources/scrcpy-server.jar',
+  ];
+  for (const rel of required) {
+    if (!fs.existsSync(path.join(dir, rel))) {
+      throw new Error(`产物缺少 ${rel}`);
+    }
+  }
+  for (const forbidden of ['tsx', 'esbuild', '@esbuild']) {
+    if (fs.existsSync(path.join(dir, 'node_modules', forbidden))) {
+      throw new Error(`产物仍包含 ${forbidden}，无法跨平台使用`);
+    }
+  }
+
+  if (platform === process.platform) {
+    const check = spawnSync(process.execPath, [path.join(dir, 'src', 'cli.js'), 'version'], {
+      stdio: 'inherit',
+    });
+    if (check.status !== 0) {
+      throw new Error('自检运行失败');
+    }
+  }
+}
+
 async function main() {
   fs.mkdirSync(distDir, { recursive: true });
   await prepareBase();
+  await compileTypeScript(buildBase);
 
   const results = [];
 
@@ -246,6 +439,7 @@ async function main() {
     }
 
     const zipPath = path.join(distDir, `adh-agent-${platform}.zip`);
+    selfCheck(outDir, platform);
     const zipped = zipDir(outDir, zipPath);
     results.push({
       platform,
