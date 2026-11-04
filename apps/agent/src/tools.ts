@@ -262,10 +262,12 @@ export async function runInit(options: InitOptions = {}): Promise<void> {
   ensureToolPath();
 
   console.log('\n环境检查：');
-  const [adb, goIos] = await Promise.all([
-    checkCommand('adb', ['version']),
-    checkCommand('go-ios', ['version']),
-  ]);
+  const adb = await checkCommand('adb', ['version']);
+  // go-ios 的可执行文件在 Windows / macOS 上通常叫 ios.exe / ios，
+  // 只认 `go-ios` 会误报「不可用」
+  const goIos =
+    (await checkCommand('ios', ['version'])) ??
+    (await checkCommand('go-ios', ['version']));
   console.log(`  adb    ${adb ?? '不可用'}`);
   console.log(`  go-ios ${goIos ?? '不可用（不影响 Android）'}`);
 
