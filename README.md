@@ -64,7 +64,31 @@ docker run -d --name adh \
   ghcr.io/zhouqqq/adh:latest
 ```
 
-### 可选参数
+### 1.5 不用 Docker：解压即用
+
+从 Release 下载对应平台的 server 包，目标机只需要 **Node.js 22+**：
+
+| 平台 | 文件 |
+| --- | --- |
+| Linux | `adh-server-linux.zip` |
+| Windows | `adh-server-win32.zip` |
+| macOS | `adh-server-darwin.zip` |
+
+发布页：<https://github.com/ZhouQQQ/adh/releases>
+
+```bash
+unzip adh-server-linux.zip
+cd server-linux
+./start.sh
+```
+
+Windows 解压后执行 `start.cmd`。
+
+- 默认监听 `8080`，数据保存在包内 `data/`
+- 改端口 / 数据目录：`./start.sh --port 9000 --data /var/lib/adh`
+- 升级：解压新版本，把旧的 `data/` 拷过去即可
+
+### 1.6 可选参数
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -75,6 +99,9 @@ docker run -d --name adh \
 | `ADH_LOCAL_AGENT` | `1` | 设为 `0` 关闭内置 Agent |
 | `ADH_DB` | `sqlite` | `sqlite` / `mysql` |
 | `ADH_STORAGE` | `local` | `local` / `oss` |
+| `ADH_BASE_PATH` | 空 | 部署前缀，例如 `/adh` |
+
+配了 `ADH_BASE_PATH=/adh` 时，页面、接口、WebSocket 全部在 `/adh` 下：访问 `http://<服务器IP>:8080/adh/`，Agent 接入地址也要写成 `ws://<服务器IP>:8080/adh`。默认留空即部署在根路径。
 
 ---
 
@@ -90,6 +117,7 @@ Agent 跑在**插着手机的那台电脑**上，只往外连 server 的 8080，
 | --- | --- |
 | Windows | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-win32.zip> |
 | macOS | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-darwin.zip> |
+| Linux | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-linux.zip> |
 
 也可以登录控制台，点右上角「下载 Agent」直接下。
 
@@ -113,6 +141,8 @@ chmod +x adh-agent.sh
 ```
 
 看到 `adh-agent started` 就成功了，设备 5 秒内出现在「设备管理」。
+
+> server 配了 `ADH_BASE_PATH` 时，上面的 `--server` 要带上同样前缀，例如 `ws://<服务器IP>:8080/adh`。
 
 Key 会存到 `~/.adh/agent.json`，之后重启只需要带 `--server`：
 
@@ -162,10 +192,12 @@ pnpm dev        # server:8080 + web:5173（HTTPS，WebCodecs 需要安全上下�
 pnpm build      # 前端产物输出到 apps/server/public
 pnpm start      # 单进程托管 API + 前端
 pnpm package:agent --platform win32   # 打离线 Agent 包，产物在 dist/
+pnpm package:server --platform linux  # 打离线 server 包，产物在 dist/
 ```
 
 - `ADH_HTTPS=0 pnpm dev` 可回退到 http
 - 自签证书首次访问点「高级 → 继续前往」
+- 需要模拟子路径部署时，在**两个进程**都设 `ADH_BASE_PATH=/adh`，然后访问 <http://localhost:5173/adh/>
 
 目录结构：
 

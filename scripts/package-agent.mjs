@@ -24,7 +24,7 @@ const buildBase = path.join(root, '.data', 'agent-build', 'base');
 const isWindows = process.platform === 'win32';
 const args = process.argv.slice(2);
 
-const ALL_PLATFORMS = ['win32', 'darwin'];
+const ALL_PLATFORMS = ['win32', 'darwin', 'linux'];
 
 function argValue(name) {
   const index = args.indexOf(name);
