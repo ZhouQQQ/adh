@@ -357,6 +357,17 @@ export function createQueries(db: SqlDriver) {
       await db.execute('UPDATE adh_agents SET last_seen = ? WHERE id = ?', [at, id]);
     },
 
+    /** 记录节点上报的 iOS 隧道状态，节点离线时保留最后一次。 */
+    async updateAgentTunnel(
+      id: string,
+      tunnel: IosTunnelStatus,
+    ): Promise<void> {
+      await db.execute('UPDATE adh_agents SET tunnel_status = ? WHERE id = ?', [
+        JSON.stringify(tunnel),
+        id,
+      ]);
+    },
+
     async listDevices(agentId?: string): Promise<DeviceSummary[]> {
       const rows = agentId
         ? await db.query<DeviceRow>(

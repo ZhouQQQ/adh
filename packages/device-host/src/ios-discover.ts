@@ -1,6 +1,6 @@
 import type { DeviceInfo } from '@adh/protocol';
-import { spawn, type ChildProcess } from 'node:child_process';
 import { runCommand } from './exec.js';
+import { ensureTunnelRunning } from './ios-tunnel.js';
 import { lookupIosHardware, lookupIosResolution } from './ios-models.js';
 import {
   ensureWdaForward,
@@ -32,57 +32,6 @@ const INFO_TTL_MS = 30_000;
 const infoCache = new Map<string, CacheEntry>();
 
 let commandCache: { at: number; command: string | null } | null = null;
-
-/* ------------------------------------------------------------------ */
-/* iOS 17+ 隧道                                                        */
-/* ------------------------------------------------------------------ */
-
-let tunnelProcess: ChildProcess | null = null;
-let tunnelRetryAt = 0;
-let tunnelLogged = false;
-
-/**
- * iOS 17+ 需要 go-ios 的 tunnel 才能稳定访问设备。
- * 发现设备前确保它在跑；已经启动过或刚失败过就跳过，避免反复拉起。
- */
-function ensureTunnel(command: string): void {
-  if (tunnelProcess && tunnelProcess.exitCode === null) return;
-  if (Date.now() < tunnelRetryAt) return;
-
-  const child = spawn(command, ['tunnel', 'start'], {
-    windowsHide: true,
-    stdio: 'ignore',
-  });
-  tunnelProcess = child;
-  const startedAt = Date.now();
-  if (!tunnelLogged) {
-    tunnelLogged = true;
-    console.log('[ios] 启动隧道：ios tunnel start');
-  }
-
-  const cleanup = (): void => {
-    if (tunnelProcess === child) tunnelProcess = null;
-    // 启动失败（常见：没有管理员权限）时一分钟后再试
-    if (Date.now() - startedAt < 3_000) {
-      tunnelRetryAt = Date.now() + 60_000;
-      console.warn('[ios] 隧道启动失败，一分钟后重试');
-    } else {
-      console.warn('[ios] 隧道进程已退出');
-    }
-  };
-  child.on('exit', cleanup);
-  child.on('error', cleanup);
-}
-
-process.on('exit', () => {
-  if (tunnelProcess && tunnelProcess.exitCode === null) {
-    try {
-      tunnelProcess.kill();
-    } catch {
-      /* ignore */
-    }
-  }
-});
 
 /**
  * WDA 启动成功后调用。
@@ -155,7 +104,7 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
   if (!command) return [];
 
   // iOS 17+ 需要 tunnel 才能稳定访问设备，发现前先确保启动
-  ensureTunnel(command);
+  await ensureTunnelRunning();
 
   const udids = await listUdids(command);
   if (udids.length !== lastLoggedCount) {

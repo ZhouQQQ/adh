@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runCommand } from '@adh/device-host';
+import { getTunnelStatus, runCommand } from '@adh/device-host';
 import {
   parseServerMessage,
   type AgentRuntimeInfo,
@@ -54,6 +54,8 @@ export class AgentClient {
   private socket: WebSocket | null = null;
   private synced = new Map<string, DeviceInfo>();
   private firstSync = true;
+  /** 每 3 次扫描上报一次 iOS 隧道状态，约 15 秒。 */
+  private statusTick = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private syncTimer: NodeJS.Timeout | null = null;
   private reconnectAttempt = 0;
@@ -285,6 +287,14 @@ export class AgentClient {
         );
       }
       this.synced = next;
+
+      // 定期上报节点级 iOS 隧道状态，控制台「节点管理」会显示
+      if (this.statusTick % 3 === 0) {
+        void getTunnelStatus()
+          .then((tunnel) => this.send({ t: 'agent.status', tunnel }))
+          .catch(() => undefined);
+      }
+      this.statusTick += 1;
     } catch (error) {
       this.options.logger.warn({ err: String(error) }, 'device scan failed');
     } finally {

@@ -38,6 +38,7 @@ import {
   PowerOutline,
   RefreshOutline,
   ScanOutline,
+  ShareSocialOutline,
   StopCircleOutline,
   SunnyOutline,
   SwapHorizontalOutline,
@@ -58,6 +59,7 @@ import { api } from '../api';
 import { stopFleet, useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
+import { copyText } from '../utils/clipboard';
 import { openDevicePip, supportsDocumentPip } from '../utils/document-pip';
 import { fileTimestamp, safeFileName, saveBlob } from '../utils/download';
 import {
@@ -184,6 +186,32 @@ const deviceId = computed(() => String(route.params.id ?? ''));
 const device = computed(
   () => devices.value.find((item) => item.id === deviceId.value) ?? null,
 );
+
+/* ---------------------------- 分享 ---------------------------- */
+
+const shareVisible = ref(false);
+
+const shareLink = computed(() => {
+  const id = device.value?.id;
+  return id ? `${window.location.origin}/devices/${id}/control` : '';
+});
+
+const shareText = computed(() => {
+  if (!shareLink.value) return '';
+  return `我邀请你查看 ${device.value?.name ?? '设备'}\n${shareLink.value}`;
+});
+
+function openShare(): void {
+  if (!device.value) return;
+  shareVisible.value = true;
+}
+
+async function copyShareInvite(): Promise<void> {
+  if (!shareText.value) return;
+  const ok = await copyText(shareText.value);
+  if (ok) message.success('邀请内容已复制，直接发给对方即可');
+  else message.warning('复制失败，请手动选中文本复制');
+}
 
 watch(
   () => device.value?.name,
@@ -1058,6 +1086,12 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="toolbar-right">
+        <n-button size="tiny" ghost @click="openShare">
+          <template #icon>
+            <n-icon><ShareSocialOutline /></n-icon>
+          </template>
+          分享
+        </n-button>
         <n-button
           v-if="device && device.status !== 'online'"
           size="tiny"
@@ -1714,6 +1748,33 @@ onBeforeUnmount(() => {
       :device-name="device?.name ?? ''"
       :platform="device?.platform ?? 'android'"
     />
+
+    <n-modal
+      v-model:show="shareVisible"
+      preset="card"
+      title="邀请查看设备"
+      style="width: 460px; max-width: calc(100vw - 32px)"
+    >
+      <div class="share-body">
+        <div class="share-tip">
+          把下面这段发给对方。对方打开链接后需要登录，登录成功会自动进入这台设备的控制页。
+        </div>
+        <n-input
+          :value="shareText"
+          type="textarea"
+          :rows="4"
+          readonly
+        />
+        <div class="share-actions">
+          <n-button type="primary" @click="copyShareInvite">
+            <template #icon>
+              <n-icon><CopyOutline /></n-icon>
+            </template>
+            复制邀请
+          </n-button>
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 

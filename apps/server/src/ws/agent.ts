@@ -151,6 +151,15 @@ export function registerAgentChannel(
         });
         return;
       }
+      if (message.t === 'agent.status') {
+        void queries
+          .updateAgentTunnel(agentId, message.tunnel)
+          .then(() => broadcastAgent(agentId!, true))
+          .catch((error: unknown) => {
+            logger.warn({ err: String(error) }, 'agent tunnel status failed');
+          });
+        return;
+      }
       if (message.t === 'cmd.result') {
         deps.commands.handleResult(message);
         return;

@@ -177,6 +177,43 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     render: (row) => String(row.deviceCount),
   },
   {
+    title: 'iOS 隧道',
+    key: 'tunnel',
+    width: 104,
+    render: (row) => {
+      const tunnel = row.tunnel;
+      if (!tunnel) {
+        return h('span', { style: 'color:var(--text-faint)' }, '—');
+      }
+      if (tunnel.running) {
+        const count = tunnel.tunnels.length;
+        return h(
+          NTag,
+          { size: 'small', type: 'success', bordered: false, round: true },
+          { default: () => (count > 0 ? `已连接 · ${count}` : '已连接') },
+        );
+      }
+      if (tunnel.error) {
+        return h(
+          NTag,
+          {
+            size: 'small',
+            type: 'error',
+            bordered: false,
+            round: true,
+            title: tunnel.error,
+          },
+          { default: () => '启动失败' },
+        );
+      }
+      return h(
+        NTag,
+        { size: 'small', type: 'default', bordered: false, round: true },
+        { default: () => '未启动' },
+      );
+    },
+  },
+  {
     title: 'Key',
     key: 'keyPreview',
     width: 190,

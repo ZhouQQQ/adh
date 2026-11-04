@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { NButton, NInput, useMessage } from 'naive-ui';
 import { useAuth } from '../stores/auth';
 import { useSite } from '../stores/site';
 import { api } from '../api';
 
+const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const { login } = useAuth();
@@ -30,7 +31,15 @@ async function submit(): Promise<void> {
   }
   try {
     await login(username.value.trim(), password.value);
-    await router.replace('/devices');
+    // 分享链接会带 ?redirect=/devices/xxx/control，登录后直接回到目标页面
+    const redirect = route.query.redirect;
+    const target =
+      typeof redirect === 'string' &&
+      redirect.startsWith('/') &&
+      !redirect.startsWith('//')
+        ? redirect
+        : '/devices';
+    await router.replace(target);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '登录失败');
   }
