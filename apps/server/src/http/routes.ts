@@ -541,16 +541,22 @@ export async function registerHttpRoutes(
   const AGENT_PLATFORMS = ['win32', 'darwin'] as const;
 
   /**
-   * 本地 dist/ 没有安装包时（server 跑在容器里就是这样）回退到 GitHub Release，
-   * 由 `.github/workflows/agent.yml` 在 main 分支每次推送后更新。
+   * 本地 dist/ 没有安装包时回退到 GitHub Release。
+   *
+   * 默认取「最新正式 Release」（/releases/latest/download），
+   * 不要用滚动的 agent-latest：那是预发布，只在手动触发时更新，容易下载到旧包。
+   * 需要固定版本时设置 ADH_AGENT_RELEASE_TAG。
    */
   const AGENT_RELEASE_REPO =
     process.env.ADH_AGENT_RELEASE_REPO ?? 'ZhouQQQ/adh';
-  const AGENT_RELEASE_TAG =
-    process.env.ADH_AGENT_RELEASE_TAG ?? 'agent-latest';
+  const AGENT_RELEASE_TAG = (process.env.ADH_AGENT_RELEASE_TAG ?? '').trim();
 
-  const agentReleaseUrl = (platform: string): string =>
-    `https://github.com/${AGENT_RELEASE_REPO}/releases/download/${AGENT_RELEASE_TAG}/adh-agent-${platform}.zip`;
+  const agentReleaseUrl = (platform: string): string => {
+    const file = `adh-agent-${platform}.zip`;
+    return AGENT_RELEASE_TAG
+      ? `https://github.com/${AGENT_RELEASE_REPO}/releases/download/${AGENT_RELEASE_TAG}/${file}`
+      : `https://github.com/${AGENT_RELEASE_REPO}/releases/latest/download/${file}`;
+  };
 
   /** 每个平台取最新的一份本地 zip，兼容 adh-agent-win32.zip 与 adh-agent-win32-x64.zip。 */
   const listLocalAgentPackages = (): {

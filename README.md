@@ -154,9 +154,9 @@ Agent 跑在**插着手机的那台电脑**上，只往外连 server 的 8080，
 
 | 平台 | 下载地址 |
 | --- | --- |
-| Windows | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-win32.zip> |
-| macOS | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-darwin.zip> |
-| Linux | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-linux.zip> |
+| Windows | <https://github.com/ZhouQQQ/adh/releases/latest/download/adh-agent-win32.zip> |
+| macOS | <https://github.com/ZhouQQQ/adh/releases/latest/download/adh-agent-darwin.zip> |
+| Linux | <https://github.com/ZhouQQQ/adh/releases/latest/download/adh-agent-linux.zip> |
 
 也可以登录控制台，点右上角「下载 Agent」直接下。
 

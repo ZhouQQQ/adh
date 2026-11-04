@@ -32,11 +32,11 @@
 
 | 平台 | 文件 | 下载 |
 | --- | --- | --- |
-| Windows | `adh-agent-win32.zip` | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-win32.zip> |
-| macOS | `adh-agent-darwin.zip` | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-darwin.zip> |
-| Linux | `adh-agent-linux.zip` | <https://github.com/ZhouQQQ/adh/releases/download/agent-latest/adh-agent-linux.zip> |
+| Windows | `adh-agent-win32.zip` | <https://github.com/ZhouQQQ/adh/releases/latest/download/adh-agent-win32.zip> |
+| macOS | `adh-agent-darwin.zip` | <https://github.com/ZhouQQQ/adh/releases/latest/download/adh-agent-darwin.zip> |
+| Linux | `adh-agent-linux.zip` | <https://github.com/ZhouQQQ/adh/releases/latest/download/adh-agent-linux.zip> |
 
-发布页：<https://github.com/ZhouQQQ/adh/releases/tag/agent-latest>
+发布页：<https://github.com/ZhouQQQ/adh/releases>
 
 也可以在 Web 控制台点右上角「**下载 Agent**」直接下载。
 
