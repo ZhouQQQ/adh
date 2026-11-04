@@ -1454,9 +1454,10 @@ export async function registerHttpRoutes(
       return null;
     }
     if (device.agentId !== BUILTIN_AGENT_ID) {
-      void reply
-        .code(400)
-        .send({ error: '文件管理目前只支持本机接入的设备' });
+      void reply.code(400).send({
+        error:
+          '该功能需要设备直接连在 server 所在机器上（内置 Agent），当前设备由远程 Agent 接入',
+      });
       return null;
     }
     return device;
