@@ -69,6 +69,12 @@ import {
   formatResolution,
   formatDuration,
 } from '../utils/format';
+import {
+  WEB_CODECS_TITLE,
+  isWebCodecsAvailable,
+  webCodecsHints,
+  webCodecsReason,
+} from '../utils/webcodecs';
 
 const route = useRoute();
 const router = useRouter();
@@ -143,6 +149,9 @@ const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
 const sessionId = ref<string | null>(null);
 const loading = ref(true);
 const errorText = ref<string | null>(null);
+/** 安卓设备 + 非安全上下文：浏览器没有 WebCodecs，直接停在说明页，不建会话。 */
+const codecBlocked = ref(false);
+const codecHints = computed(() => webCodecsHints());
 const viewerClosed = computed(() =>
   Boolean(errorText.value?.includes('关闭其他人查看')),
 );
@@ -728,6 +737,16 @@ async function createSession(): Promise<void> {
   loading.value = true;
   errorText.value = null;
   sessionId.value = null;
+
+  // 安卓投屏依赖 WebCodecs，http + 局域网 IP 下浏览器不提供该 API
+  if (!isWebCodecsAvailable()) {
+    loading.value = false;
+    codecBlocked.value = true;
+    errorText.value = webCodecsReason();
+    return;
+  }
+  codecBlocked.value = false;
+
   try {
     const result = await api.createStream(device.value.id, quality.value);
     sessionId.value = result.sessionId;
@@ -1296,6 +1315,16 @@ onBeforeUnmount(() => {
         <div v-else-if="connecting" class="connecting">
           <n-spin :size="20" />
           <span>正在连接设备…</span>
+        </div>
+        <div v-else-if="codecBlocked" class="placeholder codec-blocked">
+          <div class="placeholder-icon">
+            <n-icon :size="32"><CloudOfflineOutline /></n-icon>
+          </div>
+          <div class="placeholder-title">{{ WEB_CODECS_TITLE }}</div>
+          <div class="placeholder-desc">{{ errorText }}</div>
+          <ul class="codec-hints">
+            <li v-for="hint in codecHints" :key="hint">{{ hint }}</li>
+          </ul>
         </div>
         <div v-else class="placeholder">
           <div class="placeholder-icon">
@@ -2381,6 +2410,22 @@ onBeforeUnmount(() => {
   max-width: 320px;
   font-size: 12px;
   line-height: 1.7;
+  color: #71717a;
+}
+
+/* WebCodecs 不可用时的分条建议 */
+.codec-blocked .placeholder-desc {
+  max-width: 460px;
+  color: #a1a1aa;
+}
+
+.codec-hints {
+  max-width: 460px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.8;
   color: #71717a;
 }
 

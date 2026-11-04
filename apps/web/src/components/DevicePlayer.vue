@@ -8,6 +8,12 @@ import {
   type StreamReady,
   type ViewerToStreamMessage,
 } from '@adh/protocol';
+import {
+  WEB_CODECS_TITLE,
+  isWebCodecsAvailable,
+  webCodecsHints,
+  webCodecsReason,
+} from '../utils/webcodecs';
 
 const props = defineProps<{
   sessionId: string;
@@ -38,6 +44,18 @@ const connected = ref(false);
 const controller = ref(false);
 const starting = ref(true);
 const isIos = computed(() => props.platform === 'ios');
+
+/* ---------------------- WebCodecs 可用性 ---------------------- */
+
+/**
+ * WebCodecs 只在安全上下文（https / localhost）暴露。
+ * 用局域网 IP 走 http 打开时浏览器会直接隐藏 VideoDecoder，
+ * 之前没做判断会抛未捕获异常，画面一直卡在「正在连接设备…」。
+ */
+const codecUnavailable = ref(false);
+
+const codecReason = computed(() => webCodecsReason());
+const codecHints = computed(() => webCodecsHints());
 
 /* ------------------------- 实时预览延迟 ------------------------- */
 
@@ -235,6 +253,15 @@ function configureDecoder(ready: StreamReady): void {
   const canvas = canvasRef.value;
   if (!canvas) return;
 
+  // 非安全上下文 / 旧浏览器没有 WebCodecs，直接给出提示，不要抛未捕获异常
+  if (!isWebCodecsAvailable()) {
+    codecUnavailable.value = true;
+    starting.value = false;
+    connected.value = false;
+    stopWatchdog();
+    emit('error', codecReason.value);
+    return;
+  }
   lastReady = ready;
   lastOutputAt = Date.now();
 
@@ -290,6 +317,12 @@ function startWatchdog(): void {
     send({ t: 'requestIdr' });
     lastOutputAt = Date.now();
   }, 3_000);
+}
+
+function stopWatchdog(): void {
+  if (!watchdog) return;
+  clearInterval(watchdog);
+  watchdog = null;
 }
 
 function handleBinary(data: ArrayBuffer): void {
@@ -361,6 +394,7 @@ function handleText(raw: string): void {
 
 function connect(): void {
   resetPointers();
+  codecUnavailable.value = false;
 
   // 切换设备 / 重连时重新统计，避免沿用上一路的帧率
   fps.value = 0;
@@ -372,6 +406,15 @@ function connect(): void {
     controller.value = props.controlAllowed ?? true;
     emit('controller-change', controller.value);
     void startIosStream();
+    return;
+  }
+
+  // 安卓走 H.264 + WebCodecs：不支持就直接提示，不必白白建立一个会话占着设备
+  if (!isWebCodecsAvailable()) {
+    codecUnavailable.value = true;
+    starting.value = false;
+    connected.value = false;
+    emit('error', codecReason.value);
     return;
   }
 
@@ -1308,10 +1351,7 @@ onBeforeUnmount(() => {
   }
   decoder?.close();
   decoder = null;
-  if (watchdog) {
-    clearInterval(watchdog);
-    watchdog = null;
-  }
+  stopWatchdog();
 
   if (iosTimer) {
     clearTimeout(iosTimer);
@@ -1379,7 +1419,14 @@ defineExpose({
       playsinline
       autoplay
     />
-    <div v-if="starting" class="overlay">正在连接设备…</div>
+    <div v-if="codecUnavailable" class="overlay codec-overlay">
+      <div class="codec-title">{{ WEB_CODECS_TITLE }}</div>
+      <div class="codec-desc">{{ codecReason }}</div>
+      <ul class="codec-hints">
+        <li v-for="hint in codecHints" :key="hint">{{ hint }}</li>
+      </ul>
+    </div>
+    <div v-else-if="starting" class="overlay">正在连接设备…</div>
     <div v-else-if="!connected" class="overlay">连接已断开</div>
     <div v-if="showLatency" class="hud">
       <div
@@ -1449,6 +1496,41 @@ defineExpose({
   color: var(--text-dim);
   background: rgba(0, 0, 0, 0.6);
   pointer-events: none;
+}
+
+/* WebCodecs 不可用（http 局域网 IP / 旧浏览器）时的说明层 */
+.codec-overlay {
+  grid-auto-rows: min-content;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: auto;
+  background: rgba(9, 9, 11, 0.86);
+}
+
+.codec-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.codec-desc {
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d4d4d8;
+}
+
+.codec-hints {
+  max-width: 520px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #a1a1aa;
 }
 
 .hud {

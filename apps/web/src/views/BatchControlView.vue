@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { NButton, NEmpty, NIcon, NSelect, NSwitch, NTag, useMessage } from 'naive-ui';
+import { NAlert, NButton, NEmpty, NIcon, NSelect, NSwitch, NTag, useMessage } from 'naive-ui';
 import {
   AddOutline,
   CloseOutline,
@@ -14,6 +14,12 @@ import BulkInstallModal from '../components/BulkInstallModal.vue';
 import AddBatchDevicesModal from '../components/AddBatchDevicesModal.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
+import {
+  WEB_CODECS_TITLE,
+  isWebCodecsAvailable,
+  webCodecsHints,
+  webCodecsReason,
+} from '../utils/webcodecs';
 
 const route = useRoute();
 const router = useRouter();
@@ -32,6 +38,9 @@ const selectedIds = ref<string[]>(parseIds(route.query.ids));
 const sessions = ref<Record<string, string>>({});
 const controllers = ref<Record<string, boolean>>({});
 const connecting = ref<Record<string, boolean>>({});
+/** 安卓批量画面同样依赖 WebCodecs，非安全上下文下直接提示，不建会话。 */
+const codecBlocked = ref(!isWebCodecsAvailable());
+const codecHints = computed(() => webCodecsHints());
 const installShow = ref(false);
 const addShow = ref(false);
 /** 所有设备统一画质，默认中。 */
@@ -163,6 +172,7 @@ let syncing = false;
 
 async function syncSessions(): Promise<void> {
   if (syncing) return;
+  if (codecBlocked.value) return;
   syncing = true;
 
   const ids = selectedIds.value;
@@ -341,6 +351,19 @@ async function onQualityChange(
       </div>
     </header>
 
+    <n-alert
+      v-if="codecBlocked"
+      type="error"
+      class="codec-alert"
+      :bordered="false"
+    >
+      <template #header>{{ WEB_CODECS_TITLE }}</template>
+      <div>{{ webCodecsReason() }}</div>
+      <ul class="codec-hints">
+        <li v-for="hint in codecHints" :key="hint">{{ hint }}</li>
+      </ul>
+    </n-alert>
+
     <TransitionGroup
       v-if="selectedDevices.length > 0"
       name="tile"
@@ -414,7 +437,13 @@ async function onQualityChange(
             @input="onInput(device.id, $event)"
           />
           <div v-else class="tile-loading">
-            {{ connecting[device.id] ? '连接中…' : '等待连接' }}
+            {{
+              codecBlocked
+                ? '无法解码，请用 localhost 或 HTTPS 打开'
+                : connecting[device.id]
+                  ? '连接中…'
+                  : '等待连接'
+            }}
           </div>
         </div>
       </section>
@@ -634,4 +663,17 @@ async function onQualityChange(
 .batch-empty {
   padding: 60px 0;
 }
+
+/* WebCodecs 不可用（http + 局域网 IP）时的说明 */
+.codec-alert {
+  margin: 0 20px 12px;
+}
+
+.codec-alert .codec-hints {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
 </style>
