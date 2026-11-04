@@ -1790,9 +1790,6 @@ onBeforeUnmount(() => {
       style="width: 460px; max-width: calc(100vw - 32px)"
     >
       <div class="share-body">
-        <div class="share-tip">
-          把下面这段发给对方。对方打开链接后需要登录，登录成功会自动进入这台设备的控制页。
-        </div>
         <n-input
           :value="shareText"
           type="textarea"
