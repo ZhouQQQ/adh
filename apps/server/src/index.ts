@@ -269,9 +269,13 @@ async function main(): Promise<void> {
     const inject =
       `<base href="${basePath}/">\n    ` +
       `<script>window.__ADH_BASE__=${JSON.stringify(basePath)}</script>\n    `;
-    indexHtmlCache = fs
+    // 兼容旧构建产物：构建时可能已经固化了一份空前缀，
+    // 不清掉的话运行时会注入第二份，两段脚本互相覆盖
+    const source = fs
       .readFileSync(indexHtmlPath, 'utf8')
-      .replace('<head>', `<head>\n    ${inject}`);
+      .replace(/<base[^>]*>\s*/gi, '')
+      .replace(/<script>\s*window\.__ADH_BASE__=[^<]*<\/script>\s*/g, '');
+    indexHtmlCache = source.replace('<head>', `<head>\n    ${inject}`);
     return indexHtmlCache;
   };
 

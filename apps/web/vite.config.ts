@@ -19,13 +19,16 @@ function readBasePath(): string {
 const basePath = readBasePath();
 
 /**
- * 把前缀注入 index.html：
- * 开发环境由这里注入，生产由 server 在返回页面时注入，
- * 这样同一个构建产物可以部署到任意路径。
+ * 把前缀注入 index.html。
+ *
+ * 只在 dev 生效：生产构建的产物不能固化前缀，否则运行时 server 再注入一份，
+ * 两段 `window.__ADH_BASE__` 脚本会互相覆盖（后出现的生效），
+ * 表现为部署到 /adh 后路由仍然跳到根路径。
  */
 function basePathPlugin(): Plugin {
   return {
     name: 'adh-base-path',
+    apply: 'serve',
     transformIndexHtml(html) {
       return {
         html,
