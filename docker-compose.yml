@@ -1,9 +1,6 @@
 services:
   adh:
     # 部署直接用官方镜像（由 GitHub Actions 构建）
-    #
-    #   镜像地址如果拉取提示 denied，到 GitHub Packages 把 adh 设为 Public，
-    #   或者先执行 docker login ghcr.io
     image: ghcr.io/zhouqqq/adh:latest
     # 本地改代码调试时，把上面一行换成下面一行
     # build: .
