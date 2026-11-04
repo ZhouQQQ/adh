@@ -208,10 +208,22 @@ function openShare(): void {
 }
 
 async function copyShareInvite(): Promise<void> {
-  if (!shareText.value) return;
+  if (!shareText.value) {
+    message.warning('邀请内容还没准备好，请稍后重试');
+    return;
+  }
   const ok = await copyText(shareText.value);
-  if (ok) message.success('邀请内容已复制，直接发给对方即可');
-  else message.warning('复制失败，请手动选中文本复制');
+  if (ok) {
+    message.success('邀请内容已复制，直接发给对方即可');
+    return;
+  }
+  // 浏览器拦截自动复制时，帮用户选中内容，按 Ctrl+C 即可
+  message.warning('浏览器拦截了自动复制，已选中内容，请按 Ctrl + C');
+  const textarea = document.querySelector<HTMLTextAreaElement>(
+    '.share-body textarea',
+  );
+  textarea?.focus();
+  textarea?.select();
 }
 
 watch(
