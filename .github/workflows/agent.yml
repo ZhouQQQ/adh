@@ -46,8 +46,8 @@ jobs:
       - name: 打包三个平台的 Agent
         run: pnpm package:agent
 
-      - name: 打包 Linux server 离线包
-        run: pnpm package:server --platform linux
+      - name: 打包三个平台的 server 离线包
+        run: pnpm package:server --platform linux,win32,darwin
 
       - uses: actions/upload-artifact@v4
         with:

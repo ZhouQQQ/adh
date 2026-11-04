@@ -287,7 +287,11 @@ async function fetchNpmPackage(name, version, destDir) {
   const tgz = path.join(tmp, 'pkg.tgz');
   console.log(`  补充 ${name}@${version}`);
   await download(url, tgz);
-  const result = spawnSync('tar', ['-xzf', tgz, '-C', tmp], { stdio: 'inherit' });
+  // 用 cwd 而不是 tar -C：Windows 下 tar 会把 C:\ 当成远程主机
+  const result = spawnSync('tar', ['-xzf', tgz], {
+    cwd: tmp,
+    stdio: 'inherit',
+  });
   if (result.status !== 0) {
     throw new Error(`解压失败：${name}@${version}`);
   }
