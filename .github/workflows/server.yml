@@ -14,6 +14,11 @@ env:
   ALIYUN_REGISTRY: registry.cn-shenzhen.aliyuncs.com
   ALIYUN_IMAGE: registry.cn-shenzhen.aliyuncs.com/xiaoantest/adh-server
 
+# 同一分支连续 push 时取消上一次，避免重复构建
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

@@ -1,19 +1,24 @@
 name: adh-agent packages
 
+# 只在发版 tag 或手动触发时打包。
+# Windows / macOS runner 按分钟计费（Windows $0.01、macOS $0.062），
+# 不再随每次 push 自动跑。
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# 同一引用重复触发时取消旧任务，避免白跑
+concurrency:
+  group: agent-packages-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: ${{ matrix.platform }}
+  agent:
+    name: agent-${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -51,19 +56,10 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # server 离线包只出 Linux：其他平台直接跑 Docker 镜像即可
   server:
-    name: server-${{ matrix.platform }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: windows-latest
-            platform: win32
-          - os: macos-latest
-            platform: darwin
+    name: server-linux
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -81,19 +77,19 @@ jobs:
 
       - name: 打包离线 server
         shell: bash
-        run: pnpm package:server --platform ${{ matrix.platform }}
+        run: pnpm package:server --platform linux
 
       - uses: actions/upload-artifact@v4
         with:
-          name: adh-server-${{ matrix.platform }}
-          path: dist/adh-server-${{ matrix.platform }}.zip
+          name: adh-server-linux
+          path: dist/adh-server-linux.zip
           if-no-files-found: error
           retention-days: 30
 
   release:
     name: 上传到 Release
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    needs: [build, server]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [agent, server]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,14 +106,14 @@ jobs:
         with:
           files: dist/*.zip
 
-      - name: 滚动 Release（main）
-        if: github.ref == 'refs/heads/main'
+      - name: 滚动 Release（手动触发）
+        if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: agent-latest
           name: 最新构建
           body: |
-            由 main 分支最新提交自动打包，包含 Agent 与 server 离线包。
+            手动触发打包，包含 Agent 与 server 离线包。
 
             提交：${{ github.sha }}
           prerelease: true
