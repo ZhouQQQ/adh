@@ -9,6 +9,7 @@ import DeviceControlView from './views/DeviceControlView.vue';
 import DeviceLogsView from './views/DeviceLogsView.vue';
 import DevicesView from './views/DevicesView.vue';
 import LoginView from './views/LoginView.vue';
+import McpView from './views/McpView.vue';
 import SettingsView from './views/SettingsView.vue';
 import UsersView from './views/UsersView.vue';
 
@@ -51,6 +52,12 @@ export const router = createRouter({
       name: 'apps',
       component: AppsView,
       meta: { title: '应用管理' },
+    },
+    {
+      path: '/mcp',
+      name: 'mcp',
+      component: McpView,
+      meta: { title: 'MCP 接入' },
     },
     {
       path: '/agents',

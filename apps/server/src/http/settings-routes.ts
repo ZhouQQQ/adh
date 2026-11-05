@@ -28,6 +28,23 @@ const UpdateSiteBody = z.object({
     .optional(),
 });
 
+const UpdateAiBody = z.object({
+  enabled: z.boolean().optional(),
+  baseUrl: z.string().max(500).optional(),
+  /** 留空表示不修改；带 **** 的是前端回显的打码值，同样忽略。 */
+  apiKey: z.string().max(500).optional(),
+  model: z.string().max(200).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  systemPrompt: z.string().max(8000).optional(),
+});
+
+/** 只暴露首尾几位，避免把完整 key 返回给浏览器。 */
+function maskApiKey(key: string): string {
+  if (!key) return '';
+  if (key.length <= 8) return '********';
+  return `${key.slice(0, 4)}****${key.slice(-4)}`;
+}
+
 /** 站点设置：标题与 Logo。读取公开（登录页也要用），写入仅管理员。 */
 export async function registerSettingsRoutes(
   app: FastifyInstance,
@@ -96,5 +113,39 @@ export async function registerSettingsRoutes(
     }
     await deps.settings.removeLogo();
     return { logoUpdatedAt: 0 };
+  });
+
+  /** AI 助手配置：只给超级管理员，apiKey 打码返回。 */
+  app.get('/api/settings/ai', async (request, reply) => {
+    if (request.user?.role !== 'superadmin') {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const settings = await deps.settings.getAiSettings();
+    return {
+      ...settings,
+      apiKey: maskApiKey(settings.apiKey),
+      hasApiKey: Boolean(settings.apiKey),
+    };
+  });
+
+  app.put('/api/settings/ai', async (request, reply) => {
+    if (request.user?.role !== 'superadmin') {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const parsed = UpdateAiBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'AI 设置参数不合法' });
+    }
+    const input = { ...parsed.data };
+    // 空值表示不修改，打码值也不能回写，避免把 **** 存成真正的 key
+    if (!input.apiKey || !input.apiKey.trim() || input.apiKey.includes('****')) {
+      delete input.apiKey;
+    }
+    const saved = await deps.settings.saveAiSettings(input);
+    return {
+      ...saved,
+      apiKey: maskApiKey(saved.apiKey),
+      hasApiKey: Boolean(saved.apiKey),
+    };
   });
 }

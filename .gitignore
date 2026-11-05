@@ -10,3 +10,6 @@ apps/server/public/
 Thumbs.db
 .vite/
 *.tsbuildinfo
+.opencode/
+selfIdentity.plist
+*.plist

@@ -575,7 +575,11 @@ function clearSelection(): void {
 
 function batchControl(): void {
   if (selectedIds.value.length === 0) return;
-  void router.push(`/devices/batch?ids=${selectedIds.value.join(',')}`);
+  // 与单设备控制一致：批量控制页放在新标签页，设备列表继续实时刷新
+  const { href } = router.resolve(
+    `/devices/batch?ids=${selectedIds.value.join(',')}`,
+  );
+  window.open(href, '_blank', 'noopener');
 }
 
 

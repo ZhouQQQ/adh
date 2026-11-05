@@ -1,4 +1,4 @@
-html,
+﻿html,
 body,
 #app {
   height: 100%;
@@ -37,28 +37,50 @@ body {
   box-sizing: border-box;
 }
 
+/* Firefox 用标准属性；Chrome / Safari 走下面的 ::-webkit-scrollbar */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.10) transparent;
+  }
+
+  *:hover {
+    scrollbar-color: rgba(0, 0, 0, 0.20) transparent;
+  }
+}
+
 ::selection {
   background: #e4e4e7;
   color: #09090b;
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 3px;
+  height: 3px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/* 细滚动条常驻淡色，滚动时可见；鼠标移入加深 */
 ::-webkit-scrollbar-thumb {
-  background: #d4d4d8;
-  border-radius: 8px;
-  border: 2px solid #ffffff;
+  background: rgba(0, 0, 0, 0.10);
+  border-radius: 999px;
+  border: none;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1aa;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* Naive UI 自绘滚动条（NScrollbar）也压到 3px，并降低默认对比度 */
+.n-scrollbar {
+  --n-scrollbar-width: 3px !important;
+  --n-scrollbar-height: 3px !important;
+  --n-scrollbar-border-radius: 999px !important;
+  --n-scrollbar-color: rgba(0, 0, 0, 0.10) !important;
+  --n-scrollbar-color-hover: rgba(0, 0, 0, 0.22) !important;
 }
 
 code,

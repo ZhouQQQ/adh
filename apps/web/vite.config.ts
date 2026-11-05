@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import vue from '@vitejs/plugin-vue';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 
 const SERVER = process.env.ADH_SERVER_URL ?? 'http://127.0.0.1:8080';
 
@@ -33,13 +33,11 @@ const BUILD_TIME = new Date().toISOString();
  * 例如 /adh：dev 页面在 http://localhost:5173/adh/，
  * 请求 /adh/api、/adh/ws 由 vite 代理到 server 的同名前缀。
  */
-function readBasePath(): string {
-  const raw = (process.env.ADH_BASE_PATH ?? '').trim();
-  if (!raw || raw === '/') return '';
-  return `/${raw.replace(/^\/+|\/+$/g, '')}`;
+function readBasePath(raw: string | undefined): string {
+  const value = (raw ?? '').trim();
+  if (!value || value === '/') return '';
+  return `/${value.replace(/^\/+|\/+$/g, '')}`;
 }
-
-const basePath = readBasePath();
 
 /**
  * 把前缀注入 index.html。
@@ -48,7 +46,7 @@ const basePath = readBasePath();
  * 两段 `window.__ADH_BASE__` 脚本会互相覆盖（后出现的生效），
  * 表现为部署到 /adh 后路由仍然跳到根路径。
  */
-function basePathPlugin(): Plugin {
+function basePathPlugin(basePath: string): Plugin {
   return {
     name: 'adh-base-path',
     apply: 'serve',
@@ -147,7 +145,18 @@ function httpToHttpsPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => {
+  // 与 server 的 config.ts 保持一致：先读仓库根 .env，再读 apps/web 下的覆盖；
+  // 已经在 shell / 父进程里设置的 ADH_BASE_PATH 优先级最高。
+  const rootEnv = loadEnv(mode, path.join(HERE, '..', '..'), '');
+  const appEnv = loadEnv(mode, HERE, '');
+  const basePath = readBasePath(
+    process.env.ADH_BASE_PATH ??
+      appEnv.ADH_BASE_PATH ??
+      rootEnv.ADH_BASE_PATH,
+  );
+
+  return {
   // 构建用相对路径，运行时靠 server 注入的 <base> 定位资源；
   // dev 直接用带前缀的绝对路径，HMR / 代理都按这个前缀走。
   base: command === 'build' ? './' : `${basePath}/`,
@@ -157,7 +166,7 @@ export default defineConfig(({ command }) => ({
   },
   plugins: [
     vue(),
-    basePathPlugin(),
+    basePathPlugin(basePath),
     ...(useHttps ? [basicSsl(), httpToHttpsPlugin()] : []),
   ],
   server: {
@@ -169,6 +178,8 @@ export default defineConfig(({ command }) => ({
     allowedHosts: resolveAllowedHosts(),
     proxy: {
       [`${basePath}/api`]: { target: SERVER, changeOrigin: true, secure: false },
+      // MCP Streamable HTTP（含 SSE 长连接），开发时从 5173 复制的 url 也能用
+      [`${basePath}/mcp`]: { target: SERVER, changeOrigin: true, secure: false },
       [`${basePath}/ws`]: {
         target: SERVER.replace(/^http/, 'ws'),
         ws: true,
@@ -180,4 +191,5 @@ export default defineConfig(({ command }) => ({
     outDir: '../server/public',
     emptyOutDir: true,
   },
-}));
+  };
+});

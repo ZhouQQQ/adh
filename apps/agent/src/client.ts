@@ -3,13 +3,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  adbInputText,
+  captureScreenshot,
   getTunnelStatus,
+  launchAndroidApp,
   runCommand,
   startTunnel,
   startWda,
   stopTunnel,
   stopWda,
   wdaApplyMjpegSettings,
+  wdaScreenshot,
+  wdaWindow,
   wdaPortFor,
   wdaStatus,
 } from '@adh/device-host';
@@ -179,9 +184,15 @@ export class AgentClient {
       sessionId?: string;
       udid?: string;
       url?: string;
+      package?: string;
       quality?: string;
       platform?: string;
       restart?: boolean;
+      name?: string;
+      data?: string;
+      bundleId?: string;
+      container?: string;
+      text?: string;
     };
 
     if (
@@ -220,6 +231,152 @@ export class AgentClient {
         }
       })();
       return;
+    }
+
+    if (
+      message.action === 'gallery.import' &&
+      params.udid &&
+      params.name &&
+      params.data
+    ) {
+      const { udid, name, data } = params;
+      void (async () => {
+        const temp = path.join(os.tmpdir(), `adh-gallery-${Date.now()}-${name}`);
+        try {
+          fs.writeFileSync(temp, Buffer.from(data, 'base64'));
+          const remotePath = `/sdcard/Pictures/${name}`;
+          const push = await runCommand(
+            'adb',
+            ['-s', udid, 'push', temp, remotePath],
+            120_000,
+          );
+          if (push.code !== 0) {
+            throw new Error(push.stderr.trim() || '推送图片失败');
+          }
+          // 让系统媒体库立即索引，相册里马上能看到
+          await runCommand(
+            'adb',
+            [
+              '-s',
+              udid,
+              'shell',
+              'am',
+              'broadcast',
+              '-a',
+              'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
+              '-d',
+              `file://${remotePath}`,
+            ],
+            20_000,
+          );
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: true,
+            data: { path: remotePath },
+          });
+        } catch (error) {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          fs.rmSync(temp, { force: true });
+        }
+      })();
+      return;
+    }
+
+    if (
+      message.action === 'ios.file.push' &&
+      params.udid &&
+      params.name &&
+      params.data &&
+      (params.container === 'documents' || params.container === 'temp')
+    ) {
+      const { udid, name, data, container, bundleId } = params;
+      void (async () => {
+        const temp = path.join(os.tmpdir(), `adh-appfile-${Date.now()}-${name}`);
+        try {
+          if (container === 'documents' && !bundleId) {
+            throw new Error('缺少 App Bundle ID');
+          }
+          fs.writeFileSync(temp, Buffer.from(data, 'base64'));
+          const args =
+            container === 'temp'
+              ? [
+                  'file',
+                  'push',
+                  '--temp',
+                  `--local=${temp}`,
+                  `--remote=${name}`,
+                  `--udid=${udid}`,
+                ]
+              : [
+                  'file',
+                  'push',
+                  `--app=${bundleId}`,
+                  `--local=${temp}`,
+                  `--remote=Documents/${name}`,
+                  `--udid=${udid}`,
+                ];
+          const result = await this.runIosCommand(args, 120_000);
+          if (result.code !== 0) {
+            throw new Error(
+              result.stderr.trim() || result.stdout.trim() || '推送文件失败',
+            );
+          }
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: true,
+            data: {
+              path:
+                container === 'temp'
+                  ? `tmp/${name}`
+                  : `Documents/${name}`,
+            },
+          });
+        } catch (error) {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          fs.rmSync(temp, { force: true });
+        }
+      })();
+      return;
+    }
+
+    if (message.action === 'input.text') {
+      const udid = params.udid;
+      const text = params.text;
+      if (udid && typeof text === 'string') {
+        void (async () => {
+          try {
+            await adbInputText(udid, text);
+            this.send({
+              t: 'cmd.result',
+              id: message.id,
+              ok: true,
+              data: { method: 'adb' },
+            });
+          } catch (error) {
+            this.send({
+              t: 'cmd.result',
+              id: message.id,
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        })();
+        return;
+      }
     }
 
     if (message.action === 'ios.status' && params.udid) {
@@ -305,6 +462,72 @@ export class AgentClient {
       return;
     }
 
+    if (message.action === 'screenshot' && params.udid) {
+      const platform = params.platform === 'ios' ? 'ios' : 'android';
+      void (async () => {
+        try {
+          if (platform === 'ios') {
+            const port = wdaPortFor(params.udid!);
+            const data = await wdaScreenshot(port);
+            if (!data) throw new Error('WDA 截图失败');
+            const size = await wdaWindow(port);
+            this.send({
+              t: 'cmd.result',
+              id: message.id,
+              ok: true,
+              data: {
+                base64: data.toString('base64'),
+                width: size.width,
+                height: size.height,
+              },
+            });
+            return;
+          }
+          const shot = await captureScreenshot(params.udid!);
+          if (!shot) throw new Error('adb 截图失败');
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: true,
+            data: {
+              base64: shot.data.toString('base64'),
+              width: shot.width,
+              height: shot.height,
+            },
+          });
+        } catch (error) {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+      return;
+    }
+
+    if (message.action === 'app.launch' && params.udid && params.package) {
+      void launchAndroidApp(params.udid, params.package)
+        .then((ok) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok,
+            error: ok ? undefined : '应用启动失败，请检查包名',
+          });
+        })
+        .catch((error: unknown) => {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return;
+    }
+
     if (message.action === 'app.install' && params.udid && params.url) {
       void this.installApk(params.url, params.udid)
         .then((ok) => {
@@ -338,6 +561,18 @@ export class AgentClient {
     }
 
     this.send({ t: 'cmd.result', id: message.id, ok: true });
+  }
+
+  /** 依次尝试 ios / go-ios，避免不同安装方式下命令名不一致。 */
+  private async runIosCommand(
+    args: string[],
+    timeoutMs = 60_000,
+  ): Promise<Awaited<ReturnType<typeof runCommand>>> {
+    for (const command of ['ios', 'go-ios']) {
+      const result = await runCommand(command, args, timeoutMs);
+      if (!result.failedToStart) return result;
+    }
+    throw new Error('未找到 go-ios（ios / go-ios）');
   }
 
   private async installApk(url: string, udid: string): Promise<boolean> {

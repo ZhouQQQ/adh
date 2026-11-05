@@ -36,6 +36,13 @@ import { loadDashboard } from './stats/dashboard.js';
 import { SettingsService } from './settings/service.js';
 import { isAdminRole } from './auth/service.js';
 import { registerSettingsRoutes } from './http/settings-routes.js';
+import { registerAiRoutes } from './http/ai-routes.js';
+import { AiChatStore } from './ai/history.js';
+import { ApiKeyService } from './auth/api-keys.js';
+import { TaskService } from './tasks/service.js';
+import { registerApiKeyRoutes } from './http/api-key-routes.js';
+import { registerTaskRoutes } from './http/task-routes.js';
+import { registerMcpRoutes } from './http/mcp-routes.js';
 
 /** 取一个非回环的 IPv4，用于启动日志展示局域网访问地址。 */
 function lanAddress(): string | null {
@@ -70,6 +77,7 @@ async function main(): Promise<void> {
   const { driver, close: closeDatabase } = await openDatabase(config.db);
   const queries = createQueries(driver);
   const auth = new AuthService(driver);
+  const apiKeys = new ApiKeyService(driver);
   const createdDefaultAdmin = await auth.ensureDefaultAdmin();
   const registry = new AgentRegistry();
   const hub = new WebHub();
@@ -94,6 +102,16 @@ async function main(): Promise<void> {
     settings,
   });
   hub.setControlResolver((deviceId) => streams.getControl(deviceId));
+
+  const tasks = new TaskService({
+    db: driver,
+    queries,
+    registry,
+    streams,
+    commands,
+    settings,
+    logger,
+  });
 
   const localAgent = new LocalAgent({
     queries,
@@ -156,7 +174,9 @@ async function main(): Promise<void> {
     if (PUBLIC_API.has(path) || publicSiteRead) return;
 
     const token = bearerToken(request);
-    const user = token ? await auth.resolveToken(token) : null;
+    const user = token
+      ? ((await auth.resolveToken(token)) ?? (await apiKeys.resolve(token)))
+      : null;
     if (!user) {
       return reply.code(401).send({ error: '请先登录' });
     }
@@ -293,6 +313,28 @@ async function main(): Promise<void> {
     });
 
     await registerSettingsRoutes(scope, { settings });
+
+    registerAiRoutes(scope, {
+      queries,
+      streams,
+      commands,
+      settings,
+      deviceLogs,
+      history: new AiChatStore(driver),
+      logger,
+    });
+
+    registerApiKeyRoutes(scope, { apiKeys });
+    registerTaskRoutes(scope, { tasks });
+    registerMcpRoutes(scope, {
+      apiKeys,
+      queries,
+      registry,
+      streams,
+      tasks,
+      logger,
+      version: SERVER_VERSION,
+    });
   };
 
   await app.register(registerApiRoutes, basePath ? { prefix: basePath } : {});

@@ -1,12 +1,14 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NButton,
+  NCheckbox,
   NDropdown,
   NIcon,
   NInput,
   NModal,
+  NPopover,
   NSelect,
   NSpin,
   NSwitch,
@@ -20,6 +22,7 @@ import {
   ArrowBackOutline,
   BrowsersOutline,
   CameraOutline,
+  ChevronDownOutline,
   CloudDownloadOutline,
   CloudOfflineOutline,
   CloseCircleOutline,
@@ -27,6 +30,7 @@ import {
   EllipsisVerticalOutline,
   ExpandOutline,
   FolderOpenOutline,
+  GridOutline,
   HomeOutline,
   InformationCircleOutline,
   KeypadOutline,
@@ -55,13 +59,13 @@ import DeviceStats from '../components/DeviceStats.vue';
 import InstallAppModal from '../components/InstallAppModal.vue';
 import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
+import AiAssistantPanel from '../components/AiAssistantPanel.vue';
 import {
   BUILTIN_AGENT_ID,
   type SafeKeyboardLayout,
   type StreamViewerInfo,
 } from '@adh/protocol';
 import { api } from '../api';
-import { withBase } from '../base';
 import { stopFleet, useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
@@ -152,6 +156,11 @@ const { openPreview, closePreview, previews } = usePreviews();
 
 const playerRef = ref<InstanceType<typeof DevicePlayer> | null>(null);
 const sessionId = ref<string | null>(null);
+// AI 栏常驻状态存本地，刷新后保持上次的展开/收起
+const aiOpen = ref(localStorage.getItem('adh.ai.open') === '1');
+const infoOpen = ref(localStorage.getItem('adh.info.open') !== '0');
+const sideOpen = ref(localStorage.getItem('adh.side.open') !== '0');
+const aiAvailable = ref(false);
 const loading = ref(true);
 const errorText = ref<string | null>(null);
 /** 安卓设备 + 非安全上下文：浏览器没有 WebCodecs，直接停在说明页，不建会话。 */
@@ -173,9 +182,20 @@ const isFullscreen = ref(false);
 const isWebFullscreen = ref(false);
 const recording = ref(false);
 
+function toggleSider(): void {
+  infoOpen.value = !infoOpen.value;
+  localStorage.setItem('adh.info.open', infoOpen.value ? '1' : '0');
+}
+
+function toggleSidebar(): void {
+  sideOpen.value = !sideOpen.value;
+  localStorage.setItem('adh.side.open', sideOpen.value ? '1' : '0');
+}
+
 async function toggleFullscreen(): Promise<void> {
-  // 浏览器原生全屏：只放大画面，操作使用全屏专用操作列
-  const element = stageRef.value;
+  // 原生全屏放大整个控制页（工具栏 + 画面 + AI 栏），
+  // 这样顶部的「收起 AI / 展开 AI」按钮在全屏里仍然可用。
+  const element = pageRef.value;
   if (!element) return;
   try {
     if (!document.fullscreenElement) {
@@ -190,13 +210,13 @@ async function toggleFullscreen(): Promise<void> {
   }
 }
 
-/** 网页全屏：页面内铺满，保留顶部工具栏和右侧原始操作列。 */
+/** 网页全屏：页面内铺满，保留顶部工具栏与右侧操作列。 */
 function toggleWebFullscreen(): void {
   isWebFullscreen.value = !isWebFullscreen.value;
 }
 
 function onFullscreenChange(): void {
-  isFullscreen.value = document.fullscreenElement === stageRef.value;
+  isFullscreen.value = document.fullscreenElement === pageRef.value;
 }
 
 const deviceId = computed(() => String(route.params.id ?? ''));
@@ -318,6 +338,8 @@ const pipActive = ref(false);
 let docPip: Window | null = null;
 const reloadNonce = ref(0);
 const safeKeyboard = ref(false);
+/** 密码输入键盘 / 虚拟全键盘。 */
+const keyboardType = ref<'password' | 'full'>('password');
 const readonlyBannerClosed = ref(false);
 const releasedBy = ref('');
 /** iOS 自己主动断开后，显示「重新连接」而不是「接管」。 */
@@ -620,11 +642,28 @@ async function resumeIosControl(): Promise<void> {
 watch(controller, (value, previous) => {
   if (value) readonlyBannerClosed.value = false;
   if (!value) safeKeyboard.value = false;
+  // 失去控制权后立即收起 AI 面板，避免继续下发动作
+  if (!value) aiOpen.value = false;
   if (previous === true && value === false && !selfReleased) {
     message.warning('控制权已被接管，你现在仅可查看');
   }
   selfReleased = false;
 });
+
+// 打开 AI 栏时刷新状态，并记住展开状态；管理员刚配置完模型也能立即生效
+watch(
+  aiOpen,
+  async (open) => {
+    localStorage.setItem('adh.ai.open', open ? '1' : '0');
+    if (!open) return;
+    try {
+      aiAvailable.value = (await api.aiStatus()).enabled;
+    } catch {
+      aiAvailable.value = false;
+    }
+  },
+  { immediate: true },
+);
 
 // iOS 没有 WebSocket 会话，通过 device.updated 推送感知被接管 / 被断开
 let lastControlName = '';
@@ -680,7 +719,7 @@ async function kickControl(): Promise<void> {
   }
 }
 
-/** 安全键盘位置存服务端，多人共享。 */
+/** 键盘位置 / 大小 / 类型存服务端，多人共享，也按设备区分。 */
 function saveSafeKeyboard(layout: SafeKeyboardLayout): void {
   const id = device.value?.id;
   if (!id) return;
@@ -693,10 +732,15 @@ function saveSafeKeyboard(layout: SafeKeyboardLayout): void {
     .catch(() => undefined);
 }
 
-function toggleSafeKeyboard(): void {
-  safeKeyboard.value = !safeKeyboard.value;
+function toggleKeyboard(type: 'password' | 'full'): void {
+  if (safeKeyboard.value && keyboardType.value === type) {
+    safeKeyboard.value = false;
+    return;
+  }
+  keyboardType.value = type;
+  safeKeyboard.value = true;
   // 打开时拉一次最新布局，别人调过的也能同步
-  if (safeKeyboard.value) void refresh();
+  void refresh();
 }
 
 watch(previews, (list) => {
@@ -904,6 +948,167 @@ async function copyScreenshot(): Promise<void> {
   }
 }
 
+/* ---------------------- 快捷导入设备相册 ---------------------- */
+
+const galleryInput = ref<HTMLInputElement | null>(null);
+const galleryBusy = ref(false);
+
+function galleryExt(blob: Blob): string {
+  const type = blob.type.toLowerCase();
+  if (type.includes('jpeg') || type.includes('jpg')) return 'jpg';
+  if (type.includes('webp')) return 'webp';
+  if (type.includes('gif')) return 'gif';
+  return 'png';
+}
+
+async function pushImageToGallery(blob: Blob, name: string): Promise<void> {
+  const deviceId = device.value?.id;
+  if (!deviceId) return;
+  if (blob.size > 10 * 1024 * 1024) {
+    message.warning('图片超过 10MB，请压缩后再试');
+    return;
+  }
+  galleryBusy.value = true;
+  try {
+    const result = await api.importDeviceGalleryImage(deviceId, blob, name);
+    message.success(`已导入设备相册：${result.name}`);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '导入相册失败');
+  } finally {
+    galleryBusy.value = false;
+  }
+}
+
+function pickGalleryImage(): void {
+  galleryInput.value?.click();
+}
+
+async function onGalleryFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  // 清空 value，允许连续选择同一张图片
+  input.value = '';
+  if (!file) return;
+  await pushImageToGallery(
+    file,
+    file.name || `upload-${Date.now()}.${galleryExt(file)}`,
+  );
+}
+
+/** 读取系统剪贴板：图片直接导入相册，文字只提示。 */
+async function importClipboardToGallery(): Promise<void> {
+  if (!navigator.clipboard?.read) {
+    message.warning('当前地址不支持读取剪贴板，请改用 localhost 或 HTTPS 访问');
+    return;
+  }
+  try {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const imageType = item.types.find((type) => type.startsWith('image/'));
+      if (!imageType) continue;
+      const blob = await item.getType(imageType);
+      await pushImageToGallery(
+        blob,
+        `clipboard-${Date.now()}.${galleryExt(blob)}`,
+      );
+      return;
+    }
+
+    let text = '';
+    for (const item of items) {
+      if (!item.types.includes('text/plain')) continue;
+      text = await (await item.getType('text/plain')).text();
+      break;
+    }
+    if (!text) text = await navigator.clipboard.readText().catch(() => '');
+    message.warning(
+      text ? '当前剪贴板是文字，无法导入相册' : '剪贴板里没有图片',
+    );
+  } catch {
+    message.warning('读取剪贴板失败，请允许剪贴板权限后重试');
+  }
+}
+
+/** 把当前设备画面截图直接存进设备相册。 */
+async function importScreenshotToGallery(): Promise<void> {
+  const blob = await playerRef.value?.screenshot();
+  if (!blob) {
+    message.warning('画面还没就绪，稍后再试');
+    return;
+  }
+  await pushImageToGallery(blob, `screenshot-${Date.now()}.png`);
+}
+
+/* ---------------------- iOS：推送到 App 目录 ---------------------- */
+
+const appFileInput = ref<HTMLInputElement | null>(null);
+const appBundleId = ref('');
+const appContainer = ref<'documents' | 'temp'>('documents');
+const appOptions = ref<{ label: string; value: string }[]>([]);
+const appsLoading = ref(false);
+
+async function loadDeviceApps(): Promise<void> {
+  if (appOptions.value.length > 0 || appsLoading.value) return;
+  const deviceId = device.value?.id;
+  if (!deviceId) return;
+  appsLoading.value = true;
+  try {
+    const result = await api.listDeviceApps(deviceId);
+    appOptions.value = result.packages.map((item) => ({
+      label: item.label || item.name,
+      value: item.name,
+    }));
+  } catch (error) {
+    message.warning(
+      error instanceof Error ? error.message : '读取应用列表失败',
+    );
+  } finally {
+    appsLoading.value = false;
+  }
+}
+
+function onAppSelectShow(show: boolean): void {
+  if (show) void loadDeviceApps();
+}
+
+function pickAppImage(): void {
+  if (!appBundleId.value) {
+    message.warning('请先选择目标 App');
+    return;
+  }
+  appFileInput.value?.click();
+}
+
+async function onAppFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  await pushImageToApp(file, file.name || `image-${Date.now()}.png`);
+}
+
+async function pushImageToApp(blob: Blob, name: string): Promise<void> {
+  const deviceId = device.value?.id;
+  if (!deviceId) return;
+  if (blob.size > 10 * 1024 * 1024) {
+    message.warning('图片超过 10MB，请压缩后再试');
+    return;
+  }
+  galleryBusy.value = true;
+  try {
+    const result = await api.importDeviceAppFile(deviceId, blob, {
+      bundleId: appContainer.value === 'documents' ? appBundleId.value : '',
+      container: appContainer.value,
+      name,
+    });
+    message.success(`已推送到 App 目录：${result.path}`);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '推送失败');
+  } finally {
+    galleryBusy.value = false;
+  }
+}
+
 async function toggleRecording(): Promise<void> {
   if (!recording.value) {
     const started = playerRef.value?.startRecording();
@@ -1058,24 +1263,11 @@ function onPlayerControllerChange(value: boolean): void {
   controller.value = value;
 }
 
-/** 关闭 / 刷新页面时尽量立即释放 iOS 控制权，不用等 TTL。 */
-function releaseIosControlOnLeave(): void {
-  if (!isIos.value || !controller.value) return;
-  const id = device.value?.id;
-  if (!id) return;
-  const token = localStorage.getItem('adh.token') ?? '';
-  // keepalive 保证页面已经关闭请求也能发出去
-  void fetch(withBase(`/api/devices/${id}/stream/stop`), {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}` },
-    keepalive: true,
-  }).catch(() => undefined);
-}
+/** 关闭 / 刷新页面不释放控制权；只有主动点「断开」才立即释放。 */
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', onFullscreenChange);
   window.addEventListener('keydown', onKeydown);
-  window.addEventListener('pagehide', releaseIosControlOnLeave);
   clockTimer = window.setInterval(() => {
     now.value = Date.now();
   }, 1_000);
@@ -1088,7 +1280,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   window.removeEventListener('keydown', onKeydown);
-  window.removeEventListener('pagehide', releaseIosControlOnLeave);
   if (clockTimer) window.clearInterval(clockTimer);
   document.title = 'ADH · 设备农场';
   if (document.fullscreenElement === stageRef.value) {
@@ -1096,9 +1287,8 @@ onBeforeUnmount(() => {
   }
   // 主画面销毁后镜像流就失效了，同步关掉画中画
   if (pipActive.value) closePip();
-  // iOS 离开页面时释放控制权，其他人可以立即接管
+  // 刷新 / 关闭页面不释放 iOS 控制权，交给 TTL；只有主动点断开才立即释放
   stopIosHeartbeat();
-  releaseIosControlOnLeave();
   sessionId.value = null;
 });
 </script>
@@ -1189,6 +1379,29 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="toolbar-right">
+        <n-popover trigger="click" placement="bottom-end" :show-arrow="false">
+          <template #trigger>
+            <n-button size="tiny" ghost title="显示 / 收起面板">
+              显示
+              <n-icon style="margin-left: 4px"><ChevronDownOutline /></n-icon>
+            </n-button>
+          </template>
+          <div class="panel-toggles">
+            <n-checkbox :checked="infoOpen" @update:checked="toggleSider">
+              设备信息
+            </n-checkbox>
+            <n-checkbox :checked="sideOpen" @update:checked="toggleSidebar">
+              操作栏
+            </n-checkbox>
+            <n-checkbox
+              :checked="aiOpen"
+              :disabled="!controller"
+              @update:checked="aiOpen = $event"
+            >
+              AI 助手
+            </n-checkbox>
+          </div>
+        </n-popover>
         <n-button size="tiny" ghost @click="openShare">
           <template #icon>
             <n-icon><ShareSocialOutline /></n-icon>
@@ -1278,7 +1491,7 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="body">
-      <aside class="info-col">
+      <aside v-if="infoOpen" class="info-col">
         <div class="section-title stats-title">运行状态</div>
         <DeviceStats :device-id="device?.id ?? ''" />
 
@@ -1563,6 +1776,7 @@ onBeforeUnmount(() => {
           :visible="safeKeyboard"
           :device-id="device?.id"
           :layout="device?.safeKeyboard"
+          :mode="keyboardType"
           @change="saveSafeKeyboard"
         />
 
@@ -1648,13 +1862,32 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="bar-btn span-2"
-                :class="{ on: safeKeyboard }"
+                :class="{ on: safeKeyboard && keyboardType === 'password' }"
                 :disabled="!controller || isIos"
                 :title="isIos ? iosTip : undefined"
-                @click="toggleSafeKeyboard"
+                @click="toggleKeyboard('password')"
               >
                 <n-icon :size="13"><KeypadOutline /></n-icon>
-                {{ safeKeyboard ? '隐藏键盘' : '安全键盘' }}
+                {{
+                  safeKeyboard && keyboardType === 'password'
+                    ? '收起密码键盘'
+                    : '密码输入键盘'
+                }}
+              </button>
+              <button
+                type="button"
+                class="bar-btn span-2"
+                :class="{ on: safeKeyboard && keyboardType === 'full' }"
+                :disabled="!controller || isIos"
+                :title="isIos ? iosTip : undefined"
+                @click="toggleKeyboard('full')"
+              >
+                <n-icon :size="13"><GridOutline /></n-icon>
+                {{
+                  safeKeyboard && keyboardType === 'full'
+                    ? '收起全键盘'
+                    : '虚拟全键盘'
+                }}
               </button>
             </div>
           </div>
@@ -1668,7 +1901,44 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <aside class="side" :class="{ readonly: !controller }">
+      <aside v-if="sideOpen" class="side" :class="{ readonly: !controller }">
+        <section v-if="device?.platform === 'ios'" class="section">
+          <div class="section-title">App 目录导入</div>
+          <n-select
+            v-model:value="appBundleId"
+            size="small"
+            filterable
+            :options="appOptions"
+            :loading="appsLoading"
+            placeholder="选择目标 App"
+            @update:show="onAppSelectShow"
+          />
+          <n-select
+            v-model:value="appContainer"
+            size="small"
+            class="app-container-select"
+            :options="[
+              { label: 'Documents', value: 'documents' },
+              { label: 'tmp', value: 'temp' },
+            ]"
+          />
+          <n-button
+            size="small"
+            :disabled="!controller || galleryBusy"
+            @click="pickAppImage"
+          >
+            上传图片到 App 目录
+          </n-button>
+          <p class="album-hint">写入 App 容器，测试 App 需自行读取该目录</p>
+          <input
+            ref="appFileInput"
+            type="file"
+            accept="image/*"
+            class="album-input"
+            @change="onAppFile"
+          />
+        </section>
+
         <section class="section">
           <div class="section-title">导航</div>
           <div class="grid-3">
@@ -1854,18 +2124,86 @@ onBeforeUnmount(() => {
           <n-button
             size="small"
             block
-            :type="safeKeyboard ? 'primary' : 'default'"
-            :ghost="safeKeyboard"
+            :type="
+              safeKeyboard && keyboardType === 'password' ? 'primary' : 'default'
+            "
+            :ghost="safeKeyboard && keyboardType === 'password'"
             :disabled="!controller || isIos"
             :title="isIos ? iosTip : undefined"
-            @click="toggleSafeKeyboard"
+            @click="toggleKeyboard('password')"
           >
             <template #icon>
               <n-icon><KeypadOutline /></n-icon>
             </template>
-            {{ safeKeyboard ? '隐藏安全键盘' : '安全键盘' }}
+            {{
+              safeKeyboard && keyboardType === 'password'
+                ? '收起密码键盘'
+                : '密码输入键盘'
+            }}
+          </n-button>
+          <n-button
+            size="small"
+            block
+            :type="safeKeyboard && keyboardType === 'full' ? 'primary' : 'default'"
+            :ghost="safeKeyboard && keyboardType === 'full'"
+            :disabled="!controller || isIos"
+            :title="isIos ? iosTip : undefined"
+            @click="toggleKeyboard('full')"
+          >
+            <template #icon>
+              <n-icon><GridOutline /></n-icon>
+            </template>
+            {{
+              safeKeyboard && keyboardType === 'full'
+                ? '收起全键盘'
+                : '虚拟全键盘'
+            }}
           </n-button>
         </section>
+
+        <section v-if="device?.platform === 'android'" class="section">
+          <div class="section-title">相册导入</div>
+          <div class="album-actions">
+            <n-button
+              size="small"
+              :disabled="!controller || galleryBusy"
+              @click="pickGalleryImage"
+            >
+              上传图片到相册
+            </n-button>
+            <n-button
+              size="small"
+              :disabled="!controller || galleryBusy"
+              @click="importClipboardToGallery"
+            >
+              从剪贴板导入
+            </n-button>
+            <n-button
+              size="small"
+              :disabled="!controller || galleryBusy"
+              @click="importScreenshotToGallery"
+            >
+              当前画面存相册
+            </n-button>
+          </div>
+          <p class="album-hint">仅 Android；导入后自动刷新系统相册</p>
+          <input
+            ref="galleryInput"
+            type="file"
+            accept="image/*"
+            class="album-input"
+            @change="onGalleryFile"
+          />
+        </section>
+      </aside>
+
+      <aside v-if="aiOpen" class="ai-col">
+        <AiAssistantPanel
+          :device-id="device?.id ?? ''"
+          :disabled="!controller"
+          :available="aiAvailable"
+          @close="aiOpen = false"
+        />
       </aside>
     </div>
 
@@ -1934,13 +2272,14 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-/* 网页全屏不显示顶部工具栏，只保留右侧操作列 */
-.control-page.web-fullscreen .toolbar {
-  display: none;
-}
-
+/* 网页全屏：保留顶部工具栏，AI 开关仍可用 */
 .control-page.web-fullscreen .body {
   padding: 8px;
+}
+
+/* 网页全屏保留 AI 栏，按窗口宽度自适应，避免窄屏挤压画面 */
+.control-page.web-fullscreen .ai-col {
+  width: min(380px, 32vw);
 }
 
 .toolbar {
@@ -1965,6 +2304,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.panel-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 118px;
+  padding: 2px 4px;
 }
 
 .share-body {
@@ -2082,27 +2429,32 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: var(--surface);
   overflow-y: auto;
-  /* 滚动条默认隐藏，鼠标移入才显示 */
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.10) transparent;
+}
+
+/* 常驻 AI 对话栏：作为 body 的第三列，不再用抽屉浮层 */
+.ai-col {
+  width: 380px;
+  flex: none;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.ai-col > * {
+  flex: 1;
+  min-width: 0;
 }
 
 .info-col:hover {
-  scrollbar-color: #d4d4d8 transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 }
 
-.info-col::-webkit-scrollbar {
-  width: 6px;
-}
 
-.info-col::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: transparent;
-}
-
-.info-col:hover::-webkit-scrollbar-thumb {
-  background: #d4d4d8;
-}
 
 .info-row {
   display: flex;
@@ -2195,7 +2547,10 @@ onBeforeUnmount(() => {
   right: 10px;
   z-index: 10;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
+  max-width: calc(100% - 20px);
 }
 
 .overlay-btn {
@@ -2356,10 +2711,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-/* 只读模式：左上角提示 */
+/* 只读模式：左下角提示，给左上角的延迟 / FPS 让位 */
 .readonly-side {
   position: absolute;
-  top: 10px;
+  bottom: 10px;
   left: 10px;
   z-index: 12;
   padding: 3px 10px;
@@ -2372,10 +2727,10 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
-/* 左上角录制指示 */
+/* 录制指示：同样放左下角，避免和左上角 HUD 重叠 */
 .rec-badge {
   position: absolute;
-  top: 10px;
+  bottom: 10px;
   left: 10px;
   z-index: 10;
   display: inline-flex;
@@ -2422,6 +2777,19 @@ onBeforeUnmount(() => {
   height: 100vh;
   max-height: none;
   border-radius: 0;
+}
+
+/* 原生全屏：保留工具栏，隐藏信息栏；全屏元素是整页 */
+.control-page:fullscreen .body {
+  padding: 8px;
+}
+
+.control-page:fullscreen .info-col {
+  display: none;
+}
+
+.control-page:fullscreen .ai-col {
+  width: min(380px, 32vw);
 }
 
 .placeholder {
@@ -2681,6 +3049,24 @@ onBeforeUnmount(() => {
   gap: 14px;
   overflow-y: auto;
   background: var(--surface);
+  /* 操作列滚动条默认隐藏，鼠标悬浮在操作列上才显示 */
+  scrollbar-color: transparent transparent;
+}
+
+.side:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+.side::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.side:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.side::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.26);
 }
 
 .section {
@@ -2741,6 +3127,28 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+.album-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.album-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.album-input {
+  display: none;
+}
+
+.app-container-select {
+  margin: 6px 0;
+  width: 100%;
+}
+
 @media (max-width: 1200px) {
   .info-col {
     display: none;
@@ -2768,3 +3176,8 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+
+
+
+

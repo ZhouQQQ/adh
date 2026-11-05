@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AgentDetail,
   AgentSummary,
   CreateAgentResponse,
@@ -68,6 +68,54 @@ export interface SiteSettings {
   /** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
   idleTimeoutMinutes: number;
 }
+
+export interface AiSettingsView {
+  enabled: boolean;
+  baseUrl: string;
+  /** 服务端返回的是打码值，修改时留空表示不变。 */
+  apiKey: string;
+  hasApiKey: boolean;
+  model: string;
+  temperature: number;
+  systemPrompt: string;
+}
+
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  prefix: string;
+  enabled: boolean;
+  createdAt: number;
+  lastUsedAt: number;
+  expiresAt: number;
+  userId?: string;
+}
+
+export interface AiChatStep {
+  name: string;
+  args: Record<string, unknown>;
+  detail?: string;
+  ok?: boolean;
+}
+
+export interface AiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  /** 服务端持久化后的消息 id 与时间。 */
+  id?: string;
+  createdAt?: number;
+  /** assistant 消息对应的执行步骤，刷新后用于恢复。 */
+  steps?: AiChatStep[];
+}
+
+export type AiChatEvent =
+  | { type: 'status'; message: string }
+  | { type: 'saved'; role: 'user' | 'assistant'; id: string }
+  | { type: 'tool'; name: string; args: Record<string, unknown> }
+  | { type: 'tool_result'; name: string; ok: boolean; detail: string }
+  | { type: 'reply'; content: string }
+  | { type: 'error'; message: string }
+  | { type: 'done' };
 
 export interface DashboardData {
   users: { total: number; admins: number; enabled: number };
@@ -212,6 +260,43 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
+export interface TaskSnapshot {
+  id: string;
+  userId: string;
+  deviceId: string | null;
+  instruction: string;
+  status:
+    | 'queued'
+    | 'running'
+    | 'succeeded'
+    | 'failed'
+    | 'cancelled'
+    | 'timeout';
+  reply: string;
+  error: string | null;
+  createdAt: number;
+  startedAt: number;
+  finishedAt: number;
+}
+
+export interface BatchTaskInput {
+  deviceId: string;
+  instruction: string;
+  timeoutSec?: number;
+}
+
+export interface BatchPlanTask {
+  deviceId: string;
+  instruction: string;
+}
+
+export interface BatchPlan {
+  scope: 'single' | 'batch' | 'none';
+  mode: 'parallel' | 'sequential';
+  summary: string;
+  tasks: BatchPlanTask[];
+}
+
 export const api = {
   login(
     username: string,
@@ -240,6 +325,43 @@ export const api = {
 
   me(): Promise<{ user: AuthUser | null }> {
     return request('/api/auth/me');
+  },
+
+  /** 让 AI 判断一句话是单台还是多台，并拆出每台设备的任务。 */
+  planBatchTasks(body: {
+    instruction: string;
+    deviceIds?: string[];
+  }): Promise<{ plan: BatchPlan }> {
+    return request('/api/tasks/batch/plan', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** 批量创建 AI 任务：相同指令跑多台，或按设备分别指定并按顺序执行。 */
+  createBatchTasks(body: {
+    instruction?: string;
+    deviceIds?: string[];
+    tasks?: BatchTaskInput[];
+    mode?: 'parallel' | 'sequential';
+    timeoutSec?: number;
+  }): Promise<{ tasks: TaskSnapshot[] }> {
+    return request('/api/tasks/batch', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  getTask(id: string): Promise<{ task: TaskSnapshot }> {
+    return request(`/api/tasks/${encodeURIComponent(id)}`);
+  },
+
+  cancelTask(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/tasks/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+      keepalive: true,
+    });
   },
 
   listUsers(): Promise<{ users: UserRecord[] }> {
@@ -661,6 +783,141 @@ export const api = {
     return request('/api/settings/logo', { method: 'DELETE' });
   },
 
+  getAiSettings(): Promise<AiSettingsView> {
+    return request('/api/settings/ai');
+  },
+
+  listApiKeys(): Promise<{ keys: ApiKeyRecord[]; key?: string }> {
+    return request('/api/api-keys');
+  },
+
+  resetApiKey(): Promise<{ key: string; record: ApiKeyRecord }> {
+    return request('/api/api-keys/reset', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  createApiKey(
+    name: string,
+  ): Promise<{ key: string; record: ApiKeyRecord }> {
+    return request('/api/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  deleteApiKey(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/api-keys/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  aiStatus(): Promise<{ enabled: boolean }> {
+    return request('/api/ai/status');
+  },
+
+  getAiMessages(
+    deviceId: string,
+  ): Promise<{ messages: AiChatMessage[] }> {
+    return request(`/api/devices/${deviceId}/ai/messages`);
+  },
+
+  clearAiMessages(deviceId: string): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/ai/messages`, {
+      method: 'DELETE',
+    });
+  },
+
+  deleteAiMessage(
+    deviceId: string,
+    messageId: string,
+  ): Promise<{ ok: boolean }> {
+    return request(
+      `/api/devices/${deviceId}/ai/messages/${encodeURIComponent(messageId)}`,
+      { method: 'DELETE' },
+    );
+  },
+
+  updateAiSettings(input: {
+    enabled?: boolean;
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    temperature?: number;
+    systemPrompt?: string;
+  }): Promise<AiSettingsView> {
+    return request('/api/settings/ai', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  },
+
+  /**
+   * AI 对话：服务端用 SSE 推送每一步进度。
+   * 流格式是 event/data 成对出现，最终由 done 事件结束。
+   */
+  async aiChat(
+    deviceId: string,
+    message: string,
+    onEvent: (event: AiChatEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const response = await fetch(withBase(`/api/devices/${deviceId}/ai/chat`), {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ message }),
+      signal,
+    });
+
+    if (!response.ok) {
+      let message = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) message = body.error;
+      } catch {
+        /* 非 JSON 响应 */
+      }
+      throw new Error(message);
+    }
+    if (!response.body) throw new Error('当前浏览器不支持流式响应');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let index = buffer.indexOf('\n\n');
+      while (index >= 0) {
+        const chunk = buffer.slice(0, index);
+        buffer = buffer.slice(index + 2);
+        const data = chunk
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .join('');
+        if (data) {
+          try {
+            onEvent(JSON.parse(data) as AiChatEvent);
+          } catch {
+            /* 忽略无法解析的事件 */
+          }
+        }
+        index = buffer.indexOf('\n\n');
+      }
+    }
+  },
+
+  cancelAi(deviceId: string): Promise<{ ok: boolean }> {
+    return request(`/api/devices/${deviceId}/ai/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
   siteLogoUrl(updatedAt: number): string {
     return withBase(`/api/settings/logo?v=${updatedAt}`);
   },
@@ -830,6 +1087,78 @@ export const api = {
     return (await response.json()) as { path: string };
   },
 
+  /** 把图片快速导入 Android 设备相册（上传 / 剪贴板 / 截图）。 */
+  async importDeviceGalleryImage(
+    deviceId: string,
+    blob: Blob,
+    name: string,
+  ): Promise<{ path: string; name: string }> {
+    const response = await fetch(
+      withBase(`/api/devices/${deviceId}/gallery/import`),
+      {
+        method: 'POST',
+        headers: authHeaders({
+          'content-type': 'application/octet-stream',
+          'x-file-name': encodeURIComponent(name),
+        }),
+        body: blob,
+      },
+    );
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return (await response.json()) as { path: string; name: string };
+  },
+
+  /** 把图片推送到 iOS App 容器的 Documents / tmp（不经过相册）。 */
+  async importDeviceAppFile(
+    deviceId: string,
+    blob: Blob,
+    options: {
+      bundleId: string;
+      container: 'documents' | 'temp';
+      name: string;
+    },
+  ): Promise<{ path: string; name: string; container: string }> {
+    const query = new URLSearchParams({ container: options.container });
+    if (options.bundleId) query.set('bundleId', options.bundleId);
+    const response = await fetch(
+      withBase(
+        `/api/devices/${deviceId}/app-files/import?${query.toString()}`,
+      ),
+      {
+        method: 'POST',
+        headers: authHeaders({
+          'content-type': 'application/octet-stream',
+          'x-file-name': encodeURIComponent(options.name),
+        }),
+        body: blob,
+      },
+    );
+    if (!response.ok) {
+      let msg = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return (await response.json()) as {
+      path: string;
+      name: string;
+      container: string;
+    };
+  },
+
   async downloadDeviceFilesZip(
     deviceId: string,
     paths: string[],
@@ -895,3 +1224,4 @@ export function thumbnailUrl(device: DeviceSummary): string {
   if (token) query.set('token', token);
   return withBase(`/api/devices/${device.id}/thumbnail?${query.toString()}`);
 }
+

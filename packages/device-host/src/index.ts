@@ -2,6 +2,7 @@ export * from './exec.js';
 export * from './soc.js';
 export * from './android-discover.js';
 export * from './android-screenshot.js';
+export * from './android-input.js';
 export * from './ios-discover.js';
 export * from './ios-models.js';
 export * from './ios-wda.js';

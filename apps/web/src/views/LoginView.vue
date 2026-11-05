@@ -5,6 +5,7 @@ import { NButton, NInput, useMessage } from 'naive-ui';
 import { useAuth } from '../stores/auth';
 import { useSite } from '../stores/site';
 import { api } from '../api';
+import { withBase } from '../base';
 import { APP_VERSION, BUILD_TIME } from '../utils/version';
 
 const route = useRoute();
@@ -52,12 +53,14 @@ async function submit(): Promise<void> {
     <div class="login-card">
       <div class="login-brand">
         <img
-          v-if="logoUpdatedAt > 0"
           class="brand-logo"
-          :src="api.siteLogoUrl(logoUpdatedAt)"
+          :src="
+            logoUpdatedAt > 0
+              ? api.siteLogoUrl(logoUpdatedAt)
+              : withBase('/favicon.svg')
+          "
           alt="logo"
         />
-        <div v-else class="brand-mark">A</div>
         <div class="brand-text">
           <strong>{{ siteTitle }}</strong>
           <span>{{ siteSubtitle }}</span>
@@ -134,16 +137,11 @@ async function submit(): Promise<void> {
   margin-bottom: 24px;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
+.brand-logo {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: #18181b;
-  color: #fafafa;
-  font-size: 14px;
-  font-weight: 600;
+  object-fit: contain;
 }
 
 .brand-text {

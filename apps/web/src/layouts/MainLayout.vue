@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import {
@@ -19,7 +19,10 @@ import {
 import {
   AppsOutline,
   ArrowBackOutline,
+  ChevronBackOutline,
+  ChevronForwardOutline,
   DocumentTextOutline,
+  LinkOutline,
   PeopleOutline,
   PersonCircleOutline,
   PhonePortraitOutline,
@@ -33,6 +36,7 @@ import { useAuth } from '../stores/auth';
 import { usePreviews } from '../stores/previews';
 import { useSite } from '../stores/site';
 import { api } from '../api';
+import { withBase } from '../base';
 import { APP_VERSION, BUILD_TIME } from '../utils/version';
 import FloatingPreviews from '../components/FloatingPreviews.vue';
 
@@ -49,6 +53,14 @@ const oldPassword = ref('');
 const newPassword = ref('');
 const confirmPassword = ref('');
 const pwdSaving = ref(false);
+
+/** 侧边栏折叠状态存本地，刷新后保持。 */
+const collapsed = ref(localStorage.getItem('adh.sider.collapsed') === '1');
+
+function toggleSider(): void {
+  collapsed.value = !collapsed.value;
+  localStorage.setItem('adh.sider.collapsed', collapsed.value ? '1' : '0');
+}
 
 const userMenu = computed<DropdownOption[]>(() => [
   { label: '修改密码', key: 'password' },
@@ -117,7 +129,17 @@ function onPreviewMenu(key: string): void {
 const backTo = computed(() => (route.meta.backTo as string | undefined) ?? null);
 
 function goBack(): void {
+  // 批量页自己处理退出：有 AI 任务时先确认、取消任务、断开设备，再关标签页
+  if (route.name === 'batch-control') {
+    window.dispatchEvent(new Event('adh:batch-exit'));
+    return;
+  }
   if (backTo.value) void router.push(backTo.value);
+}
+
+/** 点击菜单项任意位置都跳转，不再只依赖 label 里的 RouterLink。 */
+function onMenuSelect(key: string): void {
+  if (key.startsWith('/')) void router.push(key);
 }
 
 onMounted(() => {
@@ -162,6 +184,7 @@ const menuOptions = computed<MenuOption[]>(() => {
     deviceChildren.push({
       label: () => h(RouterLink, { to: '/dashboard' }, { default: () => '仪表盘' }),
       key: '/dashboard',
+      title: '仪表盘',
       icon: () => h(NIcon, null, { default: () => h(SpeedometerOutline) }),
     });
   }
@@ -170,11 +193,13 @@ const menuOptions = computed<MenuOption[]>(() => {
     {
       label: () => h(RouterLink, { to: '/devices' }, { default: () => '设备管理' }),
       key: '/devices',
+      title: '设备管理',
       icon: () => h(NIcon, null, { default: () => h(PhonePortraitOutline) }),
     },
     {
       label: () => h(RouterLink, { to: '/apps' }, { default: () => '应用管理' }),
       key: '/apps',
+      title: '应用管理',
       icon: () => h(NIcon, null, { default: () => h(AppsOutline) }),
     },
   );
@@ -188,59 +213,69 @@ const menuOptions = computed<MenuOption[]>(() => {
     },
   ];
 
-  // 普通用户只有设备与应用两个菜单
-  if (!isAdmin.value) return groups;
-
-  const logChildren: MenuOption[] = [];
-  if (isSuper.value) {
+  // 日志组只有管理员可见
+  if (isAdmin.value) {
+    const logChildren: MenuOption[] = [];
+    if (isSuper.value) {
+      logChildren.push({
+        label: () => h(RouterLink, { to: '/audit' }, { default: () => '审计日志' }),
+        key: '/audit',
+        title: '审计日志',
+        icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
+      });
+    }
     logChildren.push({
-      label: () => h(RouterLink, { to: '/audit' }, { default: () => '审计日志' }),
-      key: '/audit',
-      icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
+      label: () => h(RouterLink, { to: '/device-logs' }, { default: () => '设备日志' }),
+      key: '/device-logs',
+      title: '设备日志',
+      icon: () => h(NIcon, null, { default: () => h(ReaderOutline) }),
+    });
+    groups.push({
+      type: 'group',
+      label: '日志',
+      key: 'group-logs',
+      children: logChildren,
     });
   }
-  logChildren.push({
-    label: () => h(RouterLink, { to: '/device-logs' }, { default: () => '设备日志' }),
-    key: '/device-logs',
-    icon: () => h(NIcon, null, { default: () => h(ReaderOutline) }),
-  });
 
-  const systemChildren: MenuOption[] = [
-    {
+  // 系统组：普通用户只有 MCP 接入，管理员再加用户管理，superadmin 再加节点与设置
+  const systemChildren: MenuOption[] = [];
+  if (isAdmin.value) {
+    systemChildren.push({
       label: () => h(RouterLink, { to: '/users' }, { default: () => '用户管理' }),
       key: '/users',
+      title: '用户管理',
       icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }),
-    },
-  ];
+    });
+  }
   if (isSuper.value) {
     systemChildren.push(
       {
         label: () => h(RouterLink, { to: '/agents' }, { default: () => '节点管理' }),
         key: '/agents',
+        title: '节点管理',
         icon: () => h(NIcon, null, { default: () => h(ServerOutline) }),
       },
       {
         label: () => h(RouterLink, { to: '/settings' }, { default: () => '系统设置' }),
         key: '/settings',
+        title: '系统设置',
         icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
       },
     );
   }
-
-  groups.push(
-    {
-      type: 'group',
-      label: '日志',
-      key: 'group-logs',
-      children: logChildren,
-    },
-    {
-      type: 'group',
-      label: '系统',
-      key: 'group-system',
-      children: systemChildren,
-    },
-  );
+  systemChildren.push({
+    label: () => h(RouterLink, { to: '/mcp' }, { default: () => 'MCP 接入' }),
+    key: '/mcp',
+    title: 'MCP 接入',
+    icon: () => h(NIcon, null, { default: () => h(LinkOutline) }),
+  });
+  groups.push({
+    type: 'group',
+    label: '系统',
+    key: 'group-system',
+    children: systemChildren,
+  });
 
   return groups;
 });
@@ -260,34 +295,65 @@ const buildTime = BUILD_TIME;
 
 <template>
   <n-layout has-sider class="app-shell">
-    <n-layout-sider bordered :width="220">
-      <div class="brand">
+    <n-layout-sider
+      bordered
+      :width="220"
+      :collapsed-width="64"
+      :collapsed="collapsed"
+      collapse-mode="width"
+      :show-trigger="false"
+    >
+      <div class="brand" :class="{ collapsed }">
         <img
-          v-if="logoUpdatedAt > 0"
           class="brand-logo"
-          :src="api.siteLogoUrl(logoUpdatedAt)"
+          :src="
+            logoUpdatedAt > 0
+              ? api.siteLogoUrl(logoUpdatedAt)
+              : withBase('/favicon.svg')
+          "
           alt="logo"
         />
-        <div v-else class="brand-mark">A</div>
-        <div class="brand-text">
+        <div v-if="!collapsed" class="brand-text">
           <strong>{{ siteTitle }}</strong>
           <span>{{ siteSubtitle }}</span>
         </div>
       </div>
 
       <div class="menu-wrap">
-        <n-menu :value="activeKey" :options="menuOptions" :indent="14" />
+        <n-menu
+          :value="activeKey"
+          :options="menuOptions"
+          :indent="14"
+          :collapsed="collapsed"
+          :collapsed-width="64"
+          :collapsed-icon-size="18"
+          @update:value="onMenuSelect"
+        />
       </div>
 
-      <div class="sider-footer">
+      <div class="sider-footer" :class="{ collapsed }">
         <div class="sider-stat">
           <span class="dot" />
-          <span>{{ onlineAgents }} 节点 · {{ onlineDevices }} 设备</span>
+          <span v-if="!collapsed">
+            {{ onlineAgents }} 节点 · {{ onlineDevices }} 设备
+          </span>
         </div>
-        <div class="sider-version" :title="`构建于 ${buildTime}`">
+        <div v-if="!collapsed" class="sider-version" :title="`构建于 ${buildTime}`">
           ADH {{ appVersion }} · {{ buildTime }}
         </div>
       </div>
+
+      <button
+        type="button"
+        class="sider-collapse-btn"
+        :title="collapsed ? '展开菜单' : '收起菜单'"
+        @click="toggleSider"
+      >
+        <n-icon :size="15">
+          <ChevronForwardOutline v-if="collapsed" />
+          <ChevronBackOutline v-else />
+        </n-icon>
+      </button>
     </n-layout-sider>
 
     <n-layout class="app-main">
@@ -396,6 +462,11 @@ const buildTime = BUILD_TIME;
   height: 100vh;
 }
 
+/* 折叠按钮相对整个 sider 垂直居中 */
+:deep(.n-layout-sider) {
+  position: relative;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -405,17 +476,10 @@ const buildTime = BUILD_TIME;
   border-bottom: 1px solid var(--border);
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: #18181b;
-  border: 1px solid #18181b;
-  color: #fafafa;
-  font-size: 13px;
-  font-weight: 600;
+/* 折叠后只保留品牌图标，居中显示 */
+.brand.collapsed {
+  justify-content: center;
+  padding: 0 18px;
 }
 
 .brand-logo {
@@ -519,6 +583,43 @@ const buildTime = BUILD_TIME;
   color: var(--text-faint);
 }
 
+/* 折叠时底部只留在线状态点 */
+.sider-footer.collapsed {
+  align-items: center;
+  padding: 8px 0;
+}
+
+.sider-collapse-btn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  opacity: 0.65;
+  transform: translateY(-50%);
+  transition:
+    opacity 0.12s ease,
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.sider-collapse-btn:hover {
+  opacity: 1;
+  background: var(--bg);
+  color: var(--text);
+}
+
 .sider-stat {
   display: flex;
   align-items: center;
@@ -602,3 +703,4 @@ const buildTime = BUILD_TIME;
   flex-direction: column;
 }
 </style>
+

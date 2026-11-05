@@ -26,7 +26,7 @@ function readServerVersion(): string {
   } catch {
     /* 读不到就用默认值 */
   }
-  return '0.1.0';
+  return '0.2.0';
 }
 
 export const SERVER_VERSION = readServerVersion();

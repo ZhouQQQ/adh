@@ -1587,6 +1587,7 @@ defineExpose({
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+  max-width: calc(100% - 24px);
   pointer-events: none;
 }
 

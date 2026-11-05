@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
   BUILTIN_AGENT_ID,
@@ -110,6 +110,8 @@ export class StreamManager {
   private readonly iosControls = new Map<string, IosControl>();
   /** 设备最近一次计入使用次数的时间，用于去重。 */
   private readonly usageRecordedAt = new Map<string, number>();
+  /** AI 任务执行期间锁定的设备，普通 viewer 不能进来抢控制权。 */
+  private readonly taskLocks = new Set<string>();
 
   constructor(private readonly deps: StreamManagerDeps) {}
 
@@ -172,6 +174,31 @@ export class StreamManager {
     for (const sessionId of [...this.sessions.keys()]) {
       this.destroy(sessionId, '服务端正在关闭');
     }
+  }
+
+  /** AI 任务期间占用设备，阻止 viewer 接管。 */
+  lockForTask(deviceId: string): void {
+    this.taskLocks.add(deviceId);
+  }
+
+  unlockForTask(deviceId: string): void {
+    this.taskLocks.delete(deviceId);
+  }
+
+  isTaskLocked(deviceId: string): boolean {
+    return this.taskLocks.has(deviceId);
+  }
+
+  /** 等待投屏会话的 ready 元数据；任务执行前必须先确认画面通道就绪。 */
+  async waitReady(deviceId: string, timeoutMs = 15_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const session = this.findSessionByDevice(deviceId);
+      if (!session || session.closed) return false;
+      if (session.meta) return true;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return false;
   }
 
   /** 该设备是否已有控制会话（含 iOS 的心跳式控制权）。 */
@@ -511,12 +538,42 @@ export class StreamManager {
     return true;
   }
 
+  /**
+   * 服务端（例如 AI 助手）直接向设备注入控制消息。
+   * 这里不做控制权校验，调用方必须先确认当前用户是控制者。
+   * 设备没有活动投屏会话时返回 false，由调用方决定是否先 create()。
+   */
+  sendControl(deviceId: string, message: ViewerToStreamMessage): boolean {
+    const session = this.findSessionByDevice(deviceId);
+    if (!session || session.closed) return false;
+
+    try {
+      if (session.local) {
+        for (const payload of session.local.translator.translate(message)) {
+          session.local.scrcpy.sendControl(payload);
+        }
+        return true;
+      }
+      if (session.agentSocket && session.agentSocket.readyState === 1) {
+        session.agentSocket.send(JSON.stringify(message));
+        return true;
+      }
+    } catch (error) {
+      this.deps.logger.warn(
+        { deviceId, err: String(error) },
+        'sendControl failed',
+      );
+    }
+    return false;
+  }
+
   async create(
     deviceId: string,
     quality: string = 'medium',
-  ): Promise<{ sessionId: string }> {    // 同一台设备复用已有会话：第二个进入的人只会拿到只读权限
+  ): Promise<{ sessionId: string; reused: boolean }> {
+    // 同一台设备复用已有会话：第二个进入的人只会拿到只读权限
     const reuse = this.findSessionByDevice(deviceId);
-    if (reuse) return { sessionId: reuse.id };
+    if (reuse) return { sessionId: reuse.id, reused: true };
 
     const device = await this.deps.queries.getDevice(deviceId);
     if (!device) throw new Error('设备不存在');
@@ -561,7 +618,7 @@ export class StreamManager {
     }
 
     this.notifyDevice(deviceId);
-    return { sessionId };
+    return { sessionId, reused: false };
   }
 
   /** 切换画质：先关掉旧会话，再按新档位重建。 */
@@ -649,6 +706,16 @@ export class StreamManager {
       return;
     }
 
+    // AI 任务独占设备，避免任务执行到一半被人接管
+    if (this.taskLocks.has(session.device.id)) {
+      sendJson(socket, {
+        t: 'error',
+        message: '设备正在执行 AI 任务，请稍后再试',
+      });
+      socket.close(4005, 'task running');
+      return;
+    }
+
     const previousController = session.controller;
     // 已有人控制时，只有原控制者本人重连才能恢复，其他人保持只读
     const sameUser = Boolean(user && session.controllerUserId === user.id);
@@ -660,8 +727,10 @@ export class StreamManager {
 
     session.viewers.add(socket);
     if (becomesController) {
+      // 同一用户刷新页面重连时保留原来的开始时间，计时不能重置
+      const resumed = sameUser && session.controllerSince > 0;
       session.controller = socket;
-      session.controllerSince = Date.now();
+      if (!resumed) session.controllerSince = Date.now();
       session.controllerUserId = user?.id ?? null;
       session.controllerLeftAt = 0;
       this.clearControllerRelease(session);
@@ -1072,3 +1141,4 @@ export class StreamManager {
     }
   }
 }
+

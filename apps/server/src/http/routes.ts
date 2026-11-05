@@ -1655,6 +1655,234 @@ export async function registerHttpRoutes(
     }
   });
 
+  /** 把图片快速导入 Android 设备相册（上传 / 剪贴板 / 截图）。 */
+  app.post('/api/devices/:id/gallery/import', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (device.platform !== 'android') {
+      return reply.code(400).send({ error: '仅支持 Android 设备' });
+    }
+    if (!request.user) return reply.code(401).send({ error: '请先登录' });
+    if (!isAdminRole(request.user.role)) {
+      const control = deps.streams.getControl(id);
+      if (!control || control.userId !== request.user.id) {
+        return reply.code(403).send({ error: '当前设备由其他人控制，你只能查看' });
+      }
+    }
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
+
+    const body = request.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      return reply.code(400).send({ error: '图片内容为空' });
+    }
+    if (body.length > 10 * 1024 * 1024) {
+      return reply.code(413).send({ error: '图片超过 10MB' });
+    }
+
+    const rawName = request.headers['x-file-name'];
+    const rawFileName =
+      typeof rawName === 'string' && rawName
+        ? decodeURIComponent(rawName)
+        : `image-${Date.now()}.png`;
+    const extMatch = /\.(png|jpe?g|webp|gif)$/i.exec(rawFileName);
+    const ext = (extMatch?.[1] ?? 'png').toLowerCase();
+    const fileName = `adh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const remotePath = `/sdcard/Pictures/${fileName}`;
+
+    try {
+      if (device.agentId === BUILTIN_AGENT_ID) {
+        const tempPath = path.join(os.tmpdir(), fileName);
+        fs.writeFileSync(tempPath, body);
+        try {
+          const push = await runCommand(
+            'adb',
+            ['-s', device.udid, 'push', tempPath, remotePath],
+            120_000,
+          );
+          if (push.code !== 0) {
+            return reply
+              .code(400)
+              .send({ error: push.stderr.trim() || '推送图片失败' });
+          }
+        } finally {
+          fs.rmSync(tempPath, { force: true });
+        }
+        await runCommand(
+          'adb',
+          [
+            '-s',
+            device.udid,
+            'shell',
+            'am',
+            'broadcast',
+            '-a',
+            'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
+            '-d',
+            `file://${remotePath}`,
+          ],
+          20_000,
+        );
+      } else {
+        const remote = await deps.commands.send(
+          device.agentId,
+          'gallery.import',
+          {
+            udid: device.udid,
+            name: fileName,
+            data: body.toString('base64'),
+          },
+          device.id,
+          120_000,
+        );
+        if (!remote.ok) {
+          return reply
+            .code(400)
+            .send({ error: remote.error ?? '导入设备相册失败' });
+        }
+      }
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : '导入设备相册失败',
+      });
+    }
+
+    logDevice(request, device, 'gallery.import', remotePath);
+    return { path: remotePath, name: fileName };
+  });
+
+  /** go-ios 命令名在不同安装方式下可能是 ios / go-ios。 */
+  const resolveIosCommand = async (): Promise<string> => {
+    for (const command of ['ios', 'go-ios']) {
+      const probe = await runCommand(command, ['version'], 5_000);
+      if (!probe.failedToStart) return command;
+    }
+    throw new Error('未找到 go-ios（ios / go-ios）');
+  };
+
+  /** 把图片推送到 iOS App 容器的 Documents / tmp（不经过相册）。 */
+  app.post('/api/devices/:id/app-files/import', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (device.platform !== 'ios') {
+      return reply.code(400).send({ error: '仅支持 iOS 设备' });
+    }
+    if (!request.user) return reply.code(401).send({ error: '请先登录' });
+    if (!isAdminRole(request.user.role)) {
+      const control = deps.streams.getControl(id);
+      if (!control || control.userId !== request.user.id) {
+        return reply.code(403).send({ error: '当前设备由其他人控制，你只能查看' });
+      }
+    }
+    if (device.locked) {
+      return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
+
+    const body = request.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      return reply.code(400).send({ error: '图片内容为空' });
+    }
+    if (body.length > 10 * 1024 * 1024) {
+      return reply.code(413).send({ error: '图片超过 10MB' });
+    }
+
+    const query = request.query as { bundleId?: string; container?: string };
+    const container = query.container === 'temp' ? 'temp' : 'documents';
+    const bundleId = query.bundleId?.trim() ?? '';
+    if (container === 'documents' && !/^[A-Za-z0-9._-]+$/.test(bundleId)) {
+      return reply.code(400).send({ error: '请选择目标 App（Bundle ID）' });
+    }
+
+    const rawName = request.headers['x-file-name'];
+    const decoded =
+      typeof rawName === 'string' && rawName
+        ? decodeURIComponent(rawName)
+        : `image-${Date.now()}.png`;
+    const safeName =
+      decoded
+        .replace(/[\\/]/g, '_')
+        .replace(/[\u0000-\u001f]/g, '')
+        .slice(0, 120) || `image-${Date.now()}.png`;
+
+    try {
+      if (device.agentId === BUILTIN_AGENT_ID) {
+        const command = await resolveIosCommand();
+        const tempPath = path.join(
+          os.tmpdir(),
+          `adh-app-${Date.now()}-${safeName}`,
+        );
+        fs.writeFileSync(tempPath, body);
+        try {
+          const args =
+            container === 'temp'
+              ? [
+                  'file',
+                  'push',
+                  '--temp',
+                  `--local=${tempPath}`,
+                  `--remote=${safeName}`,
+                  `--udid=${device.udid}`,
+                ]
+              : [
+                  'file',
+                  'push',
+                  `--app=${bundleId}`,
+                  `--local=${tempPath}`,
+                  `--remote=Documents/${safeName}`,
+                  `--udid=${device.udid}`,
+                ];
+          const result = await runCommand(command, args, 120_000);
+          if (result.code !== 0) {
+            return reply.code(400).send({
+              error:
+                result.stderr.trim() ||
+                result.stdout.trim() ||
+                '推送文件失败',
+            });
+          }
+        } finally {
+          fs.rmSync(tempPath, { force: true });
+        }
+      } else {
+        const remote = await deps.commands.send(
+          device.agentId,
+          'ios.file.push',
+          {
+            udid: device.udid,
+            bundleId: container === 'documents' ? bundleId : undefined,
+            container,
+            name: safeName,
+            data: body.toString('base64'),
+          },
+          device.id,
+          120_000,
+        );
+        if (!remote.ok) {
+          return reply
+            .code(400)
+            .send({ error: remote.error ?? '推送文件失败' });
+        }
+      }
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : '推送文件失败',
+      });
+    }
+
+    const remotePath =
+      container === 'temp' ? `tmp/${safeName}` : `Documents/${safeName}`;
+    logDevice(
+      request,
+      device,
+      'app.file.push',
+      `${bundleId || 'tmp'}:${remotePath}`,
+    );
+    return { path: remotePath, name: safeName, container };
+  });
+
   /** 批量删除。 */
   /** 多选打包下载：adb pull 到临时目录后压成 zip。 */
   app.post('/api/devices/:id/files/archive', async (request, reply) => {

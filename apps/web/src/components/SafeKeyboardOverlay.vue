@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {
   computed,
   nextTick,
@@ -14,6 +14,7 @@ const props = defineProps<{
   visible: boolean;
   deviceId?: string;
   layout?: SafeKeyboardLayout | null;
+  mode?: 'password' | 'full';
 }>();
 
 const emit = defineEmits<{ change: [layout: SafeKeyboardLayout] }>();
@@ -159,13 +160,20 @@ function applyLayout(next: SafeKeyboardLayout): void {
 }
 
 watch(
-  () => [props.visible, props.deviceId, JSON.stringify(props.layout ?? null)].join('|'),
+  () => [props.visible, props.deviceId, props.mode, JSON.stringify(props.layout ?? null)].join('|'),
   () => {
     if (!props.visible) {
       editing.value = false;
       return;
     }
     applyLayout(resolveLayout());
+    // 由外部按钮决定显示密码键盘还是全键盘，类型不跟着服务端旧值走
+    if (props.mode && layout.type !== props.mode) {
+      layout.type = props.mode;
+      if (layout.height === 35 || layout.height === 40) {
+        layout.height = props.mode === 'full' ? 40 : 35;
+      }
+    }
     // 服务端还没有、但本地调过：把本地位置同步上去
     if (!props.layout) scheduleSave(600);
   },
@@ -228,14 +236,12 @@ function toggleEdit(): void {
 }
 
 function reset(): void {
-  Object.assign(layout, DEFAULTS);
-}
-
-/** 数字密码键盘 / 全键盘切换，全键盘需要更高一点。 */
-function toggleType(): void {
-  layout.type = layout.type === 'full' ? 'password' : 'full';
-  layout.height = layout.type === 'full' ? 40 : 35;
-  scheduleSave(0);
+  const type = props.mode ?? DEFAULTS.type;
+  Object.assign(layout, {
+    ...DEFAULTS,
+    type,
+    height: type === 'full' ? 40 : 35,
+  });
 }
 
 onMounted(() => {
@@ -256,9 +262,6 @@ onBeforeUnmount(() => {
     <div class="safe-toolbar">
       <button type="button" @click="toggleEdit">
         {{ editing ? '完成' : '调整位置' }}
-      </button>
-      <button type="button" @click="toggleType">
-        {{ layout.type === 'full' ? '数字键盘' : '全键盘' }}
       </button>
       <button type="button" @click="reset">重置</button>
       <label v-if="editing" class="opacity">
@@ -540,3 +543,6 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 </style>
+
+
+

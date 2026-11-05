@@ -298,6 +298,10 @@ export const DeviceActionSchema = z.enum([
   'ios.status',
   /** 调整 WDA MJPEG 的帧率 / 质量 / 缩放。 */
   'ios.quality',
+  /** 把图片推送到 Android 设备相册（截图 / 剪贴板 / 上传）。 */
+  'gallery.import',
+  /** 把图片推送到 iOS App 容器的 Documents / tmp（不经过相册）。 */
+  'ios.file.push',
 ]);
 export type DeviceAction = z.infer<typeof DeviceActionSchema>;
 

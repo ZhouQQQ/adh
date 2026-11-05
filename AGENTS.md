@@ -1,4 +1,4 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 分布式设备农场：`adh-server` 管设备，`adh-agent` 跑在设备宿主机上主动外连，Web 控制台实时预览与操作 Android 设备。
 
@@ -49,6 +49,9 @@ pnpm migrate:data
 - **Agent 自更新**：`adh-agent update` 只支持打包后的安装目录（有 `src/cli.js`），源码目录会直接拒绝。替换在独立 helper 进程里完成，先 rename 旧目录再放新目录，启动失败自动回滚；旧版本保留为 `<install>.bak-*`，`vendor/` 与 `~/.adh` 不参与替换。打包脚本产出 `dist/adh-agent-manifest.json`（含各平台 sha256），CI 必须和 zip 一起上传到 Release，否则 `update` 无法校验和识别新版本。
 - **设备从 adb 消失时标记 offline，不删记录**；清理走 `DELETE /api/devices/:id`。
 - **设备名优先取厂商市场名称**：`ro.vivo.market.name` → `ro.product.marketname` → OPPO / `ro.config.marketing_name` 等，取不到才回退到 `ro.product.model`。型号代码单独存在 `model` 字段。
+- **AI 助手**：只有设备当前控制者能用，入口在设备控制页右侧常驻栏。模型配置存 `adh_settings` 的 `ai.*`，仅 superadmin 可改，apiKey 只留在服务端。执行是纯视觉闭环：截图 → 等待画面稳定 → VL 决策 → 动作 → 再截图 → 64×64 灰度指纹对比画面变化，不依赖 DOM / 无障碍树；复用 `StreamManager.sendControl` / `sendIosInput`，点击与滑动不另开 adb；纯 ASCII 文本（金额 / 密码 / 验证码）优先走 `input.text`（本机直连 adb，远程由 agent 执行），失败再回退 scrcpy 文本注入。对话记录存 `adh_ai_messages`，严格按 `device_id + user_id` 隔离，A 看不到 B 的对话；保留最近 100 条，支持单条删除与全部清空，删除时 SQL 同时限定 `user_id`。刷新后由 `GET /api/devices/:id/ai/messages` 恢复。远程设备的截图依赖 agent 的 `screenshot` action，旧版 agent 需要升级。模型必须是支持 vision 的 OpenAI 兼容接口。单任务最多 30 轮「截图 → 模型决策」（每轮可执行多个动作）、60 个实际动作；达到上限会落 `failed` 并提示拆分任务，不会当成成功。
+- **批量 AI 任务**：批量控制页右下角固定「AI 批量」悬浮按钮，只有一个 ChatGPT 风格对话框，不再让用户选模式。`POST /api/tasks/batch/plan` 把一句话和当前选中设备交给模型，由模型判断单台还是多台、相同任务还是按设备拆分，并返回 `tasks`（`POST /api/tasks/batch` 再落库执行）。`scope=single` 只控制一台，`batch+parallel` 多台同一任务（最多 3 并发，其余排队），`batch+sequential` 按设备顺序执行（适合 A 发消息、B 回复）。每台设备仍是独立 `adh_tasks` 记录，由 `TaskService.createBatch` 调度并复用视觉闭环。任务会复用当前用户自己的预览会话并加任务锁（不能抢其他用户控制的设备），执行过程画面继续可见，不再断流黑屏；排队任务可取消。批量页是独立标签页，点返回会先确认是否有 AI 任务在跑，确认后取消任务、断开所有设备并关闭标签页；直接关标签页也走同样的清理。设备墙默认 50% 缩放（范围 10%~200%，低于 30% 时隐藏标题栏只看画面），画面按设备比例完整显示，不裁切。
+- **MCP / 外部 Agent**：server 内置 Streamable HTTP MCP，路径 `/mcp`，客户端只需配 `url`（`http://<ip>:8080/mcp?key=adhk_xxx`，也支持 `Authorization: Bearer`）。会话用 `Mcp-Session-Id`（stateful，按用户隔离，30 分钟空闲回收），路由在 `apps/server/src/http/mcp-routes.ts`。工具定义与两种 transport 共用 `apps/server/src/mcp/server.ts` / `backend.ts`：HTTP 模式直接调进程内 service，stdio 模式（`apps/server/src/mcp-cli.ts`，`ADH_SERVER_URL` + `ADH_API_KEY`）通过 REST 调平台，给只支持 stdio 的老客户端。工具为 `list_devices` / `run_task` / `get_task` / `list_tasks` / `cancel_task`。所有登录用户都可以在侧边栏「系统 → MCP 接入」使用自己的 Key；首次访问 `GET /api/api-keys` 会自动补一把 `default` Key 并在响应里返回明文，前端缓存在 localStorage（按用户隔离）。每个用户只有一把默认 Key，前端只提供 `POST /api/api-keys/reset` 重置，`POST /api/api-keys` 主动创建会返回 400。superadmin 能看和删除全部 Key，普通用户只能操作自己的。任务由 `TaskService` 调度：选在线、未锁、空闲设备 → 建投屏会话 → 跑 `runAiChat` → 落 `adh_tasks`；期间 `StreamManager.lockForTask` 阻止 viewer 抢占，结束自动释放。API Key 存 `adh_api_keys`，只在创建时返回一次明文。
 - **`builtin-local` 是 server 内置 Agent**（进程内直连本机 adb），删除 / 重置 Key 接口返回 400，前端不展示这些按钮。
 - 前端 `api.ts` 的 `request()` **只在有 body 时设置 `content-type`**。否则 DELETE 会被 Fastify 判为 400 `Body cannot be empty`。
 - Web 端需要登录，角色 `admin`（含用户管理、审计）和 `operator`；默认管理员 `admin / admin`。Agent 仍用 `adh_` 前缀的 key 鉴权。
@@ -69,3 +72,5 @@ pnpm migrate:data
 - 投屏会话管理：`apps/server/src/stream/manager.ts`、`apps/server/src/ws/stream.ts`
 - Web 播放器：`apps/web/src/components/DevicePlayer.vue`
 - 主题（shadcn 浅色）：`apps/web/src/theme.ts`，**不要再传 `darkTheme`**
+
+
