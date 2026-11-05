@@ -364,7 +364,7 @@ async function onImageSelected(event: Event): Promise<void> {
             <CopyValue
               :value="
                 device.wdaPort
-                  ? `:${device.wdaPort}（节点 ${agentName}）`
+                  ? `节点「${agentName}」 · :${device.wdaPort}`
                   : '未分配'
               "
             />

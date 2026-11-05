@@ -199,14 +199,14 @@ ADH_OSS_PREFIX=adh
 
 ```bash
 pnpm install
-pnpm dev                                # server:8080 + web:5173（HTTPS）
+pnpm dev                                # server:8080 + web:5173（HTTP）
 pnpm build                              # 前端产物到 apps/server/public
 pnpm start                              # 单进程托管 API + 前端
 pnpm package:agent                      # 打三平台 Agent 包
 pnpm package:server --platform linux    # 打离线 server 包
 ```
 
-`ADH_HTTPS=0 pnpm dev` 可回退到 http。
+默认走 HTTP；需要 HTTPS（例如用局域网 IP 访问、要求 WebCodecs 安全上下文）时用 `ADH_HTTPS=1 pnpm dev`。
 
 ```
 apps/server/          API、WS、内置 Agent、OSS

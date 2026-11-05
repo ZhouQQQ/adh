@@ -73,16 +73,15 @@ function basePathPlugin(): Plugin {
 }
 
 /**
- * 本地 dev 默认走 HTTPS。
+ * 本地 dev 默认走 HTTP（localhost 属于安全上下文，WebCodecs 可用）。
  *
- * 浏览器只在安全上下文（https / localhost）暴露 WebCodecs，
- * 用局域网 IP 走 http 打开时安卓投屏会提示「无法解码」。
+ * 用局域网 IP 通过 http 访问时浏览器不会暴露 WebCodecs，
+ * 安卓投屏会提示「无法解码」，这种场景设置 ADH_HTTPS=1 启用 HTTPS。
  * 自签证书首次访问需要点「继续前往」，之后就会记住。
  *
- * ADH_HTTPS=0 可切回 http：
- * 前面有 frp / nginx 已经做了 HTTPS 终止、转发到本机 5173 时用。
+ * 前面有 frp / nginx 做 HTTPS 终止、转发到本机 5173 时保持默认 HTTP 即可。
  */
-const useHttps = process.env.ADH_HTTPS !== '0';
+const useHttps = process.env.ADH_HTTPS === '1';
 
 /**
  * 通过 frp / nginx 用域名访问时，Vite 会校验 Host 头并拦截请求：

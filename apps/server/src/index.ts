@@ -382,7 +382,7 @@ async function main(): Promise<void> {
     if (!config.serveWeb) {
       return reply.code(404).send({
         error: 'web console disabled',
-        hint: 'ADH_SERVE_WEB=0，开发请访问 http://localhost:5173',
+        hint: 'ADH_SERVE_WEB=0，开发请访问 http://localhost:5173（ADH_HTTPS=1 时为 https）',
       });
     }
     return sendIndex(request, reply);
