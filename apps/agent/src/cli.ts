@@ -12,6 +12,7 @@ import {
 } from '@adh/device-host';
 import {
   PROTOCOL_VERSION,
+  renderBanner,
   type AgentCapability,
   type AgentRuntimeInfo,
   type DeviceInfo,
@@ -185,6 +186,20 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
   }
 
   const logger = createLogger((values['log-level'] as string | undefined) ?? 'info');
+
+  // 仿 Spring Boot 的启动 banner，放在环境检查之前
+  console.log(
+    renderBanner({
+      name: 'adh-agent',
+      version: AGENT_VERSION,
+      details: [
+        `node ${process.version}`,
+        `${process.platform}/${process.arch}`,
+        `server ${serverUrl}`,
+      ],
+      color: Boolean(process.stdout.isTTY) && !process.env.NO_COLOR,
+    }),
+  );
 
   // 先把安装包内置的工具目录放到 PATH 最前面，再检查
   ensureToolPath();

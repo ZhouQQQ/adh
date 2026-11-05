@@ -1,7 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import sharp from 'sharp';
-import type { SettingsService } from '../settings/service.js';
+import {
+  MAX_IDLE_TIMEOUT_MINUTES,
+  type SettingsService,
+} from '../settings/service.js';
 
 interface SettingsRouteDeps {
   settings: SettingsService;
@@ -16,6 +19,13 @@ const UpdateSiteBody = z.object({
   adminDeviceLimit: z.number().int().min(0).max(50).optional(),
   /** 超级管理员同时控制设备上限，0 表示不限。 */
   superadminDeviceLimit: z.number().int().min(0).max(50).optional(),
+  /** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
+  idleTimeoutMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_IDLE_TIMEOUT_MINUTES)
+    .optional(),
 });
 
 /** 站点设置：标题与 Logo。读取公开（登录页也要用），写入仅管理员。 */
@@ -40,7 +50,7 @@ export async function registerSettingsRoutes(
     }
     const parsed = UpdateSiteBody.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: '标题不能超过 40 个字' });
+      return reply.code(400).send({ error: '设置参数不合法' });
     }
     const current = await deps.settings.getSite();
     return deps.settings.saveSite({
@@ -49,6 +59,7 @@ export async function registerSettingsRoutes(
       operatorDeviceLimit: parsed.data.operatorDeviceLimit,
       adminDeviceLimit: parsed.data.adminDeviceLimit,
       superadminDeviceLimit: parsed.data.superadminDeviceLimit,
+      idleTimeoutMinutes: parsed.data.idleTimeoutMinutes,
     });
   });
 

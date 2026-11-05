@@ -9,7 +9,7 @@ import Fastify, {
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { WS_PATHS, BUILTIN_AGENT_ID } from '@adh/protocol';
+import { WS_PATHS, BUILTIN_AGENT_ID, renderBanner } from '@adh/protocol';
 import { AuthService } from './auth/service.js';
 import { bearerToken } from './auth/token.js';
 import { describeAudit } from './auth/audit-describe.js';
@@ -51,6 +51,22 @@ function lanAddress(): string | null {
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
+
+  // 仿 Spring Boot 的启动 banner，放在所有初始化之前
+  console.log(
+    renderBanner({
+      name: 'adh-server',
+      version: SERVER_VERSION,
+      details: [
+        `node ${process.version}`,
+        `${process.platform}/${process.arch}`,
+        `port ${config.port}`,
+      ],
+      color: Boolean(process.stdout.isTTY) && !process.env.NO_COLOR,
+    }),
+  );
+  console.log();
+
   const { driver, close: closeDatabase } = await openDatabase(config.db);
   const queries = createQueries(driver);
   const auth = new AuthService(driver);
@@ -67,7 +83,16 @@ async function main(): Promise<void> {
     driver,
     path.join(config.dataDir, 'branding'),
   );
-  const streams = new StreamManager({ queries, registry, hub, logger, deviceLogs });
+  // 预热设置缓存：投屏会话需要同步读取无操作超时配置。
+  await settings.getSite();
+  const streams = new StreamManager({
+    queries,
+    registry,
+    hub,
+    logger,
+    deviceLogs,
+    settings,
+  });
   hub.setControlResolver((deviceId) => streams.getControl(deviceId));
 
   const localAgent = new LocalAgent({

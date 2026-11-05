@@ -23,9 +23,11 @@ import type { Queries } from '../db/queries.js';
 import type { DeviceLogService } from '../logs/device-logs.js';
 import type { Logger } from '../log.js';
 import type { AgentRegistry } from '../registry.js';
+import type { SettingsService } from '../settings/service.js';
 import type { WebHub } from '../ws/web-hub.js';
 
-const IDLE_TIMEOUT_MS = 5 * 60_000;
+/** 最后一个观看者离开后，保留会话等待重连的时间。 */
+const VIEWER_IDLE_TIMEOUT_MS = 5 * 60_000;
 /** 控制者异常掉线后给原用户的重连窗口，超时才允许其他人接管。 */
 const CONTROLLER_RECONNECT_WINDOW_MS = 30_000;
 const AGENT_ATTACH_TIMEOUT_MS = 15_000;
@@ -85,6 +87,7 @@ export interface StreamManagerDeps {
   hub: WebHub;
   logger: Logger;
   deviceLogs: DeviceLogService;
+  settings: SettingsService;
 }
 
 interface ViewerMeta {
@@ -1045,16 +1048,21 @@ export class StreamManager {
     this.clearIdleTimer(session);
     session.idleTimer = setTimeout(() => {
       this.destroy(session.id, '长时间无人观看，已自动关闭');
-    }, IDLE_TIMEOUT_MS);
+    }, VIEWER_IDLE_TIMEOUT_MS);
   }
 
-  /** 控制者有输入就重置无操作计时。 */
+  /** 控制者有输入就重置无操作计时；配置为 0 表示不自动断开。 */
   private touchActivity(session: StreamSession): void {
-    if (session.activityTimer) clearTimeout(session.activityTimer);
+    if (session.activityTimer) {
+      clearTimeout(session.activityTimer);
+      session.activityTimer = null;
+    }
+    const minutes = this.deps.settings.getIdleTimeoutMinutes();
+    if (minutes <= 0) return;
     session.activityTimer = setTimeout(() => {
       if (session.closed) return;
       this.destroy(session.id, '长时间无操作，已自动断开');
-    }, IDLE_TIMEOUT_MS);
+    }, minutes * 60_000);
   }
 
   private clearIdleTimer(session: StreamSession): void {

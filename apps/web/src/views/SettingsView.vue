@@ -27,6 +27,7 @@ const {
   operatorDeviceLimit: limit,
   adminDeviceLimit,
   superadminDeviceLimit,
+  idleTimeoutMinutes,
 } = useSite();
 
 const titleInput = ref('');
@@ -34,6 +35,7 @@ const subtitleInput = ref('');
 const operatorLimit = ref(1);
 const adminLimit = ref(0);
 const superLimit = ref(0);
+const idleLimit = ref(5);
 const saving = ref(false);
 const savingLimit = ref(false);
 const uploading = ref(false);
@@ -66,6 +68,7 @@ onMounted(async () => {
   operatorLimit.value = limit?.value ?? 1;
   adminLimit.value = adminDeviceLimit?.value ?? 0;
   superLimit.value = superadminDeviceLimit?.value ?? 0;
+  idleLimit.value = idleTimeoutMinutes?.value ?? 5;
 
   try {
     const [h, info] = await Promise.all([api.health(), api.serverInfo()]);
@@ -111,6 +114,7 @@ async function saveLimit(): Promise<void> {
       operatorDeviceLimit: operatorLimit.value,
       adminDeviceLimit: adminLimit.value,
       superadminDeviceLimit: superLimit.value,
+      idleTimeoutMinutes: idleLimit.value,
     });
     applySiteSettings(settings);
     message.success('已保存，立即生效');
@@ -275,6 +279,25 @@ async function removeLogo(): Promise<void> {
               </div>
               <div class="hint">
                 超过上限时创建投屏会被拒绝，保存后立即生效。
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label">无操作自动断开</div>
+              <div class="control">
+                <n-input-number
+                  v-model:value="idleLimit"
+                  size="small"
+                  :min="0"
+                  :max="120"
+                  :precision="0"
+                  style="width: 140px"
+                />
+                <span class="hint">分钟</span>
+              </div>
+              <div class="hint">
+                控制端超过该时长没有操作会自动结束投屏，默认 5 分钟；0
+                表示不自动断开。
               </div>
             </div>
 

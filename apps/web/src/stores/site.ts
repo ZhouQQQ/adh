@@ -12,6 +12,8 @@ const operatorDeviceLimit = ref(1);
 const adminDeviceLimit = ref(0);
 /** 超级管理员可同时控制的设备数，0 表示不限。 */
 const superadminDeviceLimit = ref(0);
+/** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
+const idleTimeoutMinutes = ref(5);
 
 /**
  * 浏览器标签页图标：没上传 Logo 用内置 favicon.svg，
@@ -39,6 +41,7 @@ export async function loadSiteSettings(): Promise<void> {
     operatorDeviceLimit.value = settings.operatorDeviceLimit ?? 1;
     adminDeviceLimit.value = settings.adminDeviceLimit ?? 0;
     superadminDeviceLimit.value = settings.superadminDeviceLimit ?? 0;
+    idleTimeoutMinutes.value = settings.idleTimeoutMinutes ?? 5;
     applyFavicon(logoUpdatedAt.value);
   } catch {
     /* 读不到就用默认值 */
@@ -52,6 +55,7 @@ export function applySiteSettings(settings: {
   operatorDeviceLimit?: number;
   adminDeviceLimit?: number;
   superadminDeviceLimit?: number;
+  idleTimeoutMinutes?: number;
 }): void {
   title.value = settings.title || '设备农场';
   subtitle.value = settings.subtitle || 'Device Hub';
@@ -64,6 +68,9 @@ export function applySiteSettings(settings: {
   }
   if (settings.superadminDeviceLimit !== undefined) {
     superadminDeviceLimit.value = settings.superadminDeviceLimit;
+  }
+  if (settings.idleTimeoutMinutes !== undefined) {
+    idleTimeoutMinutes.value = settings.idleTimeoutMinutes;
   }
   applyFavicon(logoUpdatedAt.value);
 }
@@ -80,6 +87,7 @@ export function useSite(): {
   operatorDeviceLimit: typeof operatorDeviceLimit;
   adminDeviceLimit: typeof adminDeviceLimit;
   superadminDeviceLimit: typeof superadminDeviceLimit;
+  idleTimeoutMinutes: typeof idleTimeoutMinutes;
 } {
   return {
     title,
@@ -88,5 +96,6 @@ export function useSite(): {
     operatorDeviceLimit,
     adminDeviceLimit,
     superadminDeviceLimit,
+    idleTimeoutMinutes,
   };
 }

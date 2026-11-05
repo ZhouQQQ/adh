@@ -15,6 +15,8 @@ export interface SiteSettings {
   adminDeviceLimit: number;
   /** 超级管理员可同时控制的设备数，0 表示不限（默认）。 */
   superadminDeviceLimit: number;
+  /** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
+  idleTimeoutMinutes: number;
 }
 
 const DEFAULT_TITLE = '设备农场';
@@ -25,9 +27,16 @@ const DEFAULT_OPERATOR_LIMIT = 2;
 const DEFAULT_ADMIN_LIMIT = 0;
 /** 超级管理员默认不限。 */
 const DEFAULT_SUPER_LIMIT = 0;
+/** 控制者默认 5 分钟无操作自动断开。 */
+const DEFAULT_IDLE_TIMEOUT_MINUTES = 5;
+/** 无操作超时可配置的上限。 */
+export const MAX_IDLE_TIMEOUT_MINUTES = 120;
 
 /** 站点级设置：标题和 Logo，存 adh_settings 表，Logo 文件落本地目录。 */
 export class SettingsService {
+  /** 控制者无操作超时的内存缓存，getSite() 时刷新，供投屏会话同步读取。 */
+  private idleTimeoutMinutes = DEFAULT_IDLE_TIMEOUT_MINUTES;
+
   constructor(
     private readonly db: SqlDriver,
     private readonly logoDir: string,
@@ -37,6 +46,18 @@ export class SettingsService {
 
   private logoPath(): string {
     return path.join(this.logoDir, 'logo.png');
+  }
+
+  private normalizeIdleTimeout(value: string | null): number {
+    if (value === null) return DEFAULT_IDLE_TIMEOUT_MINUTES;
+    const minutes = Number(value);
+    if (!Number.isFinite(minutes)) return DEFAULT_IDLE_TIMEOUT_MINUTES;
+    return Math.min(MAX_IDLE_TIMEOUT_MINUTES, Math.max(0, Math.floor(minutes)));
+  }
+
+  /** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
+  getIdleTimeoutMinutes(): number {
+    return this.idleTimeoutMinutes;
   }
 
   async getValue(name: string): Promise<string | null> {
@@ -56,7 +77,7 @@ export class SettingsService {
   }
 
   async getSite(): Promise<SiteSettings> {
-    const [title, subtitle, logoAt, limit, adminLimit, superLimit] =
+    const [title, subtitle, logoAt, limit, adminLimit, superLimit, idleTimeout] =
       await Promise.all([
         this.getValue('site.title'),
         this.getValue('site.subtitle'),
@@ -64,7 +85,9 @@ export class SettingsService {
         this.getValue('control.maxDevices.operator'),
         this.getValue('control.maxDevices.admin'),
         this.getValue('control.maxDevices.superadmin'),
+        this.getValue('control.idleTimeoutMinutes'),
       ]);
+    this.idleTimeoutMinutes = this.normalizeIdleTimeout(idleTimeout);
     return {
       title: title?.trim() || DEFAULT_TITLE,
       subtitle: subtitle?.trim() || DEFAULT_SUBTITLE,
@@ -79,6 +102,7 @@ export class SettingsService {
         superLimit === null
           ? DEFAULT_SUPER_LIMIT
           : Math.max(0, Number(superLimit) || 0),
+      idleTimeoutMinutes: this.idleTimeoutMinutes,
     };
   }
 
@@ -106,6 +130,7 @@ export class SettingsService {
     operatorDeviceLimit?: number;
     adminDeviceLimit?: number;
     superadminDeviceLimit?: number;
+    idleTimeoutMinutes?: number;
   }): Promise<SiteSettings> {
     await this.setValue('site.title', input.title.trim() || null);
     await this.setValue('site.subtitle', input.subtitle.trim() || null);
@@ -126,6 +151,14 @@ export class SettingsService {
         'control.maxDevices.superadmin',
         String(Math.max(0, Math.floor(input.superadminDeviceLimit))),
       );
+    }
+    if (input.idleTimeoutMinutes !== undefined) {
+      const minutes = Math.min(
+        MAX_IDLE_TIMEOUT_MINUTES,
+        Math.max(0, Math.floor(input.idleTimeoutMinutes)),
+      );
+      await this.setValue('control.idleTimeoutMinutes', String(minutes));
+      this.idleTimeoutMinutes = minutes;
     }
     return this.getSite();
   }

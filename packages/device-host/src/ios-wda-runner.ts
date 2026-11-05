@@ -103,6 +103,7 @@ export async function stopWda(
 ): Promise<void> {
   // 用户主动停止后不再自动拉起，直到手动启动或 agent 重启
   if (pauseAuto) autoPaused.add(udid);
+  autoManaged.delete(udid);
   const child = runners.get(udid);
   if (child && child.exitCode === null) {
     try {
@@ -155,6 +156,7 @@ export async function startWda(
   // force=true 表示「重启」：即使探测到旧实例也要先停掉再拉起，
   // 否则设备上的 XCTest 已经挂了、只剩一条失效转发时会被误判为「已在运行」。
   if (!force && (await probeWda(port))) {
+    autoManaged.add(udid);
     return { ok: true, message: `WDA 已在运行（端口 ${port}）`, port };
   }
 
@@ -174,6 +176,7 @@ export async function startWda(
   // 这是用户主动操作，跳过失败退避。
   if (await ensureWdaForward(udid, port, true)) {
     if (await probeWda(port)) {
+      autoManaged.add(udid);
       return { ok: true, message: `WDA 已就绪（端口 ${port}）`, port };
     }
   }
@@ -210,7 +213,9 @@ export async function startWda(
 
   // go-ios 的 `ui run wda` 自带 --host-port 转发；
   // runwda 只负责拉起 XCTest，需要我们自己补转发
-  return waitForWda(udid, port, child, Boolean(bundleId));
+  const result = await waitForWda(udid, port, child, Boolean(bundleId));
+  if (result.ok) autoManaged.add(udid);
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,6 +233,8 @@ export interface AutoStartOptions {
 
 const AUTO_RETRY_BASE_MS = 60_000;
 const AUTO_RETRY_MAX_MS = 10 * 60_000;
+/** 启动成功后给 WDA 的稳定期，避免设备抖动时每轮发现都重新拉起。 */
+const AUTO_SETTLE_MS = 10_000;
 
 const autoQueue: { udid: string; force: boolean; log: WdaLogger }[] = [];
 const autoQueued = new Set<string>();
@@ -235,6 +242,8 @@ const autoFailures = new Map<string, number>();
 const autoRetryAt = new Map<string, number>();
 /** 用户主动停止过的设备：不再自动拉起，手动启动或 agent 重启后恢复。 */
 const autoPaused = new Set<string>();
+/** 本 agent 成功启动/接管过的设备：子进程退出不代表又要重新接管。 */
+const autoManaged = new Set<string>();
 let autoDraining = false;
 
 function defaultWdaLog(level: WdaLogLevel, message: string): void {
@@ -268,7 +277,10 @@ async function drainAutoQueue(): Promise<void> {
         const result = await startWda(item.udid, undefined, item.force);
         if (result.ok) {
           autoFailures.delete(item.udid);
-          autoRetryAt.delete(item.udid);
+          autoManaged.add(item.udid);
+          // 成功后留一段稳定期：go-ios 的 runwda 进程可能在 WDA 就绪后退出了，
+          // 不能因为 runners 为空就判定需要再次接管
+          autoRetryAt.set(item.udid, Date.now() + AUTO_SETTLE_MS);
           item.log('info', `[ios] ${item.udid} 自动启动 WDA 成功：${result.message}`);
         } else {
           scheduleAutoRetry(item.udid);
@@ -318,6 +330,11 @@ export function autoStartWda(
     log: options.log ?? defaultWdaLog,
   });
   void drainAutoQueue();
+}
+
+/** 本 agent 是否已成功启动/接管过该设备的 WDA（进程退出不代表需要重新接管）。 */
+export function hasManagedWda(udid: string): boolean {
+  return autoManaged.has(udid);
 }
 
 /** 本 agent 进程是否托管着该设备的 WDA（用于区分外部已有实例）。 */

@@ -64,6 +64,8 @@ export interface SiteSettings {
   adminDeviceLimit: number;
   /** 超级管理员可同时控制的设备数，0 表示不限。 */
   superadminDeviceLimit: number;
+  /** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
+  idleTimeoutMinutes: number;
 }
 
 export interface DashboardData {
@@ -613,6 +615,7 @@ export const api = {
     operatorDeviceLimit?: number;
     adminDeviceLimit?: number;
     superadminDeviceLimit?: number;
+    idleTimeoutMinutes?: number;
   }): Promise<SiteSettings> {
     return request('/api/settings', {
       method: 'PUT',

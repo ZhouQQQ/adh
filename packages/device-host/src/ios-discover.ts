@@ -9,7 +9,7 @@ import {
   wdaPortFor,
 } from './ios-wda.js';
 import { logInfo } from './log.js';
-import { autoStartWda, hasWdaRunner } from './ios-wda-runner.js';
+import { autoStartWda, hasManagedWda, hasWdaRunner } from './ios-wda-runner.js';
 
 /**
  * iOS 设备发现：通过 go-ios 列出设备并读取基本信息。
@@ -157,7 +157,7 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
       }
     } else {
       stalledProbes.delete(udid);
-      if (!hasWdaRunner(udid)) {
+      if (!hasWdaRunner(udid) && !hasManagedWda(udid)) {
         // 已有外部 WDA 实例（非本 agent 拉起）：后台重启一次由 agent 接管
         autoStartWda(udid, { force: true });
       }
