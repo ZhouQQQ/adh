@@ -171,9 +171,12 @@ export function registerAgentChannel(
       clearInterval(heartbeat);
       if (!agentId) return;
       registry.detach(agentId);
-      void queries
-        .markAgentDevicesOffline(agentId)
-        .then((offline) => {
+      void Promise.all([
+        queries.markAgentDevicesOffline(agentId),
+        // 节点离线后隧道不可能还连着，别让控制台继续显示最后一次快照
+        queries.markAgentTunnelStopped(agentId),
+      ])
+        .then(([offline]) => {
           for (const device of offline) {
             hub.broadcast({ t: 'device.updated', device });
           }

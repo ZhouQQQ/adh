@@ -96,6 +96,27 @@ function osMeta(os?: string | null) {
   }
 }
 
+/** 状态标签：小圆点 + 文案，绿=在线/已连接，红=离线/失败。 */
+const DOT = {
+  online: '#22c55e',
+  offline: '#ef4444',
+  idle: '#9ca3af',
+  pending: '#f0b429',
+} as const;
+
+function statusLabel(color: string, label: string) {
+  return h(
+    'span',
+    { style: 'display:inline-flex;align-items:center;gap:5px' },
+    [
+      h('span', {
+        style: `width:6px;height:6px;border-radius:50%;background:${color};flex:none`,
+      }),
+      label,
+    ],
+  );
+}
+
 const columns = computed<DataTableColumns<AgentSummary>>(() => [
   {
     title: '名称',
@@ -125,14 +146,14 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     width: 96,
     render: (row) => {
       const meta = row.online
-        ? { type: 'success' as const, label: '在线' }
+        ? { type: 'success' as const, label: '在线', dot: DOT.online }
         : row.pending
-          ? { type: 'warning' as const, label: '待接入' }
-          : { type: 'default' as const, label: '离线' };
+          ? { type: 'warning' as const, label: '待接入', dot: DOT.pending }
+          : { type: 'default' as const, label: '离线', dot: DOT.offline };
       return h(
         NTag,
         { size: 'small', type: meta.type, bordered: false, round: true },
-        { default: () => meta.label },
+        { default: () => statusLabel(meta.dot, meta.label) },
       );
     },
   },
@@ -182,6 +203,27 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     width: 104,
     render: (row) => {
       const tunnel = row.tunnel;
+      // 待接入的节点还没有任何隧道记录
+      if (row.pending) {
+        return h('span', { style: 'color:var(--text-faint)' }, '—');
+      }
+      // 节点离线后隧道必然不可用，库里存的只是最后一次上报的快照
+      if (!row.online) {
+        const last = tunnel?.updatedAt
+          ? formatDateTime(tunnel.updatedAt)
+          : '无记录';
+        return h(
+          NTag,
+          {
+            size: 'small',
+            type: 'default',
+            bordered: false,
+            round: true,
+            title: `节点离线，隧道不可用 · 最后上报 ${last}`,
+          },
+          { default: () => statusLabel(DOT.offline, '离线') },
+        );
+      }
       if (!tunnel) {
         return h('span', { style: 'color:var(--text-faint)' }, '—');
       }
@@ -190,7 +232,10 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
         return h(
           NTag,
           { size: 'small', type: 'success', bordered: false, round: true },
-          { default: () => (count > 0 ? `已连接 · ${count}` : '已连接') },
+          {
+            default: () =>
+              statusLabel(DOT.online, count > 0 ? `已连接 · ${count}` : '已连接'),
+          },
         );
       }
       if (tunnel.error) {
@@ -203,13 +248,13 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
             round: true,
             title: tunnel.error,
           },
-          { default: () => '启动失败' },
+          { default: () => statusLabel(DOT.offline, '启动失败') },
         );
       }
       return h(
         NTag,
         { size: 'small', type: 'default', bordered: false, round: true },
-        { default: () => '未启动' },
+        { default: () => statusLabel(DOT.idle, '未启动') },
       );
     },
   },

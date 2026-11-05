@@ -375,6 +375,27 @@ export function createQueries(db: SqlDriver) {
       ]);
     },
 
+    /**
+     * 节点断开时隧道随之不可用：把 running 落成 false 并清掉错误原因，
+     * 保留最后一次上报时间，避免离线节点继续显示「已连接」。
+     */
+    async markAgentTunnelStopped(id: string): Promise<void> {
+      const row = await this.getAgent(id);
+      if (!row) return;
+      const previous = parseTunnelStatus(row.tunnelStatus);
+      if (!previous) return;
+      const tunnel: IosTunnelStatus = {
+        running: false,
+        tunnels: [],
+        updatedAt: previous.updatedAt,
+      };
+      // 带旧值做条件更新：若节点已重连并上报了新状态，就不要覆盖
+      await db.execute(
+        'UPDATE adh_agents SET tunnel_status = ? WHERE id = ? AND tunnel_status = ?',
+        [JSON.stringify(tunnel), id, row.tunnelStatus],
+      );
+    },
+
     async listDevices(agentId?: string): Promise<DeviceSummary[]> {
       const rows = agentId
         ? await db.query<DeviceRow>(
