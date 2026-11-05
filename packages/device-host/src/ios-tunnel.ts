@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { IosTunnel, IosTunnelStatus } from '@adh/protocol';
 import { runCommand } from './exec.js';
+import { logInfo, logWarn } from './log.js';
 
 /**
  * 节点级 iOS 隧道管理（iOS 17+ 依赖 go-ios 的 `ios tunnel start`）。
@@ -21,6 +22,11 @@ let commandCache: { at: number; command: string | null } | null = null;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 上一次打印过的隧道数量，避免每轮发现都重复输出「复用」日志。 */
+let lastLoggedTunnels = 0;
+/** 启动失败后的重试时间，避免每轮设备发现都重复拉起、刷日志。 */
+let tunnelRetryAt = 0;
 
 async function resolveCommand(): Promise<string | null> {
   if (commandCache && Date.now() - commandCache.at < 60_000) {
@@ -107,10 +113,12 @@ export async function startTunnel(): Promise<IosTunnelStatus> {
   const command = await resolveCommand();
   if (!command) {
     lastError = '未找到 go-ios（ios / go-ios），无法启动 iOS 隧道';
+    logWarn(`[ios] ${lastError}`);
     return getTunnelStatus();
   }
 
   lastError = undefined;
+  logInfo(`[ios] 正在启动 iOS 隧道（${command} tunnel start）`);
   let stderr = '';
   const child = spawn(command, ['tunnel', 'start'], {
     windowsHide: true,
@@ -140,7 +148,18 @@ export async function startTunnel(): Promise<IosTunnelStatus> {
 
   // 给进程一点时间完成初始化 / 暴露早期失败
   await sleep(2_000);
-  return getTunnelStatus();
+  const status = await getTunnelStatus();
+  if (status.running) {
+    lastLoggedTunnels = status.tunnels.length;
+    logInfo(
+      status.tunnels.length > 0
+        ? `[ios] iOS 隧道已启动（${status.tunnels.length} 条隧道）`
+        : '[ios] iOS 隧道进程已拉起，等待设备连接',
+    );
+  } else {
+    logWarn(`[ios] iOS 隧道启动失败：${status.error ?? '未知原因'}`);
+  }
+  return status;
 }
 
 /** 停止隧道：先结束本模块拉起的进程，再清理 go-ios 的 tunnel agent。 */
@@ -162,15 +181,27 @@ export async function stopTunnel(): Promise<IosTunnelStatus> {
 
   lastError = undefined;
   await sleep(500);
+  lastLoggedTunnels = 0;
+  logInfo('[ios] iOS 隧道已停止');
   return getTunnelStatus();
 }
 
 /** 发现设备前确保隧道在跑；失败原因由 getTunnelStatus 透出。 */
 export async function ensureTunnelRunning(): Promise<void> {
   if (tunnelProcess && tunnelProcess.exitCode === null) return;
+  if (Date.now() < tunnelRetryAt) return;
   const tunnels = await probeTunnels();
-  if (tunnels.length > 0) return;
-  await startTunnel();
+  if (tunnels.length > 0) {
+    // 外部已建立隧道（比如上一次 agent 留下的），直接复用
+    if (tunnels.length !== lastLoggedTunnels) {
+      lastLoggedTunnels = tunnels.length;
+      logInfo(`[ios] 检测到已有 iOS 隧道（${tunnels.length} 条），直接复用`);
+    }
+    return;
+  }
+  lastLoggedTunnels = 0;
+  const status = await startTunnel();
+  tunnelRetryAt = status.running ? 0 : Date.now() + 30_000;
 }
 
 export function hasTunnelProcess(): boolean {

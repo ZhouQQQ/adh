@@ -6,7 +6,7 @@ export type { Logger };
 export function createLogger(level = 'info'): Logger {
   const stream = pretty({
     colorize: true,
-    translateTime: 'SYS:HH:MM:ss',
+    translateTime: 'SYS:yyyy-mm-dd HH:MM:ss',
     ignore: 'pid,hostname',
     singleLine: true,
   });

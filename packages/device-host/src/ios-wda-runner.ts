@@ -7,6 +7,7 @@ import {
   wdaPortFor,
 } from './ios-wda.js';
 import { runCommand } from './exec.js';
+import { logInfo, logWarn } from './log.js';
 
 /**
  * 一键启动 WebDriverAgent（XCTest + 端口转发）。
@@ -219,10 +220,16 @@ export async function startWda(
 type WdaLogLevel = 'info' | 'warn';
 type WdaLogger = (level: WdaLogLevel, message: string) => void;
 
+export interface AutoStartOptions {
+  /** 设备上已有外部 WDA 实例时，强制重启并由本 agent 接管。 */
+  force?: boolean;
+  log?: WdaLogger;
+}
+
 const AUTO_RETRY_BASE_MS = 60_000;
 const AUTO_RETRY_MAX_MS = 10 * 60_000;
 
-const autoQueue: { udid: string; log: WdaLogger }[] = [];
+const autoQueue: { udid: string; force: boolean; log: WdaLogger }[] = [];
 const autoQueued = new Set<string>();
 const autoFailures = new Map<string, number>();
 const autoRetryAt = new Map<string, number>();
@@ -231,8 +238,8 @@ const autoPaused = new Set<string>();
 let autoDraining = false;
 
 function defaultWdaLog(level: WdaLogLevel, message: string): void {
-  if (level === 'warn') console.warn(message);
-  else console.log(message);
+  if (level === 'warn') logWarn(message);
+  else logInfo(message);
 }
 
 /** 失败退避：60s 起指数增长，最多 10 分钟，避免每轮发现都重复拉起。 */
@@ -252,7 +259,13 @@ async function drainAutoQueue(): Promise<void> {
   try {
     for (let item = autoQueue.shift(); item; item = autoQueue.shift()) {
       try {
-        const result = await startWda(item.udid);
+        item.log(
+          'info',
+          item.force
+            ? `[ios] ${item.udid} 检测到已有 WDA，正在重启并由 agent 接管`
+            : `[ios] ${item.udid} 未检测到 WDA，正在自动启动`,
+        );
+        const result = await startWda(item.udid, undefined, item.force);
         if (result.ok) {
           autoFailures.delete(item.udid);
           autoRetryAt.delete(item.udid);
@@ -285,15 +298,29 @@ async function drainAutoQueue(): Promise<void> {
  * - 多台 iOS 设备排队串行启动，避免同时抢占 testmanagerd；
  * - `startWda` 会先找设备上已安装的 WebDriverAgentRunner，找不到再走
  *   `ios ui run wda`，所以不需要额外探测；
+ * - `force` 用于接管设备上已存在、但不是本 agent 拉起的 WDA 实例；
  * - 失败只写日志并指数退避重试，不抛异常、不阻塞设备发现。
  */
-export function autoStartWda(udid: string, log: WdaLogger = defaultWdaLog): void {
+export function autoStartWda(
+  udid: string,
+  options: AutoStartOptions = {},
+): void {
   if (autoPaused.has(udid)) return;
   if (autoQueued.has(udid)) return;
   if (Date.now() < (autoRetryAt.get(udid) ?? 0)) return;
-  const running = runners.get(udid);
-  if (running && running.exitCode === null) return;
+  // 本 agent 已经在托管这台设备的 WDA，无需重复启动
+  if (hasWdaRunner(udid)) return;
   autoQueued.add(udid);
-  autoQueue.push({ udid, log });
+  autoQueue.push({
+    udid,
+    force: Boolean(options.force),
+    log: options.log ?? defaultWdaLog,
+  });
   void drainAutoQueue();
+}
+
+/** 本 agent 进程是否托管着该设备的 WDA（用于区分外部已有实例）。 */
+export function hasWdaRunner(udid: string): boolean {
+  const child = runners.get(udid);
+  return Boolean(child && child.exitCode === null);
 }

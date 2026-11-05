@@ -8,7 +8,8 @@ import {
   releaseWdaPort,
   wdaPortFor,
 } from './ios-wda.js';
-import { autoStartWda } from './ios-wda-runner.js';
+import { logInfo } from './log.js';
+import { autoStartWda, hasWdaRunner } from './ios-wda-runner.js';
 
 /**
  * iOS 设备发现：通过 go-ios 列出设备并读取基本信息。
@@ -111,9 +112,9 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
   if (udids.length !== lastLoggedCount) {
     lastLoggedCount = udids.length;
     if (udids.length === 0) {
-      console.log('[ios] 未发现设备（请确认 USB 连接和已信任电脑）');
+      logInfo('[ios] 未发现设备（请确认 USB 连接和已信任电脑）');
     } else {
-      console.log(`[ios] 发现 ${udids.length} 台设备：${udids.join(', ')}`);
+      logInfo(`[ios] 发现 ${udids.length} 台设备：${udids.join(', ')}`);
     }
   }
   if (udids.length === 0) {
@@ -138,10 +139,13 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
     if (!wda) {
       // 没在跑就后台自动拉起 XCTest：多台设备会排队，失败只记日志
       autoStartWda(udid);
+    } else if (!hasWdaRunner(udid)) {
+      // 已有外部 WDA 实例（非本 agent 拉起）：后台重启一次由 agent 接管
+      autoStartWda(udid, { force: true });
     }
     if (wdaStates.get(udid) !== wda) {
       wdaStates.set(udid, wda);
-      console.log(`[ios] ${udid} WDA ${wda ? `已就绪（:${port}）` : '未启动'}`);
+      logInfo(`[ios] ${udid} WDA ${wda ? `已就绪（:${port}）` : '未启动'}`);
     }
 
     const device: DeviceInfo = {

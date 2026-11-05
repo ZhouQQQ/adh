@@ -195,7 +195,11 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     key: 'deviceCount',
     width: 78,
     align: 'right',
-    render: (row) => String(row.deviceCount),
+    // 离线节点的设备数是历史记录，不代表当前还连着，显示为 —
+    render: (row) =>
+      row.online || row.pending
+        ? String(row.deviceCount)
+        : h('span', { style: 'color:var(--text-faint)' }, '—'),
   },
   {
     title: 'iOS 隧道',

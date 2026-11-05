@@ -274,6 +274,9 @@ adb start-server
 > 排队拉起 XCTest（多台设备串行，互不抢占），失败只写 agent 日志并按
 > 1 / 2 / 4 … 分钟退避重试，不会阻塞设备上报。设备上已安装 WDA 时会自动
 > 查找其 bundle id，因此不配置 `ADH_WDA_BUNDLE_ID` 也能启动。
+>
+> 如果设备上的 WDA 是由其他方式启动的（不是本 agent 拉起），agent 会在后台
+> 重启一次并接管，日志会提示「检测到已有 WDA，正在重启并由 agent 接管」。
 
 如果已经有签名好的 WDA，可以在 server 的 `.env` 指定 bundle，避免每次自动查找：
 
