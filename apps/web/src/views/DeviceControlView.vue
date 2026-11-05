@@ -292,6 +292,10 @@ const publishedText = computed(() => {
 });
 
 const isIos = computed(() => device.value?.platform === 'ios');
+/** 远程 agent 上的 iOS：要等投屏会话建立后才渲染播放器，否则会先走本机的截图轮询。 */
+const isRemoteIos = computed(
+  () => isIos.value && device.value?.agentId !== BUILTIN_AGENT_ID,
+);
 /** iOS 端不支持的操作统一提示。 */
 const iosTip = 'iOS 暂不支持该操作';
 
@@ -354,7 +358,11 @@ const lockedBlocked = computed(() => Boolean(device.value?.locked));
 const connecting = computed(
   () =>
     loading.value ||
-    (!sessionId.value && !isIos.value && !errorText.value && !lockedBlocked.value),
+    // 远程 iOS 也在等投屏会话建立，本机 iOS 直接走 WDA，不需要等
+    (!sessionId.value &&
+      (!isIos.value || isRemoteIos.value) &&
+      !errorText.value &&
+      !lockedBlocked.value),
 );
 
 const moreOptions = computed<DropdownOption[]>(() => [
@@ -1302,13 +1310,13 @@ onBeforeUnmount(() => {
         </div>
         <n-spin v-if="loading && sessionId" :show="true" class="spin" />
         <div
-          v-if="sessionId || isIos"
+          v-if="sessionId || (isIos && !isRemoteIos)"
           class="player-shell"
           :class="{ covered: pipActive }"
         >
           <DevicePlayer
             ref="playerRef"
-            :key="isIos ? `ios-${reloadNonce}` : `${sessionId ?? ''}-${quality}-${reloadNonce}`"
+            :key="`${isIos ? 'ios' : 'android'}-${sessionId ?? 'local'}-${quality}-${reloadNonce}`"
             :session-id="sessionId ?? ''"
             :platform="device?.platform"
             :device-id="device?.id"

@@ -8,6 +8,7 @@ import {
   CloudDownloadOutline,
   ReorderTwoOutline,
 } from '@vicons/ionicons5';
+import { BUILTIN_AGENT_ID } from '@adh/protocol';
 import type { DeviceSummary, ViewerToStreamMessage } from '@adh/protocol';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import BulkInstallModal from '../components/BulkInstallModal.vue';
@@ -179,8 +180,11 @@ async function syncSessions(): Promise<void> {
   try {
     for (const id of ids) {
       const device = devices.value.find((item) => item.id === id);
-      // iOS 走 WDA，不需要 scrcpy 会话
-      if (!device || device.platform === 'ios') continue;
+      if (!device) continue;
+      // 本机 iOS 走 WDA HTTP，不需要会话；远程 iOS 由 agent 推流，需要建会话
+      if (device.platform === 'ios' && device.agentId === BUILTIN_AGENT_ID) {
+        continue;
+      }
       if (sessions.value[id] || connecting.value[id]) continue;
 
       connecting.value = { ...connecting.value, [id]: true };
@@ -425,7 +429,10 @@ async function onQualityChange(
         </div>
         <div class="tile-stage">
           <DevicePlayer
-            v-if="sessions[device.id] || device.platform === 'ios'"
+            v-if="
+              sessions[device.id] ||
+              (device.platform === 'ios' && device.agentId === BUILTIN_AGENT_ID)
+            "
             :key="`${device.id}-${sessions[device.id] ?? 'ios'}-${quality}`"
             :ref="(el) => setPlayerRef(device.id, el)"
             :session-id="sessions[device.id] ?? ''"

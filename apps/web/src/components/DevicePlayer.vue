@@ -597,6 +597,7 @@ async function startIosStream(): Promise<void> {
 
 async function pollIosFrame(): Promise<void> {
   if (unmounted || !isIos.value) return;
+  let failed = false;
   try {
     const response = await fetch(
       withBase(
@@ -609,10 +610,15 @@ async function pollIosFrame(): Promise<void> {
     const buffer = new Uint8Array(await response.arrayBuffer());
     await drawIosFrame(buffer);
   } catch {
+    failed = true;
     connected.value = false;
   }
 
-  iosTimer = setTimeout(() => void pollIosFrame(), IOS_POLL_MS);
+  // 失败时退避，避免接口一直报错时每 200ms 刷一次
+  iosTimer = setTimeout(
+    () => void pollIosFrame(),
+    failed ? Math.max(2_000, IOS_POLL_MS * 10) : IOS_POLL_MS,
+  );
 }
 
 async function iosInput(payload: Record<string, unknown>): Promise<void> {
