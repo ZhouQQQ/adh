@@ -80,6 +80,26 @@ export function registerAgentChannel(
 
       agentId = row.id;
       await queries.updateAgentRuntime(agentId, runtime);
+
+      // 同一 agent 重复连接（旧进程未停 / 换了目录启动）：只保留最新实例，
+      // 通知旧连接停止重连，避免两个实例同时上报设备
+      const previous = registry.get(agentId);
+      if (previous && previous.socket !== socket) {
+        try {
+          if (previous.socket.readyState === 1) {
+            previous.socket.send(
+              JSON.stringify({
+                t: 'stop',
+                reason: 'replaced by new connection',
+              }),
+            );
+          }
+          previous.socket.close(4000, 'replaced');
+        } catch {
+          /* 已经断开 */
+        }
+        registry.detach(agentId);
+      }
       registry.attach(agentId, socket);
 
       send({
@@ -170,6 +190,8 @@ export function registerAgentChannel(
     socket.on('close', () => {
       clearInterval(heartbeat);
       if (!agentId) return;
+      // 已被新连接替换：不要清理新实例的设备状态
+      if (registry.get(agentId)?.socket !== socket) return;
       registry.detach(agentId);
       void Promise.all([
         queries.markAgentDevicesOffline(agentId),

@@ -15,5 +15,5 @@ export function buildConnectCommand(key: string, serverPort: number): string {
   const host = sameOrigin
     ? window.location.host
     : `${window.location.hostname || '127.0.0.1'}:${serverPort}`;
-  return `adh-agent connect --server ${protocol}://${host}${BASE_PATH} --key ${key}`;
+  return `adh-agent connect --server ${protocol}://${host}${BASE_PATH} --key ${key} -d`;
 }

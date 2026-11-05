@@ -5,7 +5,9 @@ import path from 'node:path';
 import {
   getTunnelStatus,
   runCommand,
+  startTunnel,
   startWda,
+  stopTunnel,
   stopWda,
   wdaApplyMjpegSettings,
   wdaPortFor,
@@ -29,6 +31,8 @@ export interface AgentClientOptions {
   /** 设备扫描函数，便于测试替换。 */
   discover: () => Promise<DeviceInfo[]>;
   syncIntervalMs?: number;
+  /** 被服务端要求停止（key 失效 / 被新实例替换）时回调，便于 CLI 退出进程。 */
+  onStopped?: () => void;
 }
 
 /** 保留 --server 里的路径前缀，例如 ws://host:8080/adh → /adh/ws/agent */
@@ -98,11 +102,13 @@ export class AgentClient {
   }
 
   stop(): void {
+    if (this.stopped) return;
     this.stopped = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.stopPeriodicSync();
     this.streams.stopAll();
     this.socket?.close(1000, 'agent shutdown');
+    this.options.onStopped?.();
   }
 
   private connect(): void {
@@ -154,6 +160,11 @@ export class AgentClient {
     }
     if (message.t === 'stop') {
       this.options.logger.warn({ reason: message.reason }, 'server stopped session');
+      // key 失效或被同一 agent 的新实例替换：停止重连，避免两个实例互踢
+      const reason = message.reason ?? '';
+      if (reason === 'invalid key' || reason.includes('replaced')) {
+        this.stop();
+      }
       return;
     }
     if (message.t === 'cmd') {
@@ -172,6 +183,44 @@ export class AgentClient {
       platform?: string;
       restart?: boolean;
     };
+
+    if (
+      message.action === 'ios.tunnel.start' ||
+      message.action === 'ios.tunnel.stop' ||
+      message.action === 'ios.tunnel.status'
+    ) {
+      const action = message.action;
+      void (async () => {
+        try {
+          const status =
+            action === 'ios.tunnel.start'
+              ? await startTunnel()
+              : action === 'ios.tunnel.stop'
+                ? await stopTunnel()
+                : await getTunnelStatus();
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: action === 'ios.tunnel.start' ? status.running : true,
+            error:
+              action === 'ios.tunnel.start' && !status.running
+                ? status.error ?? 'iOS 隧道启动失败'
+                : undefined,
+            data: { status },
+          });
+          // 控制台「节点管理」立即刷新隧道状态
+          this.send({ t: 'agent.status', tunnel: status });
+        } catch (error) {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+      return;
+    }
 
     if (message.action === 'ios.status' && params.udid) {
       void wdaStatus(wdaPortFor(params.udid))

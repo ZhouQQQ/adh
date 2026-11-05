@@ -52,7 +52,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: adh-packages
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/adh-agent-manifest.json
           if-no-files-found: error
           retention-days: 30
 
@@ -74,7 +76,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/adh-agent-manifest.json
 
       - name: 滚动 Release（手动触发）
         if: github.event_name == 'workflow_dispatch'
@@ -88,4 +92,6 @@ jobs:
             提交：${{ github.sha }}
           prerelease: true
           make_latest: false
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/adh-agent-manifest.json

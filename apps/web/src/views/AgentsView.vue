@@ -11,6 +11,7 @@ import {
   useDialog,
   useMessage,
   type DataTableColumns,
+  type DropdownOption,
 } from 'naive-ui';
 import {
   AddOutline,
@@ -288,8 +289,9 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
     title: '操作',
     key: 'actions',
     width: 112,
-    render: (row) =>
-      h(
+    render: (row) => {
+      const options = menuOptions(row);
+      return h(
         NSpace,
         { size: 2, justify: 'end', align: 'center', wrap: false },
         {
@@ -299,20 +301,17 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
               { size: 'tiny', quaternary: true, onClick: () => openDetail(row) },
               { default: () => '详情' },
             ),
-            row.builtin
-              ? null
-              : h(
+            options.length > 0
+              ? h(
                   NDropdown,
                   {
                     trigger: 'click',
-                    options: [
-                      { label: '编辑名称', key: 'edit' },
-                      { label: '重置 Key', key: 'rotate' },
-                      { type: 'divider', key: 'divider' },
-                      { label: '删除', key: 'delete' },
-                    ],
+                    options,
                     onSelect: (key: string) => {
-                      if (key === 'edit') openEdit(row);
+                      if (key === 'tunnel-start') void toggleTunnel(row, true);
+                      else if (key === 'tunnel-stop')
+                        void toggleTunnel(row, false);
+                      else if (key === 'edit') openEdit(row);
                       else if (key === 'rotate') void rotateKey(row);
                       else if (key === 'delete') confirmDelete(row);
                     },
@@ -328,12 +327,64 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
                         },
                       ),
                   },
-                ),
+                )
+              : null,
           ],
         },
-      ),
+      );
+    },
   },
 ]);
+
+/** 节点操作菜单：iOS 隧道开关 + 非内置节点的编辑 / Key / 删除。 */
+function menuOptions(row: AgentSummary): DropdownOption[] {
+  const options: DropdownOption[] = [];
+  if (row.capabilities.includes('ios')) {
+    options.push(
+      {
+        label: '启动 iOS 隧道',
+        key: 'tunnel-start',
+        disabled: !row.online || Boolean(row.tunnel?.running),
+      },
+      {
+        label: '停止 iOS 隧道',
+        key: 'tunnel-stop',
+        disabled: !row.online || (!row.tunnel?.running && !row.tunnel?.error),
+      },
+      { type: 'divider', key: 'divider-tunnel' },
+    );
+  }
+  if (!row.builtin) {
+    options.push(
+      { label: '编辑名称', key: 'edit' },
+      { label: '重置 Key', key: 'rotate' },
+      { type: 'divider', key: 'divider' },
+      { label: '删除', key: 'delete' },
+    );
+  }
+  return options;
+}
+
+async function toggleTunnel(
+  row: AgentSummary,
+  start: boolean,
+): Promise<void> {
+  const loading = message.loading(
+    start ? '正在启动 iOS 隧道…' : '正在停止 iOS 隧道…',
+    { duration: 0 },
+  );
+  try {
+    await (start ? api.startAgentTunnel(row.id) : api.stopAgentTunnel(row.id));
+    message.success(start ? 'iOS 隧道已启动' : 'iOS 隧道已停止');
+    await refresh();
+  } catch (error) {
+    message.error(
+      error instanceof Error ? error.message : start ? '启动失败' : '停止失败',
+    );
+  } finally {
+    loading.destroy();
+  }
+}
 
 async function rotateKey(row: AgentSummary): Promise<void> {
   dialog.warning({

@@ -146,6 +146,20 @@ chmod +x adh-agent.sh
 
 看到 `adh-agent started` 就成功了。多台宿主机重复第 2、3 步即可。
 
+**更新 Agent**：
+
+```bat
+adh-agent.cmd update --check     :: 只检查版本
+adh-agent.cmd update             :: 下载、校验、原地替换并自动重启
+adh-agent.cmd update --rollback  :: 回退到上一版本
+```
+
+更新只替换代码目录，保留 `vendor/` 内置 adb / go-ios 与 `~/.adh` 下的连接配置；
+旧版本备份在安装目录同级的 `*.bak-*`，更新期间设备会短暂断开。
+内网访问不了 GitHub 时用 `--source http://<镜像>/adh-agent-manifest.json`，
+或把 zip 拷到宿主机执行 `adh-agent.cmd update --from-file adh-agent-win32.zip`。
+macOS / Linux 把 `adh-agent.cmd` 换成 `./adh-agent.sh` 即可。
+
 - Key 保存到 `~/.adh/agent.json`，之后重启只带 `--server`
 - macOS 提示「无法验证开发者」：`xattr -dr com.apple.quarantine /opt/adh-agent`
 - iOS 接在任意宿主机上都可以，在设备菜单里启动 WDA 即可；Windows 需先装 iTunes 或「Apple Devices」

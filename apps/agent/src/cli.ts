@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -23,6 +24,12 @@ import { configFilePath, loadLocalConfig, saveLocalConfig } from './local-config
 import { createLogger, type Logger } from './log.js';
 import { ThumbnailUploader } from './thumbnail-uploader.js';
 import { ensureToolPath, runInit } from './tools.js';
+import {
+  runRollback,
+  runUpdate,
+  runUpdateCheck,
+  type UpdateOptions,
+} from './update.js';
 
 /** 版本号：优先用打包时注入的 ADH_VERSION，其次读 package.json。 */
 function readAgentVersion(): string {
@@ -49,14 +56,32 @@ adh-agent v${AGENT_VERSION}
 
 用法:
   adh-agent init [--skip-ios] [--skip-android] [--force]
-  adh-agent connect --server <ws://host:8080[/前缀]> [--key <接入Key>] [--name <宿主机名>]
+  adh-agent connect --server <ws://host:8080[/前缀]> [--key <接入Key>] [--name <宿主机名>] [-d]
+  adh-agent start
+  adh-agent stop
+  adh-agent restart
   adh-agent doctor
+  adh-agent update [--check] [--source <url>] [--from-file <zip>] [--force] [-y]
+  adh-agent update --rollback
   adh-agent version
 
 说明:
   init     自动下载当前系统对应的 Android Platform Tools 与 go-ios 到 ~/.adh/tools
   connect  连接 adh-server 并持续上报本机设备
+           -d / --daemon  后台运行，关闭当前终端窗口也不会断开
+  start    使用上次 connect 保存的配置在后台启动
+  stop     停止由 -d / start 启动的后台进程
+  restart  停止后再用已保存的配置重新启动
   doctor   检查 adb / go-ios / Apple 设备服务是否就绪
+  update   原地更新当前安装包并自动重启（保留 vendor 与 ~/.adh 配置）
+           --check        只检查版本，不下载
+           --source <url> 自定义更新源（Release 目录或 manifest.json）
+           --from-file    从本地 zip 更新
+           --sha256 <hex> 校验本地安装包（配合 --from-file）
+           --rollback     回退到上一个版本
+           --no-restart   只替换文件，不自动启动
+           --force        当前已是最新时也重新安装
+           -y / --yes     跳过确认，适合脚本 / 计划任务
 
 接入 Key 在 Web 控制台的「Agent 管理 → 新建 Agent」中生成；
 server 部署在子路径时，--server 要带上前缀，例如 ws://192.168.1.10:8080/adh；
@@ -74,14 +99,35 @@ function parseCli() {
       // 兼容旧参数名
       code: { type: 'string', short: 'c' },
       name: { type: 'string', short: 'n' },
+      daemon: { type: 'boolean', short: 'd' },
       'log-level': { type: 'string' },
       version: { type: 'boolean', short: 'v' },
       help: { type: 'boolean', short: 'h' },
       'skip-ios': { type: 'boolean' },
       'skip-android': { type: 'boolean' },
       force: { type: 'boolean' },
+      check: { type: 'boolean' },
+      rollback: { type: 'boolean' },
+      source: { type: 'string' },
+      'from-file': { type: 'string' },
+      sha256: { type: 'string' },
+      yes: { type: 'boolean', short: 'y' },
+      'no-restart': { type: 'boolean' },
     },
   });
+}
+
+function updateOptions(values: Record<string, unknown>): UpdateOptions {
+  return {
+    check: Boolean(values.check),
+    rollback: Boolean(values.rollback),
+    source: values.source as string | undefined,
+    fromFile: values['from-file'] as string | undefined,
+    sha256: values.sha256 as string | undefined,
+    force: Boolean(values.force),
+    yes: Boolean(values.yes),
+    noRestart: Boolean(values['no-restart']),
+  };
 }
 
 function printDoctor(report: Awaited<ReturnType<typeof runDoctor>>): void {
@@ -166,6 +212,183 @@ async function confirmContinue(): Promise<boolean> {
   }
 }
 
+/* ---------------------------- 后台运行 ---------------------------- */
+
+const DAEMON_DIR = path.dirname(configFilePath());
+const DAEMON_PID_FILE = path.join(DAEMON_DIR, 'agent.pid');
+const DAEMON_LOG_FILE = path.join(DAEMON_DIR, 'agent.log');
+
+function readDaemonPid(): number | null {
+  try {
+    const pid = Number(fs.readFileSync(DAEMON_PID_FILE, 'utf8').trim());
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** -d / start：重新拉起自身并脱离当前终端，关闭窗口也不会断开。 */
+function startDaemon(): void {
+  // 旧实例由调用方通过 ensureNoRunningInstance 处理
+  fs.mkdirSync(DAEMON_DIR, { recursive: true });
+  const log = fs.openSync(DAEMON_LOG_FILE, 'a');
+  const childArgs = [
+    ...process.execArgv,
+    ...process.argv
+      .slice(1)
+      .filter((arg) => arg !== '-d' && !arg.startsWith('--daemon')),
+  ];
+  const child = spawn(process.execPath, childArgs, {
+    detached: true,
+    windowsHide: true,
+    stdio: ['ignore', log, log],
+    // 防止子进程重复解析 -d 再拉起一层
+    env: { ...process.env, ADH_DAEMON: '1' },
+  });
+  fs.closeSync(log);
+  child.unref();
+
+  if (child.pid) {
+    fs.writeFileSync(DAEMON_PID_FILE, String(child.pid), 'utf8');
+    console.log(`adh-agent 已在后台启动（PID ${child.pid}）`);
+  } else {
+    console.log('adh-agent 后台启动失败，请检查日志');
+  }
+  console.log(`日志：${DAEMON_LOG_FILE}`);
+  console.log('停止：adh-agent stop');
+}
+
+function stopDaemon(): void {
+  const pid = readDaemonPid();
+  if (!pid) {
+    console.log('没有找到后台运行的 adh-agent');
+    return;
+  }
+  if (!processAlive(pid)) {
+    fs.rmSync(DAEMON_PID_FILE, { force: true });
+    console.log(`后台进程 ${pid} 已不存在，已清理 PID 文件`);
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      stdio: 'inherit',
+    });
+    if (result.status !== 0) {
+      console.error(`停止失败（PID ${pid}），请手动结束该进程`);
+      return;
+    }
+  } else {
+    process.kill(pid, 'SIGTERM');
+  }
+  fs.rmSync(DAEMON_PID_FILE, { force: true });
+  console.log(`已停止 adh-agent（PID ${pid}）`);
+}
+
+/** 退出时清理自己登记的 PID；已被新实例覆盖则保留新 PID。 */
+function clearOwnPid(): void {
+  if (readDaemonPid() !== process.pid) return;
+  try {
+    fs.rmSync(DAEMON_PID_FILE, { force: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+function printManageHint(): void {
+  console.log('已取消启动。管理 agent 实例请使用：');
+  console.log('  adh-agent start    # 后台启动');
+  console.log('  adh-agent stop     # 停止');
+  console.log('  adh-agent restart  # 重启（等价于覆盖旧实例）');
+}
+
+async function confirmReplace(pid: number): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    console.error(
+      `adh-agent 已在运行（PID ${pid}）。非交互环境无法确认，已取消启动。`,
+    );
+    return false;
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (
+      await rl.question(
+        `adh-agent 已在运行（PID ${pid}）。是否停止旧实例并启动新的？[y/N] `,
+      )
+    )
+      .trim()
+      .toLowerCase();
+    return answer === 'y' || answer === 'yes';
+  } finally {
+    rl.close();
+  }
+}
+
+/** 已有实例时询问是否覆盖；返回 true 表示可以继续启动。 */
+async function ensureNoRunningInstance(): Promise<boolean> {
+  const pid = readDaemonPid();
+  if (!pid || pid === process.pid) return true;
+  if (!processAlive(pid)) {
+    fs.rmSync(DAEMON_PID_FILE, { force: true });
+    return true;
+  }
+
+  if (!(await confirmReplace(pid))) {
+    printManageHint();
+    return false;
+  }
+
+  console.log(`正在停止旧实例（PID ${pid}）…`);
+  stopDaemon();
+  for (let i = 0; i < 25 && processAlive(pid); i += 1) await sleep(200);
+  if (processAlive(pid)) {
+    console.error(`旧实例（PID ${pid}）停止失败，请手动结束后再试`);
+    return false;
+  }
+  console.log('旧实例已停止，继续启动新实例…');
+  return true;
+}
+
+/** start：使用 connect 时保存的 server / key 连接，无需再带参数。 */
+async function commandStart(values: Record<string, unknown>): Promise<void> {
+  const local = loadLocalConfig();
+  if (!local.serverUrl || !local.token) {
+    console.error(
+      '尚未保存连接配置，请先执行一次 adh-agent connect --server ... --key ...',
+    );
+    process.exit(1);
+  }
+  await commandConnect({
+    server: local.serverUrl,
+    key: local.token,
+    name: local.name,
+    'log-level': values['log-level'],
+  });
+}
+
+/** restart：先停掉现有后台进程，再用保存的配置重新拉起。 */
+async function restartDaemon(): Promise<void> {
+  const pid = readDaemonPid();
+  if (pid && processAlive(pid)) {
+    stopDaemon();
+    // 等进程真正退出再启动，避免端口 / 设备会话还没释放
+    for (let i = 0; i < 25 && processAlive(pid); i += 1) await sleep(200);
+  }
+  startDaemon();
+}
+
 async function commandConnect(values: Record<string, unknown>): Promise<void> {
   const serverUrl = values.server as string | undefined;
   if (!serverUrl) {
@@ -184,6 +407,12 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     );
     process.exit(1);
   }
+
+  // 同一台机器只允许一个实例；有旧实例时询问是否覆盖
+  if (!(await ensureNoRunningInstance())) process.exit(1);
+  fs.mkdirSync(DAEMON_DIR, { recursive: true });
+  fs.writeFileSync(DAEMON_PID_FILE, String(process.pid), 'utf8');
+  process.once('exit', clearOwnPid);
 
   const logger = createLogger((values['log-level'] as string | undefined) ?? 'info');
 
@@ -260,11 +489,26 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
 
   saveLocalConfig({ serverUrl, name, token: key });
 
-  const client = new AgentClient({
+  let client!: AgentClient;
+  let thumbnailTimer: NodeJS.Timeout | null = null;
+  let shuttingDown = false;
+
+  const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info('shutting down');
+    if (thumbnailTimer) clearInterval(thumbnailTimer);
+    client.stop();
+    setTimeout(() => process.exit(0), 200);
+  };
+
+  client = new AgentClient({
     serverUrl,
     token: key,
     runtime,
     logger,
+    // 被服务端要求停止（key 失效 / 被新实例替换）时退出进程
+    onStopped: shutdown,
     discover: async (): Promise<DeviceInfo[]> => {
       const android = androidOk
         ? await discoverAndroid()
@@ -275,7 +519,7 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
   });
 
   client.start();
-  const thumbnailTimer = startThumbnailLoop(
+  thumbnailTimer = startThumbnailLoop(
     client,
     new ThumbnailUploader(serverUrl, key, logger),
     logger,
@@ -292,12 +536,6 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     'adh-agent started',
   );
 
-  const shutdown = (): void => {
-    logger.info('shutting down');
-    clearInterval(thumbnailTimer);
-    client.stop();
-    setTimeout(() => process.exit(0), 200);
-  };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
@@ -328,7 +566,52 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'update') {
+    const options = updateOptions(values as Record<string, unknown>);
+    if (options.check) {
+      await runUpdateCheck(options);
+    } else if (options.rollback) {
+      await runRollback(options);
+    } else {
+      await runUpdate(options);
+    }
+    return;
+  }
+
+  if (command === 'stop') {
+    stopDaemon();
+    return;
+  }
+
+  if (command === 'start' || command === 'restart') {
+    if (process.env.ADH_DAEMON) {
+      // 后台子进程：直接用 connect 时保存的配置连接
+      await commandStart(values as Record<string, unknown>);
+      return;
+    }
+    const local = loadLocalConfig();
+    if (!local.serverUrl || !local.token) {
+      console.error(
+        '尚未保存连接配置，请先执行一次 adh-agent connect --server ... --key ...',
+      );
+      process.exit(1);
+    }
+    if (command === 'restart') {
+      await restartDaemon();
+    } else {
+      if (!(await ensureNoRunningInstance())) process.exit(1);
+      startDaemon();
+    }
+    return;
+  }
+
   if (command === 'connect') {
+    // -d：由父进程拉一起个脱离终端的后台进程后退出
+    if (values.daemon && !process.env.ADH_DAEMON) {
+      if (!(await ensureNoRunningInstance())) process.exit(1);
+      startDaemon();
+      return;
+    }
     await commandConnect(values as Record<string, unknown>);
     return;
   }

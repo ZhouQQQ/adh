@@ -3,6 +3,7 @@ import type {
   AgentSummary,
   CreateAgentResponse,
   DeviceSummary,
+  IosTunnelStatus,
   SafeKeyboardLayout,
 } from '@adh/protocol';
 import { withBase } from './base';
@@ -357,6 +358,20 @@ export const api = {
 
   deleteAgent(id: string): Promise<void> {
     return request(`/api/agents/${id}`, { method: 'DELETE' });
+  },
+
+  /** 启动节点上的 iOS 隧道（iOS 17+）。 */
+  startAgentTunnel(
+    id: string,
+  ): Promise<{ ok: boolean; status: IosTunnelStatus }> {
+    return request(`/api/agents/${id}/tunnel/start`, { method: 'POST' });
+  },
+
+  /** 停止节点上的 iOS 隧道。 */
+  stopAgentTunnel(
+    id: string,
+  ): Promise<{ ok: boolean; status: IosTunnelStatus }> {
+    return request(`/api/agents/${id}/tunnel/stop`, { method: 'POST' });
   },
 
   listDevices(): Promise<DeviceSummary[]> {

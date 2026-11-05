@@ -27,6 +27,10 @@ const sleep = (ms: number): Promise<void> =>
 let lastLoggedTunnels = 0;
 /** 启动失败后的重试时间，避免每轮设备发现都重复拉起、刷日志。 */
 let tunnelRetryAt = 0;
+/** 用户手动停止后，不再由设备发现自动拉起；手动启动或进程重启后恢复。 */
+let tunnelPaused = false;
+/** 启动过程中避免设备发现并发触发第二次 start。 */
+let tunnelStarting = false;
 
 async function resolveCommand(): Promise<string | null> {
   if (commandCache && Date.now() - commandCache.at < 60_000) {
@@ -104,12 +108,12 @@ export async function getTunnelStatus(): Promise<IosTunnelStatus> {
   };
 }
 
-/** 启动 `ios tunnel start`；已在运行则直接返回当前状态。 */
-export async function startTunnel(): Promise<IosTunnelStatus> {
-  if (tunnelProcess && tunnelProcess.exitCode === null) {
-    return getTunnelStatus();
-  }
+/** Windows 普通权限无法创建 kernel 隧道时，回退到用户态隧道。 */
+function needsElevation(text: string): boolean {
+  return /elevated privileges|administrator|sudo|CAP_NET_ADMIN/i.test(text);
+}
 
+async function startTunnelProcess(userspace: boolean): Promise<IosTunnelStatus> {
   const command = await resolveCommand();
   if (!command) {
     lastError = '未找到 go-ios（ios / go-ios），无法启动 iOS 隧道';
@@ -118,9 +122,10 @@ export async function startTunnel(): Promise<IosTunnelStatus> {
   }
 
   lastError = undefined;
-  logInfo(`[ios] 正在启动 iOS 隧道（${command} tunnel start）`);
+  const args = userspace ? ['tunnel', 'start', '--userspace'] : ['tunnel', 'start'];
+  logInfo(`[ios] 正在启动 iOS 隧道（${command} ${args.join(' ')}）`);
   let stderr = '';
-  const child = spawn(command, ['tunnel', 'start'], {
+  const child = spawn(command, args, {
     windowsHide: true,
     stdio: ['ignore', 'ignore', 'pipe'],
   });
@@ -147,8 +152,12 @@ export async function startTunnel(): Promise<IosTunnelStatus> {
   });
 
   // 给进程一点时间完成初始化 / 暴露早期失败
-  await sleep(2_000);
+  await sleep(3_000);
   const status = await getTunnelStatus();
+  if (!status.running && !userspace && needsElevation(stderr)) {
+    logWarn('[ios] 当前进程没有管理员权限，改用用户态隧道重试');
+    return startTunnelProcess(true);
+  }
   if (status.running) {
     lastLoggedTunnels = status.tunnels.length;
     logInfo(
@@ -162,8 +171,27 @@ export async function startTunnel(): Promise<IosTunnelStatus> {
   return status;
 }
 
+/** 启动 `ios tunnel start`；已在运行则直接返回当前状态。 */
+export async function startTunnel(): Promise<IosTunnelStatus> {
+  // 手动启动视为恢复自动管理
+  tunnelPaused = false;
+  if (tunnelProcess && tunnelProcess.exitCode === null) {
+    return getTunnelStatus();
+  }
+  // 正在启动时，设备发现的并发调用直接返回，避免重复 spawn
+  if (tunnelStarting) return getTunnelStatus();
+  tunnelStarting = true;
+  try {
+    return await startTunnelProcess(false);
+  } finally {
+    tunnelStarting = false;
+  }
+}
+
 /** 停止隧道：先结束本模块拉起的进程，再清理 go-ios 的 tunnel agent。 */
 export async function stopTunnel(): Promise<IosTunnelStatus> {
+  // 用户主动停止：设备发现不再自动拉起，直到手动启动或 agent 重启
+  tunnelPaused = true;
   const child = tunnelProcess;
   tunnelProcess = null;
   if (child && child.exitCode === null) {
@@ -180,14 +208,21 @@ export async function stopTunnel(): Promise<IosTunnelStatus> {
   }
 
   lastError = undefined;
-  await sleep(500);
+  // 等 go-ios agent 真正退出，避免接口返回「已停止但状态仍显示已连接」
+  let status = await getTunnelStatus();
+  const deadline = Date.now() + 3_000;
+  while (status.running && Date.now() < deadline) {
+    await sleep(300);
+    status = await getTunnelStatus();
+  }
   lastLoggedTunnels = 0;
   logInfo('[ios] iOS 隧道已停止');
-  return getTunnelStatus();
+  return status;
 }
 
 /** 发现设备前确保隧道在跑；失败原因由 getTunnelStatus 透出。 */
 export async function ensureTunnelRunning(): Promise<void> {
+  if (tunnelPaused) return;
   if (tunnelProcess && tunnelProcess.exitCode === null) return;
   if (Date.now() < tunnelRetryAt) return;
   const tunnels = await probeTunnels();

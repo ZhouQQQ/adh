@@ -9,6 +9,7 @@ import {
   UpdateAgentBodySchema,
   type AgentSummary,
   type DeviceSummary,
+  type IosTunnelStatus,
   type SafeKeyboardLayout,
 } from '@adh/protocol';
 import {
@@ -16,6 +17,8 @@ import {
   runCommandBuffer,
   resolveQuality,
   invalidateWdaCache,
+  startTunnel,
+  stopTunnel,
   wdaPortFor,
 } from '@adh/device-host';
 import { SERVER_VERSION } from '../config.js';
@@ -745,6 +748,71 @@ export async function registerHttpRoutes(
     deps.hub.broadcast({ t: 'agent.removed', agentId: id });
     return reply.code(204).send();
   });
+
+  /** 启动 / 停止节点上的 iOS 隧道（iOS 17+）。 */
+  async function handleTunnelAction(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    start: boolean,
+  ): Promise<unknown> {
+    if (!isAdminRole(request.user?.role ?? '')) {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const { id } = request.params as { id: string };
+    const agent = await deps.queries.getAgent(id);
+    if (!agent) return reply.code(404).send({ error: '节点不存在' });
+
+    let status: IosTunnelStatus | undefined;
+    try {
+      if (id === BUILTIN_AGENT_ID) {
+        status = start ? await startTunnel() : await stopTunnel();
+      } else {
+        const remote = await deps.commands.send(
+          id,
+          start ? 'ios.tunnel.start' : 'ios.tunnel.stop',
+          {},
+          undefined,
+          60_000,
+        );
+        if (!remote.ok) {
+          return reply
+            .code(400)
+            .send({ error: remote.error ?? (start ? '启动失败' : '停止失败') });
+        }
+        status = (remote.data as { status?: IosTunnelStatus } | undefined)
+          ?.status;
+      }
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : '操作失败',
+      });
+    }
+
+    if (!status) status = (await deps.queries.getAgentSummary(id))?.tunnel;
+    if (!status) {
+      return reply.code(400).send({ error: '节点未返回隧道状态' });
+    }
+    if (start && !status.running) {
+      return reply.code(400).send({ error: status.error ?? 'iOS 隧道启动失败' });
+    }
+
+    await deps.queries.updateAgentTunnel(id, status);
+    const summary = await deps.queries.getAgentSummary(id);
+    if (summary) {
+      deps.hub.broadcast({
+        t: 'agent.updated',
+        agent: withOnline(summary, deps.registry),
+      });
+    }
+    return { ok: true, status };
+  }
+
+  app.post('/api/agents/:id/tunnel/start', (request, reply) =>
+    handleTunnelAction(request, reply, true),
+  );
+  app.post('/api/agents/:id/tunnel/stop', (request, reply) =>
+    handleTunnelAction(request, reply, false),
+  );
 
   /* ---------------------------------------------------------------- */
   /* 设备                                                              */

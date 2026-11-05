@@ -353,6 +353,19 @@ ADH_WDA_URL=http://<wda-host>:8100
 - 安全键盘在**截图 / 录屏 / 投屏**里会被系统抹掉，所以 Web 画面上看不到键盘，但真机是正常显示的
 - 需要输入文字时，用控制页的「发送文本」直接写入，不依赖设备键盘
 
+### 6.7 Web 控制台启停 iOS 隧道
+
+「节点管理」→ 节点行右侧「…」菜单：
+
+- **启动 iOS 隧道**：在该节点执行 `ios tunnel start`
+- **停止 iOS 隧道**：结束隧道进程（`ios tunnel stopagent`），并暂停设备发现的自动拉起
+
+说明：
+
+- Windows 上普通权限无法创建内核隧道时，会自动回退到 `ios tunnel start --userspace`
+- 手动停止后不会被设备发现自动重启，直到再次点「启动」或 agent 重启
+- 节点离线时按钮不可用；操作需要管理员权限
+
 ---
 
 ## 7. 解压并安装 Agent
@@ -406,6 +419,30 @@ Linux / macOS：
 - 窗口日志出现 `adh-agent started`
 - 设备 5 秒内出现在「设备管理」
 - Key 保存在 `~/.adh/agent.json`，以后重启只需带 `--server`
+
+### 8.1 日常管理（start / stop / restart）
+
+第一次 `connect` 成功后，server、key、name 会保存到 `~/.adh/agent.json`
+（用户主目录，不随 agent 安装目录变化，升级或移动目录后仍然有效），
+之后不需要再带参数：
+
+```bash
+adh-agent start     # 后台启动，关闭窗口不会断开
+adh-agent stop      # 停止后台进程
+adh-agent restart   # 停止后重新启动
+```
+
+- 日志：`~/.adh/agent.log`
+- PID：`~/.adh/agent.pid`
+- `start` / `connect` / `connect -d` 检测到已有实例时都会询问是否停止旧的并启动新的
+- `connect` 仍可用于前台调试；`connect ... -d` 表示「首次连接并直接转后台」
+- 前台 `connect` 也会登记 PID。重复执行 `connect` / `connect -d` / `start`
+  会询问是否停止旧实例并启动新的；选择否会退出并提示改用
+  `start` / `stop` / `restart` 管理
+
+> 同一台机器只允许一个 agent 实例。如果服务端发现同一个 Key 有新的连接，
+> 会通知旧连接停止并踢下线，避免两个实例同时上报设备。升级时建议先
+> `adh-agent stop` 停掉旧版本再解压新版本。
 
 ---
 

@@ -13,6 +13,7 @@
  * 所以同一份 deploy 结果可以复用，按平台塞入不同 vendor 即可。
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -28,15 +29,27 @@ const args = process.argv.slice(2);
 const ALL_PLATFORMS = ['win32', 'darwin', 'linux'];
 
 /**
- * 包内文件夹用版本号区分，例如 adh-agent-win32-v0.1.7。
+ * 包内文件夹与运行版本统一用同一个版本号，例如 adh-agent-win32-v0.1.7。
  * 优先 ADH_AGENT_VERSION，其次 CI 的 tag（GITHUB_REF_NAME=v0.1.7），
- * 本地打包回退到 apps/agent/package.json 的 version。
+ * 然后本地最近的 v* tag，最后回退到 apps/agent/package.json 的 version。
+ * 只用 semver 形式的 tag，避免 git describe 的 v0.1.7-3-gabc 弄乱版本比较。
  */
 function resolveAgentVersion() {
   const explicit = process.env.ADH_AGENT_VERSION?.trim();
   if (explicit) return explicit.replace(/^v/, '');
   const ref = process.env.GITHUB_REF_NAME?.trim();
   if (ref && /^v?\d+(\.\d+)*$/.test(ref)) return ref.replace(/^v/, '');
+  try {
+    const tag = spawnSync(
+      'git',
+      ['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*'],
+      { cwd: root, encoding: 'utf8' },
+    );
+    const value = tag.status === 0 ? tag.stdout.trim() : '';
+    if (/^v?\d+(\.\d+)*$/.test(value)) return value.replace(/^v/, '');
+  } catch {
+    /* 没有 git 时用 package.json */
+  }
   try {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, 'apps/agent/package.json'), 'utf8'),
@@ -189,6 +202,22 @@ function runPnpm(pnpmArgs) {
   });
 }
 
+/** 流式计算 sha256，避免把上百 MB 的安装包整个读进内存。 */
+function sha256OfFile(file) {
+  const hash = createHash('sha256');
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let bytes = 0;
+    while ((bytes = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+      hash.update(buffer.subarray(0, bytes));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest('hex');
+}
+
 function zipDir(dir, zipPath) {
   fs.rmSync(zipPath, { force: true });
   if (isWindows) {
@@ -214,30 +243,6 @@ function zipDir(dir, zipPath) {
     return false;
   }
   return true;
-}
-
-/** 版本号：优先 ADH_VERSION，其次最近的 git tag，最后 package.json。 */
-function resolveVersion() {
-  const injected = process.env.ADH_VERSION?.trim();
-  if (injected) return injected;
-  try {
-    const tag = spawnSync('git', ['describe', '--tags', '--always'], {
-      cwd: root,
-      encoding: 'utf8',
-    });
-    if (tag.status === 0 && tag.stdout.trim()) return tag.stdout.trim();
-  } catch {
-    /* 没有 git 时用 package.json */
-  }
-  try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(root, 'apps/agent/package.json'), 'utf8'),
-    );
-    if (pkg.version) return pkg.version;
-  } catch {
-    /* ignore */
-  }
-  return 'dev';
 }
 
 /** 把版本号写进启动脚本，agent 启动日志会打印出来。 */
@@ -295,7 +300,7 @@ async function prepareBase() {
   for (const stray of ['.data', 'dist']) {
     fs.rmSync(path.join(buildBase, stray), { recursive: true, force: true });
   }
-  const version = resolveVersion();
+  const version = AGENT_VERSION;
   injectVersion(buildBase, version);
   console.log(`  版本号: ${version}`);
   if (!isWindows) {
@@ -386,7 +391,7 @@ function materialize(dir) {
  * scrcpy-server.jar，agent 用它定位 vendor/，打包成单文件会破坏这些路径。
  * 编译后产物只含纯 JS，三个平台可以共用同一份，不再需要 macOS/Windows runner。
  */
-async function compileTypeScript(base) {
+async function compileTypeScript(base, version) {
   console.log('编译 TypeScript（产物不再依赖 tsx / esbuild）');
 
   // 防止 deploy 产物里的 workspace 包还是符号链接（会把改动写回仓库）
@@ -421,7 +426,11 @@ async function compileTypeScript(base) {
     for (const file of files) fs.rmSync(file, { force: true });
   }
 
-  patchPackageJson(path.join(base, 'package.json'), { main: './src/cli.js' });
+  patchPackageJson(path.join(base, 'package.json'), {
+    main: './src/cli.js',
+    // 自更新需要从安装包内读版本，package.json 必须和 ADH_VERSION 一致
+    version,
+  });
   for (const name of ['protocol', 'device-host']) {
     patchPackageJson(
       path.join(base, 'node_modules', '@adh', name, 'package.json'),
@@ -484,7 +493,7 @@ function selfCheck(dir, platform) {
 async function main() {
   fs.mkdirSync(distDir, { recursive: true });
   await prepareBase();
-  await compileTypeScript(buildBase);
+  await compileTypeScript(buildBase, AGENT_VERSION);
 
   const results = [];
 
@@ -524,11 +533,13 @@ async function main() {
     const zipPath = path.join(distDir, `adh-agent-${platform}.zip`);
     selfCheck(outDir, platform);
     const zipped = zipDir(outDir, zipPath);
+    const size = zipped ? fs.statSync(zipPath).size : 0;
     results.push({
       platform,
       dir: outDir,
       zip: zipped ? zipPath : null,
-      size: zipped ? fs.statSync(zipPath).size : 0,
+      size,
+      sha256: zipped ? sha256OfFile(zipPath) : null,
     });
     console.log(`  ${zipped ? `已生成 ${zipPath}` : '未生成 zip'}`);
   }
@@ -538,6 +549,28 @@ async function main() {
     const size = item.size ? `${(item.size / 1024 / 1024).toFixed(1)} MB` : '—';
     console.log(`  ${item.platform.padEnd(7)} ${size.padStart(8)}  ${item.zip ?? item.dir}`);
   }
+
+  // 自更新清单：agent 通过它比较版本、下载对应平台安装包并校验 sha256。
+  const manifestPath = path.join(distDir, 'adh-agent-manifest.json');
+  const manifest = {
+    version: AGENT_VERSION,
+    releasedAt: new Date().toISOString(),
+    minNode: '22.13.0',
+    platforms: Object.fromEntries(
+      results
+        .filter((item) => item.zip)
+        .map((item) => [
+          item.platform,
+          {
+            file: path.basename(item.zip),
+            size: item.size,
+            sha256: item.sha256,
+          },
+        ]),
+    ),
+  };
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`版本清单: ${manifestPath}`);
 
   console.log(`
 目标机器只需要：

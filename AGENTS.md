@@ -46,6 +46,7 @@ pnpm migrate:data
 - **所有表名以 `adh_` 开头**（`adh_agents` / `adh_devices` / `adh_packages` / `adh_migrations`），新增表同样遵守。
 - **文件存储可选 OSS**：配了 OSS 就同步到 `oss://<bucket>/adh/...`，本地 `.data/` 保留缓存；`ADH_STORAGE=local` 可强制只用本地。
 - **Agent 有两个名字**：`name` 是用户可编辑的显示名，`hostName` 是 agent 上报的宿主机名。`updateAgentRuntime()` 故意不覆盖 `name`。
+- **Agent 自更新**：`adh-agent update` 只支持打包后的安装目录（有 `src/cli.js`），源码目录会直接拒绝。替换在独立 helper 进程里完成，先 rename 旧目录再放新目录，启动失败自动回滚；旧版本保留为 `<install>.bak-*`，`vendor/` 与 `~/.adh` 不参与替换。打包脚本产出 `dist/adh-agent-manifest.json`（含各平台 sha256），CI 必须和 zip 一起上传到 Release，否则 `update` 无法校验和识别新版本。
 - **设备从 adb 消失时标记 offline，不删记录**；清理走 `DELETE /api/devices/:id`。
 - **设备名优先取厂商市场名称**：`ro.vivo.market.name` → `ro.product.marketname` → OPPO / `ro.config.marketing_name` 等，取不到才回退到 `ro.product.model`。型号代码单独存在 `model` 字段。
 - **`builtin-local` 是 server 内置 Agent**（进程内直连本机 adb），删除 / 重置 Key 接口返回 400，前端不展示这些按钮。

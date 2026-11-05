@@ -100,7 +100,11 @@ function close(): void {
           2. 安装 Node.js ≥ 22；adb / go-ios 已装可忽略，否则运行
           <code>adh-agent init</code> 从安装包内置资源解压（无需联网）
         </p>
-        <p>3. 执行上面的接入命令，设备会在 5 秒内出现在「设备管理」</p>
+        <p>
+          3. 执行上面的接入命令（-d 后台运行，关闭窗口不会断开）；之后可用
+          <code>adh-agent start</code> / <code>stop</code> / <code>restart</code>
+          管理
+        </p>
       </div>
     </div>
 
