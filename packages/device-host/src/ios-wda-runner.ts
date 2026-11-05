@@ -96,7 +96,12 @@ async function waitForWda(
  * server 重启后 runners 里的 child 会丢，所以不能只 kill 子进程：
  * 再按进程名兜底杀一次设备上的 WebDriverAgentRunner-Runner。
  */
-export async function stopWda(udid: string): Promise<void> {
+export async function stopWda(
+  udid: string,
+  pauseAuto = true,
+): Promise<void> {
+  // 用户主动停止后不再自动拉起，直到手动启动或 agent 重启
+  if (pauseAuto) autoPaused.add(udid);
   const child = runners.get(udid);
   if (child && child.exitCode === null) {
     try {
@@ -144,6 +149,8 @@ export async function startWda(
   port = wdaPortFor(udid),
   force = false,
 ): Promise<WdaStartResult> {
+  // 手动启动视为恢复自动管理
+  autoPaused.delete(udid);
   // force=true 表示「重启」：即使探测到旧实例也要先停掉再拉起，
   // 否则设备上的 XCTest 已经挂了、只剩一条失效转发时会被误判为「已在运行」。
   if (!force && (await probeWda(port))) {
@@ -156,7 +163,8 @@ export async function startWda(
   }
 
   if (force) {
-    await stopWda(udid);
+    // 重启是启动流程的一部分，不要因此暂停自动管理
+    await stopWda(udid, false);
     // 给 testmanagerd 一点时间回收设备上的 XCTest 会话
     await sleep(1_000);
   }
@@ -202,4 +210,90 @@ export async function startWda(
   // go-ios 的 `ui run wda` 自带 --host-port 转发；
   // runwda 只负责拉起 XCTest，需要我们自己补转发
   return waitForWda(udid, port, child, Boolean(bundleId));
+}
+
+/* ------------------------------------------------------------------ */
+/* 自动启动：设备发现时后台补齐 WDA                                     */
+/* ------------------------------------------------------------------ */
+
+type WdaLogLevel = 'info' | 'warn';
+type WdaLogger = (level: WdaLogLevel, message: string) => void;
+
+const AUTO_RETRY_BASE_MS = 60_000;
+const AUTO_RETRY_MAX_MS = 10 * 60_000;
+
+const autoQueue: { udid: string; log: WdaLogger }[] = [];
+const autoQueued = new Set<string>();
+const autoFailures = new Map<string, number>();
+const autoRetryAt = new Map<string, number>();
+/** 用户主动停止过的设备：不再自动拉起，手动启动或 agent 重启后恢复。 */
+const autoPaused = new Set<string>();
+let autoDraining = false;
+
+function defaultWdaLog(level: WdaLogLevel, message: string): void {
+  if (level === 'warn') console.warn(message);
+  else console.log(message);
+}
+
+/** 失败退避：60s 起指数增长，最多 10 分钟，避免每轮发现都重复拉起。 */
+function scheduleAutoRetry(udid: string): void {
+  const failures = (autoFailures.get(udid) ?? 0) + 1;
+  autoFailures.set(udid, failures);
+  const delay = Math.min(
+    AUTO_RETRY_BASE_MS * 2 ** Math.min(failures - 1, 5),
+    AUTO_RETRY_MAX_MS,
+  );
+  autoRetryAt.set(udid, Date.now() + delay);
+}
+
+async function drainAutoQueue(): Promise<void> {
+  if (autoDraining) return;
+  autoDraining = true;
+  try {
+    for (let item = autoQueue.shift(); item; item = autoQueue.shift()) {
+      try {
+        const result = await startWda(item.udid);
+        if (result.ok) {
+          autoFailures.delete(item.udid);
+          autoRetryAt.delete(item.udid);
+          item.log('info', `[ios] ${item.udid} 自动启动 WDA 成功：${result.message}`);
+        } else {
+          scheduleAutoRetry(item.udid);
+          item.log('warn', `[ios] ${item.udid} 自动启动 WDA 失败：${result.message}`);
+        }
+      } catch (error) {
+        scheduleAutoRetry(item.udid);
+        item.log(
+          'warn',
+          `[ios] ${item.udid} 自动启动 WDA 异常：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      } finally {
+        // 整个启动过程（含准备阶段）都占位，避免下一轮发现重复入队
+        autoQueued.delete(item.udid);
+      }
+    }
+  } finally {
+    autoDraining = false;
+  }
+}
+
+/**
+ * 设备发现时自动尝试启动 WDA（XCTest）。
+ *
+ * - 多台 iOS 设备排队串行启动，避免同时抢占 testmanagerd；
+ * - `startWda` 会先找设备上已安装的 WebDriverAgentRunner，找不到再走
+ *   `ios ui run wda`，所以不需要额外探测；
+ * - 失败只写日志并指数退避重试，不抛异常、不阻塞设备发现。
+ */
+export function autoStartWda(udid: string, log: WdaLogger = defaultWdaLog): void {
+  if (autoPaused.has(udid)) return;
+  if (autoQueued.has(udid)) return;
+  if (Date.now() < (autoRetryAt.get(udid) ?? 0)) return;
+  const running = runners.get(udid);
+  if (running && running.exitCode === null) return;
+  autoQueued.add(udid);
+  autoQueue.push({ udid, log });
+  void drainAutoQueue();
 }

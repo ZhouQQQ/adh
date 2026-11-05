@@ -270,6 +270,11 @@ adb start-server
 
 设备还没装 WDA 时，需要先按 6.3 手动安装。
 
+> Agent 启动后，每轮设备发现都会自动检查每台 iOS 设备：WDA 没在运行就在后台
+> 排队拉起 XCTest（多台设备串行，互不抢占），失败只写 agent 日志并按
+> 1 / 2 / 4 … 分钟退避重试，不会阻塞设备上报。设备上已安装 WDA 时会自动
+> 查找其 bundle id，因此不配置 `ADH_WDA_BUNDLE_ID` 也能启动。
+
 如果已经有签名好的 WDA，可以在 server 的 `.env` 指定 bundle，避免每次自动查找：
 
 ```bash

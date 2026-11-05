@@ -335,13 +335,16 @@ const wifiTitle = computed(() => {
           {{ statusMeta.label }}
         </n-tag>
         <n-tag
-          v-if="device.platform === 'ios' && !device.capabilities?.includes('wda')"
+          v-if="device.platform === 'ios'"
           size="small"
-          type="warning"
+          :type="device.capabilities?.includes('wda') ? 'info' : 'warning'"
           :bordered="false"
           round
+          :title="`节点「${agentName}」上的本地转发端口${device.wdaPort ? ` :${device.wdaPort}` : '未分配'}`"
         >
-          WDA 未启动{{ device.wdaPort ? ` · :${device.wdaPort}` : '' }}
+          {{ device.capabilities?.includes('wda') ? 'WDA' : 'WDA 未启动' }}{{
+            device.wdaPort ? ` · :${device.wdaPort}` : ''
+          }}
         </n-tag>
         <n-tag
           v-if="device.locked"

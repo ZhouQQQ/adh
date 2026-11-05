@@ -360,6 +360,15 @@ async function onImageSelected(event: Event): Promise<void> {
           <n-descriptions-item label="所属节点">
             <CopyValue :value="agentName" />
           </n-descriptions-item>
+          <n-descriptions-item v-if="device.platform === 'ios'" label="WDA 转发">
+            <CopyValue
+              :value="
+                device.wdaPort
+                  ? `:${device.wdaPort}（节点 ${agentName}）`
+                  : '未分配'
+              "
+            />
+          </n-descriptions-item>
           <n-descriptions-item label="UDID">
             <CopyValue :value="device.udid" mono />
           </n-descriptions-item>

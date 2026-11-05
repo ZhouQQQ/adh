@@ -8,6 +8,7 @@ import {
   releaseWdaPort,
   wdaPortFor,
 } from './ios-wda.js';
+import { autoStartWda } from './ios-wda-runner.js';
 
 /**
  * iOS 设备发现：通过 go-ios 列出设备并读取基本信息。
@@ -133,6 +134,10 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
     let wda = await probeWda(port);
     if (!wda) {
       if (await ensureWdaForward(udid, port)) wda = await probeWda(port);
+    }
+    if (!wda) {
+      // 没在跑就后台自动拉起 XCTest：多台设备会排队，失败只记日志
+      autoStartWda(udid);
     }
     if (wdaStates.get(udid) !== wda) {
       wdaStates.set(udid, wda);
