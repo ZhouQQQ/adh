@@ -308,8 +308,9 @@ export function autoStartWda(
   if (autoPaused.has(udid)) return;
   if (autoQueued.has(udid)) return;
   if (Date.now() < (autoRetryAt.get(udid) ?? 0)) return;
-  // 本 agent 已经在托管这台设备的 WDA，无需重复启动
-  if (hasWdaRunner(udid)) return;
+  // 本 agent 已经在托管这台设备的 WDA，无需重复启动；
+  // force 是「进程残留但 WDA 已死」的强制重启，必须允许越过这层检查
+  if (!options.force && hasWdaRunner(udid)) return;
   autoQueued.add(udid);
   autoQueue.push({
     udid,

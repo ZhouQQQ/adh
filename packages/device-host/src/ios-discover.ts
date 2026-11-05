@@ -100,6 +100,9 @@ async function loadInfo(command: string, udid: string): Promise<IosInfo | null> 
 
 let lastLoggedCount = -1;
 const wdaStates = new Map<string, boolean>();
+/** 子进程还活着、但 WDA 探测失败的连续轮数。 */
+const stalledProbes = new Map<string, number>();
+const STALLED_PROBE_LIMIT = 3;
 
 export async function discoverIos(): Promise<DeviceInfo[]> {
   const command = await resolveCommand();
@@ -137,11 +140,27 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
       if (await ensureWdaForward(udid, port)) wda = await probeWda(port);
     }
     if (!wda) {
-      // 没在跑就后台自动拉起 XCTest：多台设备会排队，失败只记日志
-      autoStartWda(udid);
-    } else if (!hasWdaRunner(udid)) {
-      // 已有外部 WDA 实例（非本 agent 拉起）：后台重启一次由 agent 接管
-      autoStartWda(udid, { force: true });
+      if (hasWdaRunner(udid)) {
+        // 子进程还在但 /status 不通：多半是 XCTest 已崩、go-ios 没退出。
+        // 连续 3 轮（约 15 秒）都这样才强制重启，避免瞬时抖动误杀。
+        const failures = (stalledProbes.get(udid) ?? 0) + 1;
+        stalledProbes.set(udid, failures);
+        if (failures >= STALLED_PROBE_LIMIT) {
+          stalledProbes.delete(udid);
+          logInfo(`[ios] ${udid} WDA 连续 ${failures} 轮无响应，强制重启`);
+          autoStartWda(udid, { force: true });
+        }
+      } else {
+        stalledProbes.delete(udid);
+        // 没在跑就后台自动拉起 XCTest：多台设备会排队，失败只记日志
+        autoStartWda(udid);
+      }
+    } else {
+      stalledProbes.delete(udid);
+      if (!hasWdaRunner(udid)) {
+        // 已有外部 WDA 实例（非本 agent 拉起）：后台重启一次由 agent 接管
+        autoStartWda(udid, { force: true });
+      }
     }
     if (wdaStates.get(udid) !== wda) {
       wdaStates.set(udid, wda);
@@ -190,6 +209,7 @@ export async function discoverIos(): Promise<DeviceInfo[]> {
   for (const udid of [...wdaStates.keys()]) {
     if (!udids.includes(udid)) {
       wdaStates.delete(udid);
+      stalledProbes.delete(udid);
       releaseWdaPort(udid);
     }
   }

@@ -6,6 +6,7 @@ import {
   nalsToAvcc,
   splitNals,
   type StreamReady,
+  type StreamViewerInfo,
   type ViewerToStreamMessage,
 } from '@adh/protocol';
 import {
@@ -37,6 +38,8 @@ const emit = defineEmits<{
   input: [message: ViewerToStreamMessage];
   'control-released': [username: string];
   'viewers-allow': [allow: boolean];
+  /** 当前观看者名单（含控制者标记），在有投屏会话时由服务端推送。 */
+  'viewer-list': [viewers: StreamViewerInfo[]];
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -405,6 +408,13 @@ function handleText(raw: string): void {
   }
   if (message.t === 'viewers') {
     emit('viewers-allow', Boolean(message.allow));
+    return;
+  }
+  if (message.t === 'viewer.list') {
+    const list = Array.isArray(message.viewers)
+      ? (message.viewers as StreamViewerInfo[])
+      : [];
+    emit('viewer-list', list);
     return;
   }
   if (message.t === 'error') {

@@ -55,7 +55,11 @@ import DeviceStats from '../components/DeviceStats.vue';
 import InstallAppModal from '../components/InstallAppModal.vue';
 import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
-import { BUILTIN_AGENT_ID, type SafeKeyboardLayout } from '@adh/protocol';
+import {
+  BUILTIN_AGENT_ID,
+  type SafeKeyboardLayout,
+  type StreamViewerInfo,
+} from '@adh/protocol';
 import { api } from '../api';
 import { withBase } from '../base';
 import { stopFleet, useFleet } from '../stores/fleet';
@@ -157,6 +161,8 @@ const viewerClosed = computed(() =>
   Boolean(errorText.value?.includes('关闭其他人查看')),
 );
 const controller = ref(false);
+/** 当前会话的观看者名单（仅 Android / 远程 iOS 有投屏会话）。 */
+const viewers = ref<StreamViewerInfo[]>([]);
 const text = ref('');
 const fileShow = ref(false);
 const appsShow = ref(false);
@@ -396,6 +402,23 @@ function onViewersAllow(value: boolean): void {
   allowViewers.value = value;
 }
 
+/** 当前观看者（排除控制者和自己），由服务端 viewer.list 推送；只显示显示名。 */
+const observerNames = computed(() =>
+  viewers.value
+    .filter((viewer) => !viewer.controller && viewer.userId !== user.value?.id)
+    .map((viewer) => viewer.displayName || '未命名'),
+);
+
+const observerLabel = computed(() => {
+  const names = observerNames.value;
+  if (names.length <= 2) return names.join('、');
+  return `${names.slice(0, 2).join('、')} 等 ${names.length} 人`;
+});
+
+function onViewerList(list: StreamViewerInfo[]): void {
+  viewers.value = list;
+}
+
 async function toggleViewers(value: boolean): Promise<void> {
   const current = device.value;
   if (!current) return;
@@ -414,7 +437,7 @@ let clockTimer: number | null = null;
 
 const controlName = computed(() =>
   device.value?.control
-    ? device.value.control.displayName || device.value.control.username
+    ? device.value.control.displayName || '未命名'
     : '',
 );
 const controlDuration = computed(() =>
@@ -527,11 +550,20 @@ function startIosHeartbeat(): void {
   }, 10_000);
 }
 
+/** 断开后关闭当前控制标签页；浏览器拒绝关闭时退回设备列表。 */
+function closeControlTab(): void {
+  window.close();
+  // 非脚本打开的标签页无法 close，兜底回到设备列表
+  window.setTimeout(() => {
+    if (!window.closed) void router.replace('/devices');
+  }, 200);
+}
+
 async function stopControl(): Promise<void> {
   const current = device.value;
   if (!current) return;
 
-  // iOS 没有服务端投屏会话，断开就是释放控制权，画面保留为只读
+  // iOS 没有服务端投屏会话，断开就是释放控制权
   if (isIos.value) {
     stopIosHeartbeat();
     selfReleased = true;
@@ -545,19 +577,19 @@ async function stopControl(): Promise<void> {
     } catch {
       /* 控制权可能已经超时释放 */
     }
-    message.success('已断开控制，当前仅可查看');
-    await refresh();
+    message.success('已断开控制');
+    closeControlTab();
     return;
   }
 
   try {
     await api.stopDeviceStream(current.id);
+    message.success('已断开控制');
   } catch (error) {
     /* 会话可能已经结束 */
     message.warning(error instanceof Error ? error.message : '断开失败');
   }
-  // 断开后停留在当前页面，转为只读观看
-  await refresh();
+  closeControlTab();
 }
 
 /** iOS 自己断开后重新申请控制权。 */
@@ -600,8 +632,9 @@ watch(
   () => device.value?.control?.userId,
   (userId, previous) => {
     if (!isIos.value) return;
-    const name =
-      device.value?.control?.displayName || device.value?.control?.username;
+    const name = device.value?.control
+      ? device.value.control.displayName || '未命名'
+      : '';
     // 记住最近一次看到的控制者，断开推送里没有名字时可以还原
     if (name) lastControlName = name;
 
@@ -1108,6 +1141,16 @@ onBeforeUnmount(() => {
         {{ controlDuration }}
       </n-tag>
       <n-tag
+        v-if="observerNames.length"
+        size="small"
+        :bordered="false"
+        round
+        class="viewer-tag"
+        :title="observerNames.join('、')"
+      >
+        观看：{{ observerLabel }}
+      </n-tag>
+      <n-tag
         v-if="(sessionId || isIos) && !controller"
         size="small"
         type="warning"
@@ -1327,6 +1370,7 @@ onBeforeUnmount(() => {
             @error="errorText = $event"
             @control-released="onControlReleased"
             @viewers-allow="onViewersAllow"
+            @viewer-list="onViewerList"
             @ready="playerReady = true"
             @closed="onPlayerClosed"
           />
@@ -1971,6 +2015,16 @@ onBeforeUnmount(() => {
 .title {
   font-size: 13px;
   font-weight: 600;
+}
+
+.viewer-tag {
+  max-width: 220px;
+}
+
+.viewer-tag :deep(.n-tag__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quality-select {

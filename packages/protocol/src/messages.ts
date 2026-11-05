@@ -377,6 +377,20 @@ export const StreamViewersSchema = z.object({
   allow: z.boolean(),
 });
 
+/** 当前正在观看该设备的人（含控制者标记）。 */
+export const StreamViewerInfoSchema = z.object({
+  userId: z.string(),
+  username: z.string(),
+  displayName: z.string().optional(),
+  controller: z.boolean().default(false),
+});
+export type StreamViewerInfo = z.infer<typeof StreamViewerInfoSchema>;
+
+export const StreamViewerListSchema = z.object({
+  t: z.literal('viewer.list'),
+  viewers: z.array(StreamViewerInfoSchema).default([]),
+});
+
 export const StreamAgentToViewerMessageSchema = z.discriminatedUnion('t', [
   StreamReadySchema,
   StreamRotatedSchema,
@@ -384,6 +398,7 @@ export const StreamAgentToViewerMessageSchema = z.discriminatedUnion('t', [
   StreamRoleSchema,
   StreamControlReleasedSchema,
   StreamViewersSchema,
+  StreamViewerListSchema,
 ]);
 export type StreamAgentToViewerMessage = z.infer<
   typeof StreamAgentToViewerMessageSchema

@@ -26,10 +26,12 @@ import type { AgentRegistry } from '../registry.js';
 import type { WebHub } from '../ws/web-hub.js';
 
 const IDLE_TIMEOUT_MS = 5 * 60_000;
+/** 控制者异常掉线后给原用户的重连窗口，超时才允许其他人接管。 */
+const CONTROLLER_RECONNECT_WINDOW_MS = 30_000;
 const AGENT_ATTACH_TIMEOUT_MS = 15_000;
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 /** iOS 没有 WebSocket 会话，用带心跳的控制权记录，超时自动释放。 */
-const IOS_CONTROL_TTL_MS = 40_000;
+const IOS_CONTROL_TTL_MS = 30_000;
 /** 同一设备短时间内重复进入控制（刷新重连）只计一次使用。 */
 const USAGE_DEDUPE_MS = 60_000;
 
@@ -59,6 +61,8 @@ interface StreamSession {
   controllerUserId: string | null;
   /** 控制者断开的时间 */
   controllerLeftAt: number;
+  /** 控制者掉线后的重连窗口计时器 */
+  controllerReleaseTimer: NodeJS.Timeout | null;
   /** 是否允许其他人查看（默认允许，管理员不受限制） */
   allowViewers: boolean;
   /** 设备是否被管理员锁定：普通用户不能控制也不能查看 */
@@ -224,7 +228,9 @@ export class StreamManager {
         session.controller = null;
         session.controllerUserId = null;
         session.controllerLeftAt = Date.now();
+        this.clearControllerRelease(session);
       }
+      this.broadcastViewerList(session);
     }
   }
 
@@ -309,6 +315,7 @@ export class StreamManager {
       session.controller = null;
       session.controllerUserId = null;
       session.controllerLeftAt = Date.now();
+      this.clearControllerRelease(session);
     }
   }
 
@@ -401,6 +408,7 @@ export class StreamManager {
     session.controller = null;
     session.controllerUserId = null;
     session.controllerLeftAt = Date.now();
+    this.clearControllerRelease(session);
     if (session.activityTimer) {
       clearTimeout(session.activityTimer);
       session.activityTimer = null;
@@ -415,6 +423,7 @@ export class StreamManager {
     for (const viewer of session.viewers) {
       if (viewer.readyState === 1) sendJson(viewer, payload);
     }
+    this.broadcastViewerList(session);
 
     // 一直没人接管时按闲置回收
     this.scheduleIdleStop(session);
@@ -468,10 +477,12 @@ export class StreamManager {
     session.controllerSince = Date.now();
     session.controllerUserId = user.id;
     session.controllerLeftAt = 0;
+    this.clearControllerRelease(session);
     this.touchActivity(session);
 
     if (previous) sendJson(previous, { t: 'role', controller: false });
     sendJson(target, { t: 'role', controller: true });
+    this.broadcastViewerList(session);
 
     void this.recordUsage(deviceId);
     return true;
@@ -526,6 +537,7 @@ export class StreamManager {
       controllerSince: 0,
       controllerUserId: null,
       controllerLeftAt: 0,
+      controllerReleaseTimer: null,
       allowViewers: true,
       locked: Boolean(device.locked),
       agentSocket: null,
@@ -557,6 +569,61 @@ export class StreamManager {
     const existing = this.findSessionByDevice(deviceId);
     if (existing) this.destroy(existing.id, '切换画质');
     return this.create(deviceId, quality);
+  }
+
+  /** 把当前会话的观看者名单（含控制者标记）广播给所有连接。 */
+  private broadcastViewerList(session: StreamSession): void {
+    if (session.viewers.size === 0) return;
+    const viewers = [...session.viewers]
+      .map((socket) => {
+        const user = viewerMeta.get(socket)?.user;
+        if (!user) return null;
+        return {
+          userId: user.id,
+          username: user.username,
+          displayName: user.displayName ?? undefined,
+          controller: session.controller === socket,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    const payload = { t: 'viewer.list' as const, viewers };
+    for (const viewer of session.viewers) {
+      if (viewer.readyState === 1) sendJson(viewer, payload);
+    }
+  }
+
+  /** 控制者异常掉线后保留 30 秒重连窗口，超时仍无人恢复就释放给其他观看者。 */
+  private scheduleControllerRelease(
+    session: StreamSession,
+    user?: AuthUser,
+  ): void {
+    this.clearControllerRelease(session);
+    session.controllerReleaseTimer = setTimeout(() => {
+      session.controllerReleaseTimer = null;
+      if (session.closed || session.controller || !session.controllerUserId) {
+        return;
+      }
+      session.controllerUserId = null;
+      session.controllerLeftAt = Date.now();
+      const payload = {
+        t: 'control.released' as const,
+        username: user?.username ?? '控制者',
+        displayName: user?.displayName ?? undefined,
+      };
+      for (const viewer of session.viewers) {
+        if (viewer.readyState === 1) sendJson(viewer, payload);
+      }
+      this.broadcastViewerList(session);
+      this.notifyDevice(session.device.id);
+    }, CONTROLLER_RECONNECT_WINDOW_MS);
+    session.controllerReleaseTimer.unref?.();
+  }
+
+  private clearControllerRelease(session: StreamSession): void {
+    if (!session.controllerReleaseTimer) return;
+    clearTimeout(session.controllerReleaseTimer);
+    session.controllerReleaseTimer = null;
   }
 
   attachViewer(
@@ -594,6 +661,7 @@ export class StreamManager {
       session.controllerSince = Date.now();
       session.controllerUserId = user?.id ?? null;
       session.controllerLeftAt = 0;
+      this.clearControllerRelease(session);
       this.touchActivity(session);
     }
 
@@ -629,6 +697,7 @@ export class StreamManager {
       });
     }
     sendJson(socket, { t: 'viewers', allow: session.allowViewers });
+    this.broadcastViewerList(session);
 
     socket.on('message', (raw: Buffer, isBinary: boolean) => {
       if (isBinary) return;
@@ -638,16 +707,20 @@ export class StreamManager {
     socket.on('close', () => {
       session.viewers.delete(socket);
       if (session.controller === socket) {
+        const leavingUser = viewerMeta.get(socket)?.user;
         session.controller = null;
         session.controllerLeftAt = Date.now();
         // 保留 controllerUserId：只有本人重连能恢复，其他观看者保持只读
         if (session.viewers.size === 0) {
           this.scheduleIdleStop(session);
         }
+        this.broadcastViewerList(session);
         this.notifyDevice(session.device.id);
+        this.scheduleControllerRelease(session, leavingUser);
         return;
       }
       if (session.viewers.size === 0) this.scheduleIdleStop(session);
+      this.broadcastViewerList(session);
     });
   }
 
@@ -699,6 +772,7 @@ export class StreamManager {
     session.closed = true;
     this.sessions.delete(sessionId);
     this.clearIdleTimer(session);
+    this.clearControllerRelease(session);
     if (session.activityTimer) clearTimeout(session.activityTimer);
     session.activityTimer = null;
     if (session.agentTimer) clearTimeout(session.agentTimer);
