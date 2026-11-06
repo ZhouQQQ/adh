@@ -38,12 +38,25 @@ RUN mkdir -p /out/server/src /out/server/public \
   && cp -a apps/server/public/. /out/server/public/ \
   && cp apps/server/package.json /out/server/package.json
 
+# 直连 APK：CI 先执行 gradlew assembleDebug，本地构建需先执行 pnpm portal:build。
+# 放在 apps/server/portal/，与 portal-routes.ts 的 ../../portal/adh-portal.apk 对应。
+RUN test -f apps/portal-android/app/build/outputs/apk/debug/app-debug.apk \
+  || (echo "缺少直连 APK：请先执行 pnpm portal:build" >&2 && exit 1)
+RUN mkdir -p /out/server/portal \
+  && cp apps/portal-android/app/build/outputs/apk/debug/app-debug.apk \
+        /out/server/portal/adh-portal.apk \
+  && if [ -f apps/portal-android/app/build/outputs/apk/debug/output-metadata.json ]; then \
+       cp apps/portal-android/app/build/outputs/apk/debug/output-metadata.json \
+          /out/server/portal/output-metadata.json; \
+     fi
+
 # 构建期校验部署布局，路径不对就直接失败，不要等容器跑起来才报 MODULE_NOT_FOUND
 RUN test -f /out/server/node_modules/tsx/dist/cli.mjs \
   && test -f /out/server/node_modules/@adh/protocol/src/index.ts \
   && test -f /out/server/node_modules/@adh/device-host/resources/scrcpy-server.jar \
   && test -f /out/server/src/index.ts \
-  && test -f /out/server/public/index.html
+  && test -f /out/server/public/index.html \
+  && test -f /out/server/portal/adh-portal.apk
 
 
 # 运行阶段

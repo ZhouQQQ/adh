@@ -24,6 +24,11 @@ function apkCandidates(): string[] {
   ].filter((item): item is string => Boolean(item));
 }
 
+/** 取第一个实际存在的 APK 文件。 */
+function findApk(): string | undefined {
+  return apkCandidates().find((item) => fs.existsSync(item));
+}
+
 /**
  * 读 APK 旁边 output-metadata.json 里的 versionName。
  * 版本号以实际构建出来的包为准，避免和 build.gradle 漂移。
@@ -110,7 +115,7 @@ export function registerPortalRoutes(
       lanIp: lanIpv4(),
       address: `${scheme}://${host}${prefix}?key=${key}`,
       android: {
-        available: true,
+        available: Boolean(findApk()),
         url: '/api/portal/download/android',
         version: resolveApkVersion(deps.version),
       },
@@ -123,7 +128,7 @@ export function registerPortalRoutes(
 
   app.get('/api/portal/download/android', async (request, reply) => {
     if (!request.user) return reply.code(401).send({ error: '请先登录' });
-    const file = apkCandidates().find((item) => fs.existsSync(item));
+    const file = findApk();
     if (!file) {
       return reply.code(404).send({
         error: '直连 APK 尚未构建，请先执行 pnpm portal:build',
@@ -138,9 +143,3 @@ export function registerPortalRoutes(
       .send(data);
   });
 }
-
-
-
-
-
-
