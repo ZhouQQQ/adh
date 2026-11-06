@@ -86,19 +86,21 @@ jobs:
       - name: Build web
         run: pnpm --filter @adh/web build
 
-      - name: Package server (linux)
-        run: pnpm package:server --platform linux
+      # 只出 Windows / macOS 包（CI 本身是 Linux，交叉打包靠脚本自带的 vendor）
+      - name: Package server (win32 + darwin)
+        run: pnpm package:server --platform win32,darwin
 
-      - name: Package agent (linux)
-        run: pnpm package:agent --platform linux
+      - name: Package agent (win32 + darwin)
+        run: pnpm package:agent --platform win32,darwin
 
       - uses: actions/upload-artifact@v4
         with:
           name: server-agent
           path: |
-            dist/adh-server-linux.zip
-            dist/adh-agent-linux.zip
-            dist/adh-agent-manifest.json
+            dist/adh-server-win32.zip
+            dist/adh-server-darwin.zip
+            dist/adh-agent-win32.zip
+            dist/adh-agent-darwin.zip
           if-no-files-found: error
 
   # ---------------------------------------------------------------- #
@@ -117,20 +119,23 @@ jobs:
         run: |
           mkdir -p release
           cp artifacts/adh-portal-apk/app-debug.apk "release/adh-portal-apk-${ADH_VERSION}.apk"
-          cp artifacts/server-agent/*.zip release/
-          cp artifacts/server-agent/*.json release/
+          for file in artifacts/server-agent/*.zip; do
+            base=$(basename "$file" .zip)
+            cp "$file" "release/${base}-${ADH_VERSION}.zip"
+          done
           ls -lh release
 
-      # 以前叫 adh-portal-<tag>.apk，重打包时会残留一份旧文件，这里顺手清掉
-      - name: Remove stale APK assets
+      # 清理历史命名：不带版本号的 zip、旧 APK、manifest、已下线的 linux 包
+      - name: Remove stale assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          names=$(gh release view "${{ github.ref_name }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          tag="${{ github.ref_name }}"
+          names=$(gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null || true)
           for name in $names; do
             case "$name" in
-              adh-portal-v*.apk)
-                gh release delete-asset "${{ github.ref_name }}" "$name" -y
+              adh-portal-v*.apk|adh-agent-manifest.json|adh-*-linux.zip|adh-server-win32.zip|adh-server-darwin.zip|adh-agent-win32.zip|adh-agent-darwin.zip)
+                gh release delete-asset "$tag" "$name" -y || true
                 ;;
             esac
           done
