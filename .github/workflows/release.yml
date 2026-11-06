@@ -28,10 +28,21 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
+      # ubuntu-latest 已预装 Android SDK，不需要 setup-android（它的 sdkmanager tools 在新版 cmdline-tools 下会失败）
       - name: Install Android SDK 34
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          fi
+          echo "sdkmanager: $SDKMANAGER"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "未找到 sdkmanager，请检查 runner 的 Android SDK 安装"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" >/dev/null
 
       - name: Assemble debug APK
         working-directory: apps/portal-android
