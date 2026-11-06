@@ -1,6 +1,8 @@
+import fs from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { TaskService } from '../tasks/service.js';
+import type { TaskRecordingStore } from '../tasks/replay.js';
 
 const CreateTaskBody = z.object({
   instruction: z.string().min(1).max(2_000),
@@ -38,6 +40,7 @@ const PlanBatchBody = z.object({
 
 export interface TaskRouteDeps {
   tasks: TaskService;
+  recordings: TaskRecordingStore;
 }
 
 export function registerTaskRoutes(
@@ -148,5 +151,52 @@ export function registerTaskRoutes(
     }
     await deps.tasks.cancel(user.id, id);
     return { ok: true };
+  });
+
+  /**
+   * 公开回放：用任务级 token 鉴权，不要求登录。
+   * token 在任务创建时生成，页面可以直接发给任务发起人。
+   */
+  app.get('/api/replay/:token', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const task = await deps.tasks.getByReplayToken(token);
+    if (!task) return reply.code(404).send({ error: '回放不存在' });
+
+    const index = await deps.recordings.read(task.id);
+    return {
+      task: {
+        id: task.id,
+        deviceId: task.deviceId,
+        instruction: task.instruction,
+        status: task.status,
+        reply: task.reply,
+        error: task.error,
+        steps: task.steps,
+        createdAt: task.createdAt,
+        startedAt: task.startedAt,
+        finishedAt: task.finishedAt,
+      },
+      frames: index?.frames ?? [],
+    };
+  });
+
+  /** 回放帧图片，同样只校验任务级 token。 */
+  app.get('/api/replay/:token/frames/:file', async (request, reply) => {
+    const { token, file } = request.params as { token: string; file: string };
+    const task = await deps.tasks.getByReplayToken(token);
+    if (!task) return reply.code(404).send({ error: '回放不存在' });
+
+    const filePath = deps.recordings.framePath(task.id, file);
+    if (!filePath) return reply.code(404).send({ error: '画面不存在' });
+
+    try {
+      const data = await fs.readFile(filePath);
+      return reply
+        .type('image/jpeg')
+        .header('cache-control', 'private, max-age=3600')
+        .send(data);
+    } catch {
+      return reply.code(404).send({ error: '画面不存在' });
+    }
   });
 }

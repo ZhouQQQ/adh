@@ -364,6 +364,17 @@ export function createQueries(db: SqlDriver) {
       await db.execute('UPDATE adh_agents SET last_seen = ? WHERE id = ?', [at, id]);
     },
 
+    /** 节点装 / 卸工具后刷新能力列表（不覆盖名称、系统等运行时信息）。 */
+    async updateAgentCapabilities(
+      id: string,
+      capabilities: string[],
+    ): Promise<void> {
+      await db.execute('UPDATE adh_agents SET capabilities = ? WHERE id = ?', [
+        JSON.stringify(capabilities),
+        id,
+      ]);
+    },
+
     /** 记录节点上报的 iOS 隧道状态，节点离线时保留最后一次。 */
     async updateAgentTunnel(
       id: string,

@@ -8,7 +8,7 @@ import {
   releaseWdaPort,
   wdaPortFor,
 } from './ios-wda.js';
-import { logInfo } from './log.js';
+import { logInfo, logWarn } from './log.js';
 import { autoStartWda, hasManagedWda, hasWdaRunner } from './ios-wda-runner.js';
 
 /**
@@ -34,6 +34,11 @@ const INFO_TTL_MS = 30_000;
 const infoCache = new Map<string, CacheEntry>();
 
 let commandCache: { at: number; command: string | null } | null = null;
+
+/** 安装 go-ios 后清掉「未找到」缓存，下一轮发现立即使用新可执行文件。 */
+export function resetIosDiscoverCommandCache(): void {
+  commandCache = null;
+}
 
 /**
  * WDA 启动成功后调用。
@@ -99,6 +104,7 @@ async function loadInfo(command: string, udid: string): Promise<IosInfo | null> 
 }
 
 let lastLoggedCount = -1;
+let missingGoIosLogged = false;
 const wdaStates = new Map<string, boolean>();
 /** 子进程还活着、但 WDA 探测失败的连续轮数。 */
 const stalledProbes = new Map<string, number>();
@@ -106,7 +112,17 @@ const STALLED_PROBE_LIMIT = 3;
 
 export async function discoverIos(): Promise<DeviceInfo[]> {
   const command = await resolveCommand();
-  if (!command) return [];
+  if (!command) {
+    // 没有 go-ios 时隧道和 WDA 都无法启动，明确提示一次，避免用户以为没执行
+    if (!missingGoIosLogged) {
+      missingGoIosLogged = true;
+      logWarn(
+        '[ios] 未找到 go-ios（ios / go-ios），跳过 iOS 设备发现和隧道。可在「节点管理」安装 go-ios',
+      );
+    }
+    return [];
+  }
+  missingGoIosLogged = false;
 
   // iOS 17+ 需要 tunnel 才能稳定访问设备，发现前先确保启动
   await ensureTunnelRunning();

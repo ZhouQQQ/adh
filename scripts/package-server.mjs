@@ -3,10 +3,14 @@
  *
  *   pnpm package:server                            # 当前平台
  *   pnpm package:server --platform linux,win32     # 指定平台（可逗号分隔）
+ *   pnpm package:server --no-vendor                # 不内置 adb / go-ios
  *
  * 产物：
- *   dist/server-<platform>/          自包含目录（前端产物 + 生产依赖）
+ *   dist/server-<platform>/          自包含目录（前端产物 + 生产依赖 + vendor）
  *   dist/adh-server-<platform>.zip   解压后执行 start.sh / start.cmd
+ *
+ * vendor/<platform>/ 内置 adb / go-ios，首次启动自动解压到 ~/.adh/tools，
+ * 目标机无需联网；没有内置时仍可在节点管理里联网安装。
  *
  * 跨平台说明：
  *   打包时把 TypeScript 预编译成 JS，产物不再依赖 tsx / esbuild；
@@ -20,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { createToolVendorResolver } from './vendor-tools.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(root, 'dist');
@@ -28,6 +33,23 @@ const isWindows = process.platform === 'win32';
 const args = process.argv.slice(2);
 
 const ALL_PLATFORMS = ['linux', 'win32', 'darwin'];
+
+const skipVendor = args.includes('--no-vendor');
+const adbUrlOverride =
+  argValue('--adb-url') ?? process.env.ADH_PLATFORM_TOOLS_URL;
+const goIosUrlOverride =
+  argValue('--go-ios-url') ?? process.env.ADH_GO_IOS_URL;
+const wintunUrlOverride =
+  argValue('--wintun-url') ?? process.env.ADH_WINTUN_URL;
+
+const { acquireVendor } = createToolVendorResolver({
+  root,
+  userAgent: 'adh-server-packager',
+  adbUrlOverride,
+  goIosUrlOverride,
+  wintunUrlOverride,
+  cacheDirName: 'agent-vendor',
+});
 
 /** 每个目标平台需要的 sharp 原生包（win32 / darwin 需从 registry 补） */
 const SHARP_TARGETS = {
@@ -419,7 +441,38 @@ async function main() {
     fs.cpSync(buildBase, outDir, { recursive: true });
 
     await injectSharp(outDir, platform);
-    writeLaunchers(outDir);
+
+    if (!skipVendor) {
+      try {
+        const vendor = await acquireVendor(platform);
+        const vendorDir = path.join(outDir, 'vendor', platform);
+        fs.mkdirSync(vendorDir, { recursive: true });
+        if (vendor.adb) {
+          fs.copyFileSync(vendor.adb, path.join(vendorDir, 'platform-tools.zip'));
+          console.log(
+            `  内置 adb: ${(fs.statSync(vendor.adb).size / 1024 / 1024).toFixed(1)} MB`,
+          );
+        }
+        if (vendor.goIos) {
+          fs.copyFileSync(vendor.goIos, path.join(vendorDir, 'go-ios.zip'));
+          console.log(
+            `  内置 go-ios: ${(fs.statSync(vendor.goIos).size / 1024 / 1024).toFixed(1)} MB`,
+          );
+        }
+        if (vendor.wintun) {
+          fs.copyFileSync(vendor.wintun, path.join(vendorDir, 'wintun.zip'));
+          console.log(
+            `  内置 wintun: ${(fs.statSync(vendor.wintun).size / 1024).toFixed(0)} KB`,
+          );
+        }
+      } catch (error) {
+        console.warn(
+          `  内置工具失败：${error instanceof Error ? error.message : error}（节点管理仍可联网安装）`,
+        );
+      }
+    }
+
+    writeLaunchers(outDir, resolveVersion());
 
     const zipPath = path.join(distDir, `adh-server-${platform}.zip`);
     const zipped = zipDir(outDir, zipPath);

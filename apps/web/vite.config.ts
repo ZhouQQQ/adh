@@ -39,6 +39,10 @@ function readBasePath(raw: string | undefined): string {
   return `/${value.replace(/^\/+|\/+$/g, '')}`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * 把前缀注入 index.html。
  *
@@ -155,6 +159,9 @@ export default defineConfig(({ command, mode }) => {
       appEnv.ADH_BASE_PATH ??
       rootEnv.ADH_BASE_PATH,
   );
+  // 只代理精确的 /mcp（可带查询串），不能用前缀匹配，
+  // 否则前端页面 /mcp-access 刷新时也会被代理到 MCP 接口
+  const mcpProxyPath = `^${escapeRegExp(basePath)}/mcp(?:[?]|$)`;
 
   return {
   // 构建用相对路径，运行时靠 server 注入的 <base> 定位资源；
@@ -178,8 +185,8 @@ export default defineConfig(({ command, mode }) => {
     allowedHosts: resolveAllowedHosts(),
     proxy: {
       [`${basePath}/api`]: { target: SERVER, changeOrigin: true, secure: false },
-      // MCP Streamable HTTP（含 SSE 长连接），开发时从 5173 复制的 url 也能用
-      [`${basePath}/mcp`]: { target: SERVER, changeOrigin: true, secure: false },
+      // MCP Streamable HTTP（含 SSE 长连接），只匹配 /mcp 本身
+      [mcpProxyPath]: { target: SERVER, changeOrigin: true, secure: false },
       [`${basePath}/ws`]: {
         target: SERVER.replace(/^http/, 'ws'),
         ws: true,

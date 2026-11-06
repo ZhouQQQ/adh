@@ -69,8 +69,12 @@ export interface ServerConfig {
   packageDir: string;
   thumbnailDir: string;
   appIconDir: string;
+  /** 任务执行回放：按任务保存截图帧与索引。 */
+  recordingDir: string;
   /** 离线 Agent 安装包（dist/*.zip）所在目录。 */
   agentDistDir: string;
+  /** 安装包内置的 adb / go-ios（vendor/<platform>），不存在时为空目录。 */
+  toolVendorDir: string;
   publicDir: string;
   /** 部署前缀，例如 /adh；空串表示部署在根路径。 */
   basePath: string;
@@ -213,9 +217,11 @@ export function loadConfig(): ServerConfig {
   const packageDir = path.join(dataDir, 'packages');
   const thumbnailDir = path.join(dataDir, 'thumbnails');
   const appIconDir = path.join(dataDir, 'app-icons');
+  const recordingDir = path.join(dataDir, 'recordings');
   fs.mkdirSync(packageDir, { recursive: true });
   fs.mkdirSync(thumbnailDir, { recursive: true });
   fs.mkdirSync(appIconDir, { recursive: true });
+  fs.mkdirSync(recordingDir, { recursive: true });
 
   return {
     host: cli.host ?? process.env.ADH_HOST ?? '0.0.0.0',
@@ -225,7 +231,9 @@ export function loadConfig(): ServerConfig {
     packageDir,
     thumbnailDir,
     appIconDir,
+    recordingDir,
     agentDistDir: path.join(REPO_ROOT, 'dist'),
+    toolVendorDir: path.join(APP_DIR, 'vendor', process.platform),
     publicDir: path.join(APP_DIR, 'public'),
     basePath: normalizeBasePath(process.env.ADH_BASE_PATH),
     logLevel: cli['log-level'] ?? process.env.ADH_LOG_LEVEL ?? 'info',

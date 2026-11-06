@@ -7,6 +7,7 @@ import {
 } from '@adh/protocol';
 import {
   adbInputText,
+  adbWake,
   applyIosInput,
   captureScreenshot,
   launchAndroidApp,
@@ -45,6 +46,17 @@ export function frameDiff(a: Buffer, b: Buffer): number {
 
 /** 动作前后画面差异低于该值，认为「没有明显变化」。 */
 export const FRAME_DIFF_THRESHOLD = 0.003;
+
+/** 64×64 指纹的平均亮度（0~1）。用于识别息屏 / 纯黑画面。 */
+export function frameBrightness(signature: Buffer): number {
+  if (signature.length === 0) return 1;
+  let sum = 0;
+  for (let i = 0; i < signature.length; i += 1) sum += signature[i]!;
+  return sum / signature.length / 255;
+}
+
+/** 低于该亮度基本可以判定为纯黑屏幕（息屏、锁屏黑屏或黑帧）。 */
+export const BLACK_FRAME_BRIGHTNESS = 0.01;
 
 export type AiKeyName =
   | 'home'
@@ -354,6 +366,29 @@ export class AiDeviceController {
       return;
     }
     await this.sendControl(device, { t: 'key', key });
+  }
+
+  /**
+   * 保守唤醒屏幕。只在内置 Android 节点上走 adb KEYCODE_WAKEUP；
+   * 远程 agent 暂不支持唤醒命令，直接跳过（由调用方决定是否失败）。
+   */
+  async wake(device: DeviceSummary): Promise<boolean> {
+    if (device.platform !== 'android' || device.agentId !== BUILTIN_AGENT_ID) {
+      return false;
+    }
+    try {
+      await adbWake(device.udid);
+      return true;
+    } catch (error) {
+      this.deps.logger.warn(
+        {
+          deviceId: device.id,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'ai wake screen failed',
+      );
+      return false;
+    }
   }
 
   async launchApp(device: DeviceSummary, packageName: string): Promise<void> {

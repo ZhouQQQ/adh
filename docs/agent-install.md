@@ -22,7 +22,7 @@
 | Apple 设备服务 | iTunes 或「Apple Devices」 | 系统自带 | 需要 usbmuxd |
 | pnpm / 源码 | 不需要 | 不需要 | 不需要 |
 
-> 安装包 `adh-agent-<platform>.zip` 已经内置当前平台的 adb 与 go-ios，运行 `adh-agent init` 会解压到 `~/.adh/tools`，**不需要联网**。系统里已经装好的话可以忽略。
+> 安装包 `adh-agent-<platform>.zip` 已经内置当前平台的 adb 与 go-ios。首次 `connect` 会自动解压到 `~/.adh/tools`，**不需要联网**；想提前安装也可以运行 `adh-agent init`。系统里已经装好的话可以忽略。
 
 ---
 
@@ -88,6 +88,9 @@ pnpm package:agent --no-vendor      # 不内置 adb / go-ios，目标机 init �
    - 下载：https://github.com/danielpaulus/go-ios/releases
    - 解压后把 `ios.exe` 所在目录加入 `PATH`，确认 `ios version`
    - 或者交给 `adh-agent init` 自动解压
+   - Windows 另需 `wintun.dll`（iOS 17+ 内核隧道）：安装包已内置，`init` 会自动放到
+     `ios.exe` 同目录；手工安装 go-ios 时也可从 https://www.wintun.net 下载后放到
+     `ios.exe` 同目录。`--userspace` 模式不需要它。
 
 2. **Apple 设备服务**
    - 安装 iTunes（Apple 官网版）或 Microsoft Store 的「Apple Devices」
@@ -362,9 +365,15 @@ ADH_WDA_URL=http://<wda-host>:8100
 
 说明：
 
-- Windows 上普通权限无法创建内核隧道时，会自动回退到 `ios tunnel start --userspace`
+- Windows 的 iOS 17+ 设备，内核隧道需要管理员权限和 `wintun.dll`。安装包已内置该 DLL，
+  `init`（以及首次 `connect` 的自动安装）会按当前架构解压到 `~/.adh/tools/go-ios/`，
+  与 `ios.exe` 放在一起，**不需要管理员权限写 `C:\Windows\System32`**
+- 以管理员身份运行、内核隧道可用时会优先用内核模式；普通权限或 DLL 缺失时，
+  自动回退到 `ios tunnel start --userspace`（gVisor 用户态网络，不依赖 DLL）
+- 如果 go-ios 是手工装在系统目录、`~/.adh/tools` 里没有，可把 `wintun.dll` 复制到
+  `ios.exe` 同目录；目录不可写时再复制到 `C:\Windows\System32`（需管理员）
 - 手动停止后不会被设备发现自动重启，直到再次点「启动」或 agent 重启
-- 节点离线时按钮不可用；操作需要管理员权限
+- 节点离线时按钮不可用；内核隧道需要管理员权限，用户态隧道不需要
 
 ---
 
@@ -388,6 +397,7 @@ adh-agent.cmd init
 
 - 优先使用安装包 `vendor/<platform>/` 里内置的 Android Platform Tools 与 go-ios（离线，不联网）
 - 解压到 `~/.adh/tools/`，之后 agent 启动时自动把它前置到 PATH
+- Windows 还会把内置的 `wintun.dll` 复制到 `~/.adh/tools/go-ios/`（iOS 17+ 内核隧道依赖，无需管理员）
 - 只有在打包时用了 `--no-vendor`，才会回退到联网下载
 
 可选参数：

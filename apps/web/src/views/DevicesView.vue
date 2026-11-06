@@ -237,8 +237,12 @@ const memoryPresent = computed(() => {
 });
 
 const usagePresent = computed(() => ({
-  busy: devices.value.some((device) => Boolean(device.control)),
-  idle: devices.value.some((device) => !device.control),
+  busy: devices.value.some(
+    (device) => Boolean(device.control) || Boolean(device.aiTask),
+  ),
+  idle: devices.value.some(
+    (device) => !device.control && !device.aiTask,
+  ),
 }));
 
 const cpuVendorOptions = computed(() => {
@@ -318,8 +322,8 @@ const filtered = computed(() => {
         const gb = memoryGb(device.memoryMb);
         if (gb !== memory.value) return false;
       }
-      if (usage.value === 'busy' && !device.control) return false;
-      if (usage.value === 'idle' && device.control) return false;
+      if (usage.value === 'busy' && !device.control && !device.aiTask) return false;
+      if (usage.value === 'idle' && (device.control || device.aiTask)) return false;
       if (kw) {
         const haystack = [
           device.name,

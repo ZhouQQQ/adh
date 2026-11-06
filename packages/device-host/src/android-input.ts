@@ -1,6 +1,20 @@
 import { runCommand } from './exec.js';
 
 /**
+ * 点亮屏幕（KEYCODE_WAKEUP）。
+ *
+ * 和 KEYCODE_POWER 不同，它只唤醒、不会把已经亮着的屏幕关掉，
+ * 适合 AI 任务在开始截图前做一次保守的唤醒。
+ */
+export async function adbWake(udid: string, timeoutMs = 5_000): Promise<void> {
+  await runCommand(
+    'adb',
+    ['-s', udid, 'shell', 'input', 'keyevent', '224'],
+    timeoutMs,
+  );
+}
+
+/**
  * 用 ADB 向当前焦点输入框输入文本。
  *
  * 只处理 ASCII：中文在 adb `input text` 上不可靠，调用方应回退到

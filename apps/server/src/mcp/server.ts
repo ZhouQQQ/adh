@@ -13,10 +13,30 @@ export function createAdhMcpServer(
   backend: McpBackend,
   version: string,
 ): McpServer {
-  const server = new McpServer({
-    name: 'adh-device-hub',
-    version,
-  });
+  const server = new McpServer(
+    {
+      name: 'adh-device-farm',
+      title: 'ADH 设备农场',
+      version,
+      description:
+        '分布式 Android / iOS 真机设备农场。提供设备发现、自然语言自动化任务、任务进度查询与取消能力。',
+    },
+    {
+      instructions: [
+        'ADH 设备农场用于远程操作真实 Android / iOS 设备，支持设备发现和纯视觉闭环的 AI 自动化任务。',
+        '',
+        '可用工具与能力：',
+        '- list_devices：列出设备农场中的 Android / iOS 设备，默认只返回在线、未锁定、空闲设备；',
+        '- run_task：用自然语言在指定或自动选择的空闲设备上创建 AI 任务，立即返回 taskId；',
+        '- get_task：查询任务状态、执行步骤和最终结果；任务有录制时同时返回 replayUrl（可直接发给用户查看执行过程）；',
+        '- list_tasks：列出当前 API Key 对应用户最近创建的任务；',
+        '- cancel_task：取消排队中或执行中的任务。',
+        '',
+        '推荐流程：先用 list_devices 选择空闲设备，再用 run_task 下发任务；run_task 是异步的，之后每 1 秒调用 get_task 轮询，',
+        '直到 status 变成 succeeded / failed / cancelled / timeout。任务执行可能需要几十秒，不要只查询一次就下结论。',
+      ].join('\n'),
+    },
+  );
 
   server.registerTool(
     'list_devices',
@@ -76,7 +96,7 @@ export function createAdhMcpServer(
       const task = await backend.runTask(args);
       return text({
         task,
-        hint: '任务已进入队列，请每秒轮询 get_task，直到 status 为 succeeded/failed/cancelled/timeout。',
+        hint: '任务已进入队列，请每秒轮询 get_task，直到 status 为 succeeded/failed/cancelled/timeout；结束后可用返回的 replayUrl 查看执行过程。',
       });
     },
   );
@@ -86,7 +106,7 @@ export function createAdhMcpServer(
     {
       title: '查询任务',
       description:
-        '查询任务状态、执行步骤和最终结果。status: queued/running/succeeded/failed/cancelled/timeout。',
+        '查询任务状态、执行步骤和最终结果。status: queued/running/succeeded/failed/cancelled/timeout。任务有执行录制时，返回的 task 里会带 replayUrl，可以直接发给用户用浏览器查看每一步画面和动作。',
       inputSchema: {
         taskId: z.string().min(1),
       },

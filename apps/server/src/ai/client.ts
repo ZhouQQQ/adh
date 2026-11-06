@@ -62,7 +62,14 @@ export async function chatCompletion(
   messages: AiModelMessage[],
   tools: ChatToolSchema[],
   signal?: AbortSignal,
-  options?: { maxTokens?: number },
+  options?: {
+    maxTokens?: number;
+    /**
+     * 强制模型只用文字回答（不调用工具）。
+     * 查询任务的最终提取必须走这条路，避免模型继续点击或返回空内容。
+     */
+    toolChoice?: 'auto' | 'none';
+  },
 ): Promise<AiModelResult> {
   const url = `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const timeout = AbortSignal.timeout(90_000);
@@ -79,7 +86,9 @@ export async function chatCompletion(
       temperature: settings.temperature,
       max_tokens: options?.maxTokens ?? 1024,
       messages,
-      ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
+      ...(tools.length > 0
+        ? { tools, tool_choice: options?.toolChoice ?? 'auto' }
+        : {}),
     }),
     signal: merged,
   });

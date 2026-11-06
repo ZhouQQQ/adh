@@ -279,6 +279,39 @@ export interface TaskSnapshot {
   finishedAt: number;
 }
 
+export interface TaskReplayAction {
+  name: string;
+  args: Record<string, unknown>;
+  detail: string;
+  ok: boolean;
+}
+
+export interface TaskReplayFrame {
+  file: string;
+  at: number;
+  phase: 'initial' | 'after_action';
+  summary: string;
+  width: number;
+  height: number;
+  actions: TaskReplayAction[];
+}
+
+export interface TaskReplay {
+  task: {
+    id: string;
+    deviceId: string | null;
+    instruction: string;
+    status: TaskSnapshot['status'];
+    reply: string;
+    error: string | null;
+    steps: AiChatStep[];
+    createdAt: number;
+    startedAt: number;
+    finishedAt: number;
+  };
+  frames: TaskReplayFrame[];
+}
+
 export interface BatchTaskInput {
   deviceId: string;
   instruction: string;
@@ -354,6 +387,17 @@ export const api = {
 
   getTask(id: string): Promise<{ task: TaskSnapshot }> {
     return request(`/api/tasks/${encodeURIComponent(id)}`);
+  },
+
+  /** 公开回放：只需任务级 token，不要求登录。 */
+  getTaskReplay(token: string): Promise<TaskReplay> {
+    return request(`/api/replay/${encodeURIComponent(token)}`);
+  },
+
+  taskReplayFrameUrl(token: string, file: string): string {
+    return withBase(
+      `/api/replay/${encodeURIComponent(token)}/frames/${encodeURIComponent(file)}`,
+    );
   },
 
   cancelTask(id: string): Promise<{ ok: boolean }> {
@@ -494,6 +538,17 @@ export const api = {
     id: string,
   ): Promise<{ ok: boolean; status: IosTunnelStatus }> {
     return request(`/api/agents/${id}/tunnel/stop`, { method: 'POST' });
+  },
+
+  /** 在节点上安装 adb / go-ios，下载源按节点所在平台自动选择。 */
+  installAgentTools(
+    id: string,
+    input: { android?: boolean; ios?: boolean; force?: boolean },
+  ): Promise<{ ok: boolean; capabilities: string[]; messages: string[] }> {
+    return request(`/api/agents/${id}/tools/install`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   },
 
   listDevices(): Promise<DeviceSummary[]> {

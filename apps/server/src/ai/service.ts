@@ -6,7 +6,9 @@ import type { StreamManager } from '../stream/manager.js';
 import { chatCompletion, type ChatToolSchema } from './client.js';
 import {
   AiDeviceController,
+  BLACK_FRAME_BRIGHTNESS,
   FRAME_DIFF_THRESHOLD,
+  frameBrightness,
   frameDiff,
   type AiKeyName,
   type AiScreenshot,
@@ -16,7 +18,19 @@ import {
   isLaunchOnlyTask,
   launchAppByName,
 } from './app-launch.js';
-import type { AiChatMessage, AiEvent, AiModelMessage } from './types.js';
+import { extractAnswerFromScreen } from './extract.js';
+import {
+  isQueryTask,
+  QUERY_GUIDE,
+  QUERY_SYSTEM_PROMPT,
+} from './query.js';
+import type {
+  AiChatMessage,
+  AiEvent,
+  AiFrame,
+  AiFrameAction,
+  AiModelMessage,
+} from './types.js';
 
 /**
  * 每个任务最多多少轮「截图 → 模型决策」。
@@ -28,6 +42,12 @@ import type { AiChatMessage, AiEvent, AiModelMessage } from './types.js';
 const MAX_PLANNING_ROUNDS = 30;
 /** 单个任务最多执行多少个实际动作，防止模型在一轮里疯狂重复点击。 */
 const MAX_ACTIONS = 60;
+/**
+ * 查询任务的预算：目标只是读到屏幕上的信息，
+ * 正常情况下 1~2 轮（点进会话 + 回答）就够，给到 8 已经非常宽松。
+ */
+const MAX_QUERY_ROUNDS = 8;
+const MAX_QUERY_ACTIONS = 8;
 const MAX_HISTORY_MESSAGES = 10;
 const KEY_NAMES: AiKeyName[] = [
   'home',
@@ -38,6 +58,21 @@ const KEY_NAMES: AiKeyName[] = [
   'volumeDown',
   'mute',
 ];
+
+/**
+ * 固定追加到系统提示词后的执行规范。
+ * 与可配置的 settings.systemPrompt 分开，避免用户自定义提示词后丢失这些约束。
+ */
+const ACTION_GUIDE = [
+  '执行规范：',
+  '- 纯观察 / 问答类任务：如果当前截图已经包含用户要求的信息，立即回答或调用 done，不要为了补充额外细节继续滑动。',
+  '- 滑动前先确认目标信息还不在当前屏幕上；同一方向连续滑动不要超过 3 次。',
+  '- 滑动后如果画面关键内容没有变化（已到页面底部或回弹），立即停止滑动，基于已经看到的信息回答，不要上下反复翻找。',
+  '- 只查找用户明确要求的信息，不要主动浏览无关页面或在多个页面之间来回切换。',
+  '- 锁屏处理：如果截图只有锁屏（时间、通知、上滑解锁、面容/指纹/密码提示）或全黑，不要猜密码。全黑时按一次 power 唤醒；锁屏时最多上滑一次尝试解锁。仍停在锁屏或出现密码/图案/生物识别提示时，立即 done 说明「设备已锁屏，需要先手动解锁」，不要反复滑动或等待。',
+  '- 安全边界：不要执行或协助明显恶意、破坏性、不可逆的操作，包括批量关机 / 重启、恢复出厂设置、清空数据、卸载系统应用、删除文件、群发消息、支付 / 转账等。',
+  '- 即使用户要求上述高风险操作，也应立即停止并说明需要人工确认或使用专门的管理入口，不要尝试通过反复点按设置页绕过。单台设备的普通观察和操作不受此限制。',
+].join('\n');
 
 const TOOLS: ChatToolSchema[] = [
   {
@@ -178,10 +213,50 @@ export interface AiChatOptions {
   messages: AiChatMessage[];
   signal: AbortSignal;
   onEvent: (event: AiEvent) => void;
+  /** 可选：把初始帧和每轮动作后的截图交给调用方（用于任务回放）。 */
+  onFrame?: (frame: AiFrame) => void;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 截图全黑时先唤醒并二次确认。
+ *
+ * 纯黑画面可能是息屏、锁屏黑屏，也可能是刚启动应用的黑帧。
+ * 连续两次（约 2.4 秒）仍是纯黑就直接失败，避免模型以为在加载、
+ * 用 wait 把动作预算耗光后给出「看不到内容」的错误结论。
+ */
+async function ensureScreenAwake(
+  controller: AiDeviceController,
+  device: DeviceSummary,
+  shot: AiScreenshot,
+  onEvent: (event: AiEvent) => void,
+  logger: Logger,
+): Promise<AiScreenshot> {
+  if (frameBrightness(shot.signature) >= BLACK_FRAME_BRIGHTNESS) return shot;
+
+  onEvent({ type: 'status', message: '屏幕似乎全黑，正在尝试唤醒…' });
+  await controller.wake(device);
+  await sleep(1_200);
+
+  let next = await controller.screenshot(device);
+  if (frameBrightness(next.signature) >= BLACK_FRAME_BRIGHTNESS) {
+    logger.info({ deviceId: device.id }, 'ai screen awake after wake');
+    return next;
+  }
+
+  await sleep(1_200);
+  next = await controller.screenshot(device);
+  if (frameBrightness(next.signature) >= BLACK_FRAME_BRIGHTNESS) {
+    logger.info({ deviceId: device.id }, 'ai screen awake after wait');
+    return next;
+  }
+
+  throw new Error(
+    '设备屏幕持续全黑（可能已息屏、锁屏或应用未启动），请先点亮并解锁后重试',
+  );
 }
 
 function planSteps(args: Record<string, unknown>): string[] {
@@ -342,9 +417,21 @@ export async function runAiChat(
   const current = [...history].reverse().find((message) => message.role === 'user');
   if (!current) throw new Error('缺少用户消息');
 
+  // 查询/读取类任务走精简链路：不制定计划、动作预算更小，
+  // 最终由一次纯视觉提取给出结论。
+  const queryTask = isQueryTask(current.content);
+  const tools = queryTask
+    ? TOOLS.filter((tool) => tool.function.name !== 'plan')
+    : TOOLS;
+  // 查询任务用专用提示词，避免通用提示词里「问答类不要点击」和
+  // 「先点进会话再读取」互相打架，也缩短首轮上下文。
+  const systemPrompt = queryTask
+    ? `${QUERY_SYSTEM_PROMPT}\n\n${QUERY_GUIDE}`
+    : `${settings.systemPrompt}\n\n${ACTION_GUIDE}`;
+
   const controller = new AiDeviceController(deps);
   const transcript: string[] = [];
-  const { signal, onEvent, device } = options;
+  const { signal, onEvent, onFrame, device } = options;
   let reply = '';
   let plan: string[] = [];
   const recentActions: string[] = [];
@@ -415,6 +502,13 @@ export async function runAiChat(
   // 视觉闭环的第一步：等画面稳定再让模型判断，避免拿到转场中间态
   const observeStart = Date.now();
   let shot = await controller.observe(device);
+  shot = await ensureScreenAwake(
+    controller,
+    device,
+    shot,
+    onEvent,
+    deps.logger,
+  );
   deps.logger.info(
     {
       deviceId: device.id,
@@ -425,8 +519,19 @@ export async function runAiChat(
     },
     'ai observe initial',
   );
+  onFrame?.({
+    shot,
+    at: Date.now(),
+    phase: 'initial',
+    actions: [],
+    summary: '初始画面',
+  });
 
-  for (let step = 0; step < MAX_PLANNING_ROUNDS; step += 1) {
+  for (
+    let step = 0;
+    step < (queryTask ? MAX_QUERY_ROUNDS : MAX_PLANNING_ROUNDS);
+    step += 1
+  ) {
     if (signal.aborted) throw new Error('已取消');
 
     onEvent({
@@ -477,8 +582,13 @@ export async function runAiChat(
     const modelStart = Date.now();
     const result = await chatCompletion(
       settings,
-      buildMessages(settings.systemPrompt, history, prompt, shot),
-      TOOLS,
+      buildMessages(
+        systemPrompt,
+        history,
+        prompt,
+        shot,
+      ),
+      tools,
       signal,
     );
     deps.logger.info(
@@ -492,7 +602,12 @@ export async function runAiChat(
     );
 
     if (result.toolCalls.length === 0) {
-      reply = result.content || '我已观察当前界面，但没有生成回答。';
+      reply = result.content.trim();
+      // 操作任务既没有动作也没有回答，说明模型放弃了，不能伪装成功；
+      // 查询任务则交给循环结束后的视觉提取兜底。
+      if (!reply && !queryTask) {
+        throw new Error('模型没有返回可用的回答，请重试');
+      }
       break;
     }
 
@@ -500,8 +615,23 @@ export async function runAiChat(
     let acted = false;
     let lastAction = '';
     let settleMs = 300;
+    let budgetExhausted = false;
+    const roundActions: AiFrameAction[] = [];
     for (const call of result.toolCalls) {
       if (signal.aborted) throw new Error('已取消');
+
+      // 查询任务到动作上限后不再执行，直接基于当前截图提取答案，
+      // 避免模型为了「再确认一下」无限滑动。
+      if (
+        queryTask &&
+        call.name !== 'plan' &&
+        call.name !== 'done' &&
+        totalActions >= MAX_QUERY_ACTIONS
+      ) {
+        budgetExhausted = true;
+        break;
+      }
+
       onEvent({ type: 'tool', name: call.name, args: call.args });
 
       if (call.name !== 'plan' && call.name !== 'done') {
@@ -513,6 +643,12 @@ export async function runAiChat(
           const detail =
             '连续重复同一动作，已跳过。请换坐标、滚动或等待，或调用 done。';
           transcript.push(`${call.name} 被跳过：连续重复同一动作`);
+          roundActions.push({
+            name: call.name,
+            args: call.args,
+            detail,
+            ok: false,
+          });
           onEvent({
             type: 'tool_result',
             name: call.name,
@@ -541,6 +677,14 @@ export async function runAiChat(
           plan = planSteps(call.args);
         } else {
           transcript.push(formatStep(call.name, call.args, detail));
+          if (call.name !== 'done') {
+            roundActions.push({
+              name: call.name,
+              args: call.args,
+              detail,
+              ok: true,
+            });
+          }
         }
         onEvent({
           type: 'tool_result',
@@ -556,7 +700,19 @@ export async function runAiChat(
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        // 投屏会话 / 控制通道断开后重试没有意义，直接失败，避免任务空转。
+        if (/投屏会话未就绪|控制通道未就绪/.test(message)) {
+          throw new Error(message);
+        }
         transcript.push(`${call.name} 失败：${message}`);
+        if (call.name !== 'plan' && call.name !== 'done') {
+          roundActions.push({
+            name: call.name,
+            args: call.args,
+            detail: message,
+            ok: false,
+          });
+        }
         onEvent({
           type: 'tool_result',
           name: call.name,
@@ -567,6 +723,7 @@ export async function runAiChat(
     }
 
     if (finished) break;
+    if (budgetExhausted) break;
 
     // 动作执行后重新截图并对比，把「有没有生效」明确反馈给模型
     if (acted) {
@@ -600,7 +757,45 @@ export async function runAiChat(
       transcript.push(`画面校验：${feedback}`);
       onEvent({ type: 'status', message: feedback });
       shot = next;
+      onFrame?.({
+        shot: next,
+        at: Date.now(),
+        phase: 'after_action',
+        actions: roundActions,
+        summary: feedback,
+      });
     }
+  }
+
+  // 查询任务没有拿到回答（模型返回空、或动作预算用尽）时，
+  // 用一次纯视觉提取兜底：让模型基于当前截图做语义提取，而不是 OCR。
+  if (!reply && queryTask) {
+    onEvent({ type: 'status', message: '正在整理画面信息…' });
+    try {
+      reply = await extractAnswerFromScreen({
+        settings,
+        instruction: current.content,
+        transcript,
+        shot,
+        signal,
+        logger: deps.logger,
+        deviceId: device.id,
+      });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      deps.logger.warn(
+        {
+          deviceId: device.id,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'ai extract answer failed',
+      );
+    }
+  }
+
+  // 查询任务即使提取不到内容也给出诚实结论，不要落成「任务未完成」。
+  if (!reply && queryTask) {
+    reply = '当前画面没有读到能回答问题的内容，请确认页面已经打开或换个问法。';
   }
 
   if (!reply) {

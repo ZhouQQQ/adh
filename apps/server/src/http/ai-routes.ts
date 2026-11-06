@@ -154,8 +154,8 @@ export function registerAiRoutes(app: FastifyInstance, deps: AiRouteDeps): void 
       deviceName: device.name,
       userId: user.id,
       username: user.username,
-      action: 'ai.task.start',
-      detail: text.slice(0, 200),
+      action: 'ai.task',
+      detail: text,
       ip: request.ip,
     });
 
@@ -270,16 +270,6 @@ export function registerAiRoutes(app: FastifyInstance, deps: AiRouteDeps): void 
         raw.end();
       }
       closed = true;
-
-      void deps.deviceLogs.write({
-        deviceId: device.id,
-        deviceName: device.name,
-        userId: user.id,
-        username: user.username,
-        action: 'ai.task.end',
-        detail: completed ? '已完成' : abort.signal.aborted ? '已取消' : '失败',
-        ip: request.ip,
-      });
     }
   });
 

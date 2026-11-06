@@ -1,5 +1,11 @@
+import fs from 'node:fs';
 import net from 'node:net';
-import { runCommand } from '@adh/device-host';
+import path from 'node:path';
+import {
+  goIosDir,
+  managedGoIosBinary,
+  runCommand,
+} from '@adh/device-host';
 
 export interface DoctorCheck {
   name: string;
@@ -73,6 +79,32 @@ export async function runDoctor(): Promise<DoctorReport> {
           hint: 'iOS 设备发现与 WDA 启动依赖 go-ios，见 M1 阶段说明',
         },
   );
+
+  if (platform === 'win32') {
+    // go-ios 的 wintun 绑定会先搜 exe 目录，再搜 System32；
+    // 打包版会把 dll 放在 ~/.adh/tools/go-ios，无需管理员。
+    const managed = managedGoIosBinary();
+    const candidates = [
+      managed ? path.join(path.dirname(managed), 'wintun.dll') : null,
+      path.join(goIosDir(), 'wintun.dll'),
+      path.join(
+        process.env.SystemRoot ?? 'C:\\Windows',
+        'System32',
+        'wintun.dll',
+      ),
+    ].filter((file): file is string => Boolean(file));
+    const found = candidates.find((file) => fs.existsSync(file));
+    checks.push({
+      name: 'wintun.dll',
+      ok: Boolean(found),
+      detail: found
+        ? found
+        : '未找到（iOS 17+ 内核隧道需要；缺失时自动回退 --userspace）',
+      hint: found
+        ? undefined
+        : '运行 adh-agent init 可自动放到 go-ios 目录；也可手动复制到 go-ios 所在目录，或 C:\\Windows\\System32（需管理员）',
+    });
+  }
 
   const ideviceId = await runCommand('idevice_id', ['-l'], 5_000);
   checks.push(

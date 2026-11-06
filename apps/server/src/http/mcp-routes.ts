@@ -21,6 +21,7 @@ export interface McpRouteDeps {
   tasks: TaskService;
   logger: Logger;
   version: string;
+  basePath: string;
 }
 
 interface McpSession {
@@ -37,6 +38,15 @@ function sessionIdOf(request: FastifyRequest): string | undefined {
   if (typeof raw === 'string') return raw;
   if (Array.isArray(raw)) return raw[0];
   return undefined;
+}
+
+/** 从当前 MCP 请求推导浏览器可访问的站点根地址。 */
+function publicBaseUrl(request: FastifyRequest, basePath: string): string {
+  const first = (value: string | string[] | undefined): string =>
+    (Array.isArray(value) ? value[0] : value)?.split(',')[0]?.trim() ?? '';
+  const proto = first(request.headers['x-forwarded-proto']) || request.protocol;
+  const host = first(request.headers['x-forwarded-host']) || request.headers.host || '127.0.0.1';
+  return `${proto}://${host}${basePath}`;
 }
 
 /** 同时支持高德风格的 `?key=adhk_xxx` 和标准 `Authorization: Bearer`。 */
@@ -183,6 +193,7 @@ export function registerMcpRoutes(
             tasks: deps.tasks,
           },
           user,
+          publicBaseUrl(request, deps.basePath),
         ),
         deps.version,
       );

@@ -26,6 +26,11 @@ import { logInfo, logWarn } from './log.js';
 const runners = new Map<string, ChildProcess>();
 let commandCache: string | null = null;
 
+/** 安装 go-ios 后清掉命令缓存。 */
+export function resetWdaRunnerCommandCache(): void {
+  commandCache = null;
+}
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 

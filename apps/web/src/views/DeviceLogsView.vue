@@ -50,6 +50,7 @@ const actionOptions = [
   { label: '旋转屏幕', value: 'input.rotate' },
   { label: '亮屏 / 息屏', value: 'input.screen' },
   { label: '通知栏', value: 'input.panel' },
+  { label: 'AI 任务', value: 'ai.task' },
   { label: '安装应用', value: 'app.install' },
   { label: '卸载应用', value: 'app.uninstall' },
   { label: '上传文件', value: 'file.upload' },

@@ -133,7 +133,6 @@ docker run -d --name adh \
 
 ```bat
 cd C:\adh-agent
-adh-agent.cmd init
 adh-agent.cmd connect --server ws://<服务器IP>:8080 --key adh_xxxxxxxx
 ```
 
@@ -142,9 +141,10 @@ adh-agent.cmd connect --server ws://<服务器IP>:8080 --key adh_xxxxxxxx
 ```bash
 cd /opt/adh-agent
 chmod +x adh-agent.sh
-./adh-agent.sh init
 ./adh-agent.sh connect --server ws://<服务器IP>:8080 --key adh_xxxxxxxx
 ```
+
+首次 `connect` 会自动把安装包内置的 adb / go-ios 解压到 `~/.adh/tools`，不需要先执行 `init`（想提前安装也可以手动运行 `adh-agent init`）。
 
 看到 `adh-agent started` 就成功了。多台宿主机重复第 2、3 步即可。
 
@@ -165,6 +165,7 @@ macOS / Linux 把 `adh-agent.cmd` 换成 `./adh-agent.sh` 即可。
 - Key 保存到 `~/.adh/agent.json`，之后重启只带 `--server`
 - macOS 提示「无法验证开发者」：`xattr -dr com.apple.quarantine /opt/adh-agent`
 - iOS 接在任意宿主机上都可以，在设备菜单里启动 WDA 即可；Windows 需先装 iTunes 或「Apple Devices」
+- Windows 的 iOS 17+ 隧道依赖 `wintun.dll`，安装包已内置并自动放到 go-ios 同目录；普通权限会用 `--userspace` 模式
 - 开机自启、WDA 安装等细节见 [`docs/agent-install.md`](docs/agent-install.md)
 
 ### 4. 外接 MySQL / OSS（可选）

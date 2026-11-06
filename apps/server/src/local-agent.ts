@@ -2,10 +2,10 @@ import os from 'node:os';
 import { BUILTIN_AGENT_ID, type DeviceInfo } from '@adh/protocol';
 import {
   captureThumbnail,
+  detectAgentCapabilities,
   discoverAndroid,
   discoverIos,
   getTunnelStatus,
-  isAdbAvailable,
 } from '@adh/device-host';
 import type { Queries } from './db/queries.js';
 import type { Logger } from './log.js';
@@ -62,8 +62,8 @@ export class LocalAgent {
     if (this.started) return;
     this.started = true;
 
-    const adbAvailable = await isAdbAvailable();
-    const capabilities = adbAvailable ? ['android'] : [];
+    const capabilities = await detectAgentCapabilities();
+    const adbAvailable = capabilities.includes('android');
     const row = await this.deps.queries.ensureBuiltinAgent(
       os.hostname(),
       this.deps.version,

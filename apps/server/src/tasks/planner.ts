@@ -70,6 +70,11 @@ ${devices.map((device) => deviceLine(device, selected)).join('\n')}
 - 每条 instruction 必须自包含：写清楚要打开什么、输入什么、发给谁、回复什么，不能只写“继续”“同上”。
 - 绝不能编造 deviceId，也不能使用列表外的设备。
 
+## 安全规则
+- 涉及多台设备的破坏性 / 不可逆操作，不得拆成任务自动执行，包括但不限于：批量关机 / 重启、恢复出厂设置、清空数据、卸载系统应用、删除文件、群发消息、支付 / 转账。
+- 遇到这类指令一律返回 scope=none、tasks=[]，并在 summary 中说明「该操作风险过高，AI 批量任务不会执行，需要人工确认或使用专门的管理入口」。
+- 单台设备的普通操作可以正常规划。
+
 ## 输出
 只输出 JSON，不要 Markdown 代码块，不要解释：
 {"scope":"single|batch|none","mode":"parallel|sequential","summary":"中文一句话说明你的判断","tasks":[{"deviceId":"列表里的 id","instruction":"完整任务"}]}`;

@@ -16,9 +16,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { build } from 'esbuild';
+import { createToolVendorResolver } from './vendor-tools.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(root, 'dist');
@@ -87,104 +86,17 @@ const adbUrlOverride =
   argValue('--adb-url') ?? process.env.ADH_PLATFORM_TOOLS_URL;
 const goIosUrlOverride =
   argValue('--go-ios-url') ?? process.env.ADH_GO_IOS_URL;
+const wintunUrlOverride =
+  argValue('--wintun-url') ?? process.env.ADH_WINTUN_URL;
 
-const ADB_URLS = {
-  win32: [
-    'https://mirrors.cloud.tencent.com/AndroidSDK/platform-tools-latest-windows.zip',
-    'https://dl.google.com/android/repository/platform-tools-latest-windows.zip',
-  ],
-  darwin: [
-    'https://mirrors.cloud.tencent.com/AndroidSDK/platform-tools-latest-darwin.zip',
-    'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip',
-  ],
-  linux: [
-    'https://mirrors.cloud.tencent.com/AndroidSDK/platform-tools-latest-linux.zip',
-    'https://dl.google.com/android/repository/platform-tools-latest-linux.zip',
-  ],
-};
-
-const GO_IOS_ASSETS = {
-  win32: 'go-ios-win.zip',
-  darwin: 'go-ios-mac.zip',
-  linux: 'go-ios-linux.zip',
-};
-
-async function download(url, dest, label) {
-  console.log(`  下载 ${label}: ${url}`);
-  const response = await fetch(url, {
-    redirect: 'follow',
-    headers: { 'user-agent': 'adh-agent-packager' },
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`${label} 下载失败（HTTP ${response.status}）`);
-  }
-  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(dest));
-}
-
-async function ensureCached(platform, name, urls, label) {
-  const cacheDir = path.join(root, '.data', 'agent-vendor', platform);
-  fs.mkdirSync(cacheDir, { recursive: true });
-  const dest = path.join(cacheDir, name);
-  if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
-    console.log(`  复用缓存 ${dest}`);
-    return dest;
-  }
-
-  let lastError = null;
-  for (const url of urls) {
-    try {
-      await download(url, dest, label);
-      return dest;
-    } catch (error) {
-      lastError = error;
-      console.warn(`  下载失败：${error instanceof Error ? error.message : error}`);
-    }
-  }
-  throw lastError ?? new Error(`${label} 下载失败`);
-}
-
-async function acquireVendor(platform) {
-  const adbUrls = adbUrlOverride ? [adbUrlOverride] : ADB_URLS[platform] ?? [];
-  const result = {};
-
-  if (adbUrls.length > 0) {
-    result.adb = await ensureCached(
-      platform,
-      'platform-tools.zip',
-      adbUrls,
-      'Android Platform Tools',
-    );
-  }
-
-  try {
-    const goIosUrl = await resolveGoIosUrlFor(platform);
-    result.goIos = await ensureCached(platform, 'go-ios.zip', [goIosUrl], 'go-ios');
-  } catch (error) {
-    console.warn(`  跳过 go-ios：${error instanceof Error ? error.message : error}`);
-  }
-
-  return result;
-}
-
-async function resolveGoIosUrlFor(platform) {
-  if (goIosUrlOverride) return goIosUrlOverride;
-  const wanted = GO_IOS_ASSETS[platform];
-  try {
-    const release = await (
-      await fetch('https://api.github.com/repos/danielpaulus/go-ios/releases/latest', {
-        headers: {
-          'user-agent': 'adh-agent-packager',
-          accept: 'application/vnd.github+json',
-        },
-      })
-    ).json();
-    const asset = release.assets?.find((item) => item.name === wanted);
-    if (asset) return asset.browser_download_url;
-  } catch {
-    /* 速率限制或网络问题时走 latest/download 固定路径 */
-  }
-  return `https://github.com/danielpaulus/go-ios/releases/latest/download/${wanted}`;
-}
+const { acquireVendor } = createToolVendorResolver({
+  root,
+  userAgent: 'adh-agent-packager',
+  adbUrlOverride,
+  goIosUrlOverride,
+  wintunUrlOverride,
+  cacheDirName: 'agent-vendor',
+});
 
 /** 优先用当前 pnpm 进程的 JS 入口，避免 Windows 下走 shell 拼接参数。 */
 function runPnpm(pnpmArgs) {
@@ -523,6 +435,12 @@ async function main() {
             `  内置 go-ios: ${(fs.statSync(vendor.goIos).size / 1024 / 1024).toFixed(1)} MB`,
           );
         }
+        if (vendor.wintun) {
+          fs.copyFileSync(vendor.wintun, path.join(vendorDir, 'wintun.zip'));
+          console.log(
+            `  内置 wintun: ${(fs.statSync(vendor.wintun).size / 1024).toFixed(0)} KB`,
+          );
+        }
       } catch (error) {
         console.warn(
           `  内置资源失败：${error instanceof Error ? error.message : error}（目标机 init 时会联网下载）`,
@@ -575,11 +493,10 @@ async function main() {
   console.log(`
 目标机器只需要：
   1. Node.js 22+（https://nodejs.org）
-  2. adb / go-ios：安装包已内置，运行 adh-agent init 离线解压（系统已有可忽略）
+  2. adb / go-ios：安装包已内置，首次 connect 自动离线解压（也可提前运行 adh-agent init）
   3. 能访问 server 的 8080 端口
 
 运行：
-  adh-agent.cmd init
   adh-agent.cmd connect --server ws://<server-ip>:8080 --key adh_xxx
 `);
 }

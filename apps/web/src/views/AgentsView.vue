@@ -311,6 +311,10 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
                       if (key === 'tunnel-start') void toggleTunnel(row, true);
                       else if (key === 'tunnel-stop')
                         void toggleTunnel(row, false);
+                      else if (key === 'install-adb')
+                        void installTools(row, 'android');
+                      else if (key === 'install-goios')
+                        void installTools(row, 'ios');
                       else if (key === 'edit') openEdit(row);
                       else if (key === 'rotate') void rotateKey(row);
                       else if (key === 'delete') confirmDelete(row);
@@ -336,24 +340,47 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
   },
 ]);
 
-/** 节点操作菜单：iOS 隧道开关 + 非内置节点的编辑 / Key / 删除。 */
+/** 节点操作菜单：依赖安装 + iOS 隧道开关 + 非内置节点的编辑 / Key / 删除。 */
 function menuOptions(row: AgentSummary): DropdownOption[] {
   const options: DropdownOption[] = [];
-  if (row.capabilities.includes('ios')) {
-    options.push(
-      {
-        label: '启动 iOS 隧道',
-        key: 'tunnel-start',
-        disabled: !row.online || Boolean(row.tunnel?.running),
-      },
-      {
-        label: '停止 iOS 隧道',
-        key: 'tunnel-stop',
-        disabled: !row.online || (!row.tunnel?.running && !row.tunnel?.error),
-      },
-      { type: 'divider', key: 'divider-tunnel' },
-    );
+  const canOperate = row.builtin || row.online;
+  const platform = osMeta(row.os).label;
+
+  // 缺什么才显示装什么；已装好的工具不重复展示
+  if (canOperate) {
+    if (!row.capabilities.includes('android')) {
+      options.push({
+        label: `安装 Android adb（${platform}）`,
+        key: 'install-adb',
+      });
+    }
+    if (!row.capabilities.includes('ios')) {
+      options.push({
+        label: `安装 iOS go-ios（${platform}）`,
+        key: 'install-goios',
+      });
+    }
+    if (options.length > 0) {
+      options.push({ type: 'divider', key: 'divider-tools' });
+    }
   }
+
+  // 隧道是否可启动不再要求「已发现 iOS 设备」，没装 go-ios 时由接口给出明确错误
+  options.push(
+    {
+      label: '启动 iOS 隧道',
+      key: 'tunnel-start',
+      disabled: !canOperate || Boolean(row.tunnel?.running),
+    },
+    {
+      label: '停止 iOS 隧道',
+      key: 'tunnel-stop',
+      disabled:
+        !canOperate || (!row.tunnel?.running && !row.tunnel?.error),
+    },
+    { type: 'divider', key: 'divider-tunnel' },
+  );
+
   if (!row.builtin) {
     options.push(
       { label: '编辑名称', key: 'edit' },
@@ -363,6 +390,35 @@ function menuOptions(row: AgentSummary): DropdownOption[] {
     );
   }
   return options;
+}
+
+/** 在指定节点上安装 adb / go-ios，下载源由节点平台决定。 */
+function installTools(row: AgentSummary, target: 'android' | 'ios'): void {
+  const isAdb = target === 'android';
+  const name = isAdb ? 'Android adb（Platform Tools）' : 'iOS go-ios';
+  const platform = osMeta(row.os).label;
+  dialog.warning({
+    title: `安装 ${name}`,
+    content: `将在「${row.name}」（${platform}）上下载并安装 ${name}。需要联网，通常 1~3 分钟，确定继续？`,
+    positiveText: '安装',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      const loading = message.loading(`正在安装 ${name}…`, { duration: 0 });
+      try {
+        const result = await api.installAgentTools(row.id, { [target]: true });
+        message.success(
+          result.capabilities.includes(target === 'android' ? 'android' : 'ios')
+            ? `${name} 安装完成`
+            : `${name} 安装完成，但未检测到可执行文件`,
+        );
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '安装失败');
+      } finally {
+        loading.destroy();
+      }
+    },
+  });
 }
 
 async function toggleTunnel(
@@ -378,9 +434,12 @@ async function toggleTunnel(
     message.success(start ? 'iOS 隧道已启动' : 'iOS 隧道已停止');
     await refresh();
   } catch (error) {
-    message.error(
-      error instanceof Error ? error.message : start ? '启动失败' : '停止失败',
-    );
+    const text = error instanceof Error ? error.message : '';
+    if (text.includes('go-ios')) {
+      message.error('未找到 go-ios，请先在「节点操作」菜单安装 iOS go-ios');
+    } else {
+      message.error(text || (start ? '启动失败' : '停止失败'));
+    }
   } finally {
     loading.destroy();
   }

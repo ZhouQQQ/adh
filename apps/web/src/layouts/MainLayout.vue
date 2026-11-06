@@ -265,8 +265,8 @@ const menuOptions = computed<MenuOption[]>(() => {
     );
   }
   systemChildren.push({
-    label: () => h(RouterLink, { to: '/mcp' }, { default: () => 'MCP 接入' }),
-    key: '/mcp',
+    label: () => h(RouterLink, { to: '/mcp-access' }, { default: () => 'MCP 接入' }),
+    key: '/mcp-access',
     title: 'MCP 接入',
     icon: () => h(NIcon, null, { default: () => h(LinkOutline) }),
   });

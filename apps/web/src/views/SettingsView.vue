@@ -12,12 +12,7 @@ import {
   useMessage,
 } from 'naive-ui';
 import LogoCropper from '../components/LogoCropper.vue';
-import { api, type ServerInfo, type ApiKeyRecord } from '../api';
-import { BASE_PATH } from '../base';
-import {
-  cacheApiKey,
-  readCachedApiKey,
-} from '../api-key-cache';
+import { api, type ServerInfo } from '../api';
 import { useAuth } from '../stores/auth';
 import {
   applySiteSettings,
@@ -27,7 +22,7 @@ import {
 } from '../stores/site';
 
 const message = useMessage();
-const { isSuper, user, loadMe } = useAuth();
+const { isSuper } = useAuth();
 const {
   title,
   subtitle,
@@ -56,59 +51,13 @@ const health = ref<{ version: string } | null>(null);
 const serverInfo = ref<ServerInfo | null>(null);
 
 const aiEnabled = ref(false);
-const aiBaseUrl = ref('https://api.openai.com/v1');
-const aiModel = ref('');
+const aiBaseUrl = ref('https://api.deepseek.com');
+const aiModel = ref('deepseek-flash');
+const aiSystemPrompt = ref('');
 const aiApiKey = ref('');
 const aiHasKey = ref(false);
 const aiKeyHint = ref('');
 const aiSaving = ref(false);
-
-const apiKeyList = ref<ApiKeyRecord[]>([]);
-const newApiKey = ref('');
-const apiKeyCreating = ref(false);
-const mcpExampleUrl = computed(
-  () => `${window.location.origin}${BASE_PATH}/mcp?key=${newApiKey.value || 'adhk_xxx'}`,
-);
-
-function formatTime(ms: number): string {
-  if (!ms) return '—';
-  const date = new Date(ms);
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-async function loadApiKeys(): Promise<void> {
-  try {
-    if (!user.value) await loadMe();
-    const data = await api.listApiKeys();
-    apiKeyList.value = data.keys;
-    if (data.key) {
-      // 首次进入自动生成，明文只返回一次，缓存到当前浏览器
-      newApiKey.value = data.key;
-      cacheApiKey(user.value?.id, data.key);
-    } else if (!newApiKey.value) {
-      newApiKey.value = readCachedApiKey(user.value?.id);
-    }
-  } catch {
-    /* 非超级管理员或读取失败时保持空 */
-  }
-}
-
-async function resetApiKey(): Promise<void> {
-  if (apiKeyCreating.value) return;
-  apiKeyCreating.value = true;
-  try {
-    const result = await api.resetApiKey();
-    newApiKey.value = result.key;
-    cacheApiKey(user.value?.id, result.key);
-    await loadApiKeys();
-    message.success('已重置 API Key');
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : '重置失败');
-  } finally {
-    apiKeyCreating.value = false;
-  }
-}
 
 const logoUrl = computed(() =>
   logoUpdatedAt.value > 0 ? api.siteLogoUrl(logoUpdatedAt.value) : '',
@@ -150,6 +99,7 @@ async function loadAi(): Promise<void> {
     aiEnabled.value = ai.enabled;
     aiBaseUrl.value = ai.baseUrl;
     aiModel.value = ai.model;
+    aiSystemPrompt.value = ai.systemPrompt;
     aiHasKey.value = ai.hasApiKey;
     aiKeyHint.value = ai.apiKey;
   } catch {
@@ -162,7 +112,6 @@ watch(
   (value) => {
     if (value) {
       void loadAi();
-      void loadApiKeys();
     }
   },
   { immediate: true },
@@ -176,10 +125,12 @@ async function saveAi(): Promise<void> {
       baseUrl: string;
       model: string;
       apiKey?: string;
+      systemPrompt: string;
     } = {
       enabled: aiEnabled.value,
       baseUrl: aiBaseUrl.value.trim(),
       model: aiModel.value.trim(),
+      systemPrompt: aiSystemPrompt.value,
     };
     // 留空表示不修改已有 key
     if (aiApiKey.value.trim()) input.apiKey = aiApiKey.value.trim();
@@ -188,6 +139,7 @@ async function saveAi(): Promise<void> {
     aiEnabled.value = saved.enabled;
     aiBaseUrl.value = saved.baseUrl;
     aiModel.value = saved.model;
+    aiSystemPrompt.value = saved.systemPrompt;
     aiHasKey.value = saved.hasApiKey;
     aiKeyHint.value = saved.apiKey;
     aiApiKey.value = '';
@@ -450,11 +402,11 @@ async function removeLogo(): Promise<void> {
               <n-input
                 v-model:value="aiBaseUrl"
                 size="small"
-                placeholder="https://api.openai.com/v1"
+                placeholder="https://api.deepseek.com"
                 style="max-width: 420px"
               />
               <div class="hint">
-                OpenAI 兼容接口，填到 /v1 为止，例如 https://api.deepseek.com/v1。
+                OpenAI 兼容接口，填根地址，例如 https://api.deepseek.com（不要带 /chat/completions）。
               </div>
             </div>
 
@@ -480,11 +432,26 @@ async function removeLogo(): Promise<void> {
               <n-input
                 v-model:value="aiModel"
                 size="small"
-                placeholder="gpt-4o / qwen-vl-max / glm-4v"
+                placeholder="deepseek-flash"
                 style="max-width: 320px"
               />
               <div class="hint">
                 必须支持视觉输入（vision），否则无法识别屏幕内容。
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label">系统提示词</div>
+              <n-input
+                v-model:value="aiSystemPrompt"
+                type="textarea"
+                size="small"
+                :autosize="{ minRows: 8, maxRows: 20 }"
+                placeholder="留空使用内置默认提示词"
+                style="max-width: 720px"
+              />
+              <div class="hint">
+                控制 AI 的操作风格和完成判定，保存后下一轮任务立即生效；留空保存会恢复内置默认提示词。
               </div>
             </div>
 
@@ -497,72 +464,6 @@ async function removeLogo(): Promise<void> {
               >
                 保存
               </n-button>
-            </div>
-          </div>
-        </n-tab-pane>
-
-        <n-tab-pane v-if="isSuper" name="api" tab="API / MCP">
-          <div class="panel">
-            <div class="field">
-              <div class="label">API Key（自动生成）</div>
-              <div class="control">
-                <n-button
-                  type="primary"
-                  size="small"
-                  :loading="apiKeyCreating"
-                  @click="resetApiKey"
-                >
-                  重置 Key
-                </n-button>
-              </div>
-              <div class="hint">
-                系统已为每位用户维护一把默认 Key，无需手动创建。
-                需要更换时点「重置 Key」，旧 Key 会立即失效。
-              </div>
-            </div>
-
-            <div v-if="newApiKey" class="api-key-reveal">
-              <div class="label">当前 Key（已保存在本浏览器）</div>
-              <pre>{{ newApiKey }}</pre>
-            </div>
-
-            <div class="field">
-              <div class="label">已有 Key</div>
-              <div v-if="!apiKeyList.length" class="hint">还没有 API Key。</div>
-              <div
-                v-for="key in apiKeyList"
-                :key="key.id"
-                class="api-key-row"
-              >
-                <div class="api-key-meta">
-                  <strong>{{ key.name }}</strong>
-                  <span>
-                    {{ key.prefix }}… · 创建 {{ formatTime(key.createdAt) }}
-                    <template v-if="key.lastUsedAt">
-                      · 最近使用 {{ formatTime(key.lastUsedAt) }}
-                    </template>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div class="field">
-              <div class="label">MCP 配置示例</div>
-              <pre class="mcp-example">{
-  "mcpServers": {
-    "adh": {
-      "url": "{{ mcpExampleUrl }}"
-    }
-  }
-}</pre>
-              <div class="hint">
-                服务端已内置 Streamable HTTP MCP，客户端只需要一个
-                <code>url</code>，把 <code>adhk_xxx</code> 换成生成的 Key
-                即可。域名取自当前浏览器地址；给其他机器使用时，请用局域网 IP
-                或域名打开本页后再复制。工具：<code>list_devices</code>、
-                <code>run_task</code>、<code>get_task</code>、
-                <code>list_tasks</code>、<code>cancel_task</code>。
-              </div>
             </div>
           </div>
         </n-tab-pane>
@@ -681,56 +582,5 @@ async function removeLogo(): Promise<void> {
 .logo-empty {
   font-size: 10px;
   color: var(--text-faint);
-}
-
-.api-key-reveal {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-}
-
-.api-key-reveal pre,
-.mcp-example {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text-dim);
-  font-size: 11px;
-  line-height: 1.6;
-  overflow-x: auto;
-  white-space: pre;
-}
-
-.api-key-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px dashed var(--border);
-}
-
-.api-key-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.api-key-meta strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.api-key-meta span {
-  font-size: 11px;
-  color: var(--text-faint);
-  word-break: break-all;
 }
 </style>

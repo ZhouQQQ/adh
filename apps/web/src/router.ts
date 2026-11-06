@@ -10,6 +10,7 @@ import DeviceLogsView from './views/DeviceLogsView.vue';
 import DevicesView from './views/DevicesView.vue';
 import LoginView from './views/LoginView.vue';
 import McpView from './views/McpView.vue';
+import ReplayView from './views/ReplayView.vue';
 import SettingsView from './views/SettingsView.vue';
 import UsersView from './views/UsersView.vue';
 
@@ -54,10 +55,16 @@ export const router = createRouter({
       meta: { title: '应用管理' },
     },
     {
-      path: '/mcp',
+      path: '/mcp-access',
       name: 'mcp',
       component: McpView,
       meta: { title: 'MCP 接入' },
+    },
+    {
+      path: '/r/:token',
+      name: 'task-replay',
+      component: ReplayView,
+      meta: { title: '任务回放', public: true },
     },
     {
       path: '/agents',

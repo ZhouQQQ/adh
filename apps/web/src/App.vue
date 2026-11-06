@@ -17,11 +17,11 @@ const route = useRoute();
 const router = useRouter();
 const { clear, loadMe } = useAuth();
 
-const isLogin = computed(() => route.path === '/login');
+const isPublic = computed(() => route.meta.public === true);
 
 function onUnauthorized(): void {
   clear();
-  if (route.path !== '/login') {
+  if (!isPublic.value && route.path !== '/login') {
     void router.replace('/login');
   }
 }
@@ -29,7 +29,7 @@ function onUnauthorized(): void {
 onMounted(() => {
   window.addEventListener('adh:unauthorized', onUnauthorized);
   void loadSiteSettings();
-  if (!isLogin.value) void loadMe();
+  if (!isPublic.value) void loadMe();
 });
 
 onBeforeUnmount(() => {
@@ -45,7 +45,7 @@ onBeforeUnmount(() => {
   >
     <n-message-provider>
       <n-dialog-provider>
-        <RouterView v-if="isLogin" />
+        <RouterView v-if="isPublic" />
         <MainLayout v-else />
       </n-dialog-provider>
     </n-message-provider>

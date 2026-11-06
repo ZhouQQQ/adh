@@ -11,6 +11,11 @@ import { runCommand } from './exec.js';
 
 const forwards = new Map<string, { child: ChildProcess; port: number }>();
 let commandCache: { at: number; command: string | null } | null = null;
+
+/** 安装 go-ios 后清掉命令探测缓存。 */
+export function resetMjpegCommandCache(): void {
+  commandCache = null;
+}
 let nextPort = 9100;
 
 const sleep = (ms: number): Promise<void> =>

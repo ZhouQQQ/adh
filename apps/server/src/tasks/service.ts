@@ -4,6 +4,7 @@ import type { CommandBus } from '../command-bus.js';
 import type { SqlDriver } from '../db/driver.js';
 import type { Queries } from '../db/queries.js';
 import type { Logger } from '../log.js';
+import type { DeviceLogService } from '../logs/device-logs.js';
 import type { AgentRegistry } from '../registry.js';
 import type { SettingsService } from '../settings/service.js';
 import type { StreamManager } from '../stream/manager.js';
@@ -15,6 +16,7 @@ import {
   launchAppByName,
 } from '../ai/app-launch.js';
 import { planBatchTasks, type BatchPlan } from './planner.js';
+import { TaskRecordingStore } from './replay.js';
 
 export type TaskStatus =
   | 'queued'
@@ -36,6 +38,8 @@ export interface TaskRecord {
   createdAt: number;
   startedAt: number;
   finishedAt: number;
+  /** 回放 token；用于生成公开回放链接，旧任务可能为空。 */
+  replayToken: string;
 }
 
 export interface CreateTaskInput {
@@ -58,6 +62,14 @@ interface BatchItem {
   task: TaskRecord;
   device: DeviceSummary;
   timeoutSec?: number;
+  owner: TaskOwner;
+}
+
+/** 任务创建者，用于设备墙上显示「AI 任务执行中 · 用户名」。 */
+interface TaskOwner {
+  id: string;
+  username: string;
+  displayName?: string | null;
 }
 
 export interface TaskServiceDeps {
@@ -67,6 +79,8 @@ export interface TaskServiceDeps {
   streams: StreamManager;
   commands: CommandBus;
   settings: SettingsService;
+  recordings: TaskRecordingStore;
+  deviceLogs: DeviceLogService;
   logger: Logger;
 }
 
@@ -93,6 +107,7 @@ interface TaskRow {
   createdAt: number;
   startedAt: number;
   finishedAt: number;
+  replayToken: string | null;
 }
 
 function toTask(row: TaskRow): TaskRecord {
@@ -108,6 +123,7 @@ function toTask(row: TaskRow): TaskRecord {
     createdAt: Number(row.createdAt) || 0,
     startedAt: Number(row.startedAt) || 0,
     finishedAt: Number(row.finishedAt) || 0,
+    replayToken: row.replayToken ?? '',
   };
 }
 
@@ -146,7 +162,7 @@ export class TaskService {
   constructor(private readonly deps: TaskServiceDeps) {}
 
   async create(
-    user: { id: string; username: string },
+    user: TaskOwner,
     input: CreateTaskInput,
   ): Promise<TaskRecord> {
     const instruction = normalizeInstruction(input.instruction);
@@ -156,7 +172,7 @@ export class TaskService {
 
     const device = await this.pickDevice(input);
     const task = await this.insertTask(user, device, instruction);
-    void this.run(task, device, input.timeoutSec);
+    void this.run(task, device, input.timeoutSec, user);
     return task;
   }
 
@@ -192,7 +208,7 @@ export class TaskService {
    * “A 发消息给 B，B 收到后回复”这种有先后依赖的任务。
    */
   async createBatch(
-    user: { id: string; username: string },
+    user: TaskOwner,
     inputs: CreateBatchTaskInput[],
     mode: BatchTaskMode = 'parallel',
   ): Promise<TaskRecord[]> {
@@ -241,7 +257,7 @@ export class TaskService {
     try {
       for (const item of prepared) {
         const task = await this.insertTask(user, item.device, item.instruction);
-        items.push({ ...item, task });
+        items.push({ ...item, task, owner: user });
         this.reserved.add(item.device.id);
       }
     } catch (error) {
@@ -276,13 +292,14 @@ export class TaskService {
       createdAt: now,
       startedAt: 0,
       finishedAt: 0,
+      replayToken: TaskRecordingStore.newToken(),
     };
 
     await this.deps.db.execute(
       `INSERT INTO adh_tasks
         (id, user_id, device_id, instruction, status, reply, steps_json, error,
-         created_at, started_at, finished_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         created_at, started_at, finished_at, replay_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         task.id,
         task.userId,
@@ -295,6 +312,7 @@ export class TaskService {
         task.createdAt,
         0,
         0,
+        task.replayToken,
       ],
     );
     return task;
@@ -307,7 +325,7 @@ export class TaskService {
     if (mode === 'sequential') {
       for (const item of items) {
         try {
-          await this.run(item.task, item.device, item.timeoutSec);
+          await this.run(item.task, item.device, item.timeoutSec, item.owner);
         } finally {
           this.reserved.delete(item.device.id);
         }
@@ -323,7 +341,7 @@ export class TaskService {
           const item = queue.shift();
           if (!item) return;
           try {
-            await this.run(item.task, item.device, item.timeoutSec);
+            await this.run(item.task, item.device, item.timeoutSec, item.owner);
           } finally {
             this.reserved.delete(item.device.id);
           }
@@ -354,10 +372,25 @@ export class TaskService {
       `SELECT id, user_id AS userId, device_id AS deviceId, instruction,
               status, reply, steps_json AS stepsJson, error,
               created_at AS createdAt, started_at AS startedAt,
-              finished_at AS finishedAt
+              finished_at AS finishedAt, replay_token AS replayToken
        FROM adh_tasks
        WHERE id = ? AND user_id = ?`,
       [id, userId],
+    );
+    return row ? toTask(row) : null;
+  }
+
+  /** 公开回放：通过任务级 token 找任务，不要求登录。 */
+  async getByReplayToken(token: string): Promise<TaskRecord | null> {
+    if (!/^[a-f0-9]{32}$/.test(token)) return null;
+    const [row] = await this.deps.db.query<TaskRow>(
+      `SELECT id, user_id AS userId, device_id AS deviceId, instruction,
+              status, reply, steps_json AS stepsJson, error,
+              created_at AS createdAt, started_at AS startedAt,
+              finished_at AS finishedAt, replay_token AS replayToken
+       FROM adh_tasks
+       WHERE replay_token = ?`,
+      [token],
     );
     return row ? toTask(row) : null;
   }
@@ -367,7 +400,7 @@ export class TaskService {
       `SELECT id, user_id AS userId, device_id AS deviceId, instruction,
               status, reply, steps_json AS stepsJson, error,
               created_at AS createdAt, started_at AS startedAt,
-              finished_at AS finishedAt
+              finished_at AS finishedAt, replay_token AS replayToken
        FROM adh_tasks
        WHERE user_id = ?
        ORDER BY created_at DESC
@@ -388,6 +421,12 @@ export class TaskService {
     if (task.status === 'queued') {
       this.cancelled.add(task.id);
       if (task.deviceId) this.reserved.delete(task.deviceId);
+      task.status = 'cancelled';
+      task.finishedAt = Date.now();
+      await this.save(task);
+    } else if (run) {
+      // 运行中的任务：abort 后立即落 cancelled。
+      // 只 abort 不落库的话，一旦执行链路卡住，记录会永远停在 running。
       task.status = 'cancelled';
       task.finishedAt = Date.now();
       await this.save(task);
@@ -454,7 +493,8 @@ export class TaskService {
   private async run(
     task: TaskRecord,
     device: DeviceSummary,
-    timeoutSec?: number,
+    timeoutSec: number | undefined,
+    owner: TaskOwner,
   ): Promise<void> {
     // 排队期间被取消的批量任务，轮到执行时不再启动
     if (this.cancelled.has(task.id)) {
@@ -484,15 +524,33 @@ export class TaskService {
     }, timeoutMs);
 
     this.active.set(task.id, { deviceId: device.id, abort });
-    this.deps.streams.lockForTask(device.id);
+    this.deps.streams.lockForTask(device.id, {
+      taskId: task.id,
+      userId: owner.id,
+      username: owner.username,
+      displayName: owner.displayName ?? undefined,
+      since: Date.now(),
+    });
 
     task.status = 'running';
     task.startedAt = Date.now();
     await this.save(task);
 
+    // 设备日志只记录用户原始任务文字；AI 的逐步动作属于执行过程，不再落日志
+    void this.deps.deviceLogs.write({
+      deviceId: device.id,
+      deviceName: device.name,
+      userId: owner.id,
+      username: owner.username,
+      action: 'ai.task',
+      detail: task.instruction,
+    });
+
     let sessionId: string | null = null;
     let ownsSession = false;
+    let recorder: ReturnType<TaskRecordingStore['create']> = null;
     try {
+      recorder = this.deps.recordings.create(task.id);
       // 只是“打开某个 App”的任务：直接走应用启动快速通道，
       // 不建投屏会话、不调视觉模型。
       const launchTarget = extractLaunchTarget(task.instruction);
@@ -579,6 +637,7 @@ export class TaskService {
           device,
           messages: [{ role: 'user', content: task.instruction }],
           signal: abort.signal,
+          onFrame: (frame) => recorder?.add(frame),
           onEvent: (event) => {
             if (event.type === 'tool') {
               steps.push({ name: event.name, args: event.args });
@@ -633,6 +692,16 @@ export class TaskService {
       }
     } finally {
       clearTimeout(timer);
+      if (recorder) {
+        try {
+          await recorder.finalize();
+        } catch (error) {
+          this.deps.logger.warn(
+            { taskId: task.id, err: String(error) },
+            'task recording finalize failed',
+          );
+        }
+      }
       if (sessionId && ownsSession) {
         this.deps.streams.destroy(sessionId, 'AI 任务结束');
       }

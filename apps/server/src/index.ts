@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { WS_PATHS, BUILTIN_AGENT_ID, renderBanner } from '@adh/protocol';
+import { ensureBundledTools } from '@adh/device-host';
 import { AuthService } from './auth/service.js';
 import { bearerToken } from './auth/token.js';
 import { describeAudit } from './auth/audit-describe.js';
@@ -40,6 +41,7 @@ import { registerAiRoutes } from './http/ai-routes.js';
 import { AiChatStore } from './ai/history.js';
 import { ApiKeyService } from './auth/api-keys.js';
 import { TaskService } from './tasks/service.js';
+import { TaskRecordingStore } from './tasks/replay.js';
 import { registerApiKeyRoutes } from './http/api-key-routes.js';
 import { registerTaskRoutes } from './http/task-routes.js';
 import { registerMcpRoutes } from './http/mcp-routes.js';
@@ -103,6 +105,7 @@ async function main(): Promise<void> {
   });
   hub.setControlResolver((deviceId) => streams.getControl(deviceId));
 
+  const recordings = new TaskRecordingStore(config.recordingDir);
   const tasks = new TaskService({
     db: driver,
     queries,
@@ -110,6 +113,8 @@ async function main(): Promise<void> {
     streams,
     commands,
     settings,
+    recordings,
+    deviceLogs,
     logger,
   });
 
@@ -120,6 +125,9 @@ async function main(): Promise<void> {
     logger,
     version: SERVER_VERSION,
   });
+  // 内置 Agent 也要能找到 adh-agent init 安装到 ~/.adh/tools 的 adb / go-ios；
+  // 离线包还会把 vendor/<platform> 里的工具首次解压出来
+  await ensureBundledTools(config.toolVendorDir, (line) => logger.info(line));
   if (config.localAgent) {
     await localAgent.start();
   } else {
@@ -172,6 +180,8 @@ async function main(): Promise<void> {
       request.method === 'GET' &&
       (path === '/api/settings' || path === '/api/settings/logo');
     if (PUBLIC_API.has(path) || publicSiteRead) return;
+    // 任务回放用任务级 token 鉴权，允许未登录访问；路由内部会校验 token
+    if (path.startsWith('/api/replay/')) return;
 
     const token = bearerToken(request);
     const user = token
@@ -325,7 +335,7 @@ async function main(): Promise<void> {
     });
 
     registerApiKeyRoutes(scope, { apiKeys });
-    registerTaskRoutes(scope, { tasks });
+    registerTaskRoutes(scope, { tasks, recordings });
     registerMcpRoutes(scope, {
       apiKeys,
       queries,
@@ -334,6 +344,7 @@ async function main(): Promise<void> {
       tasks,
       logger,
       version: SERVER_VERSION,
+      basePath,
     });
   };
 

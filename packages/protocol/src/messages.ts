@@ -92,6 +92,17 @@ export const DeviceControlInfoSchema = z.object({
 });
 export type DeviceControlInfo = z.infer<typeof DeviceControlInfoSchema>;
 
+/** AI 任务执行期间对设备的占用信息。 */
+export const AiTaskControlSchema = z.object({
+  taskId: z.string(),
+  userId: z.string(),
+  username: z.string(),
+  displayName: z.string().optional(),
+  /** 任务开始时间（毫秒） */
+  since: z.number(),
+});
+export type AiTaskControl = z.infer<typeof AiTaskControlSchema>;
+
 /** server 侧对外暴露的设备视图。 */
 export const DeviceSummarySchema = DeviceInfoSchema.extend({
   ...DeviceLockSchema.shape,
@@ -118,6 +129,8 @@ export const DeviceSummarySchema = DeviceInfoSchema.extend({
   inUse: z.boolean().default(false),
   /** 正在控制的人；只读观看不算占用。 */
   control: DeviceControlInfoSchema.optional(),
+  /** 正在执行 AI 任务（MCP / 批量任务）时占用设备的用户。 */
+  aiTask: AiTaskControlSchema.optional(),
   /** iOS 等无会话设备是否允许其他人查看；未设置时默认允许。 */
   allowViewers: z.boolean().optional(),
 });
@@ -241,6 +254,8 @@ export type CmdResultMessage = z.infer<typeof CmdResultMessageSchema>;
 export const AgentStatusMessageSchema = z.object({
   t: z.literal('agent.status'),
   tunnel: IosTunnelStatusSchema,
+  /** 工具安装后能力可能变化（例如新装了 go-ios），随状态下发。 */
+  capabilities: z.array(AgentCapabilitySchema).optional(),
 });
 export type AgentStatusMessage = z.infer<typeof AgentStatusMessageSchema>;
 
@@ -287,6 +302,8 @@ export const DeviceActionSchema = z.enum([
   'logcat.start',
   'logcat.stop',
   'device.reboot',
+  /** 节点级工具安装：adb / go-ios（按 agent 所在平台自动选择下载源）。 */
+  'agent.tools.install',
   /** 节点级 iOS 隧道管理（iOS 17+）。 */
   'ios.tunnel.start',
   'ios.tunnel.stop',

@@ -13,6 +13,9 @@ import {
   type SafeKeyboardLayout,
 } from '@adh/protocol';
 import {
+  ensureToolPath,
+  installAgentTools,
+  resetToolCommandCaches,
   runCommand,
   runCommandBuffer,
   resolveQuality,
@@ -477,6 +480,13 @@ function withOnline(
   return { ...summary, online: registry.isOnline(summary.id) };
 }
 
+/** 节点工具安装请求：至少选一个工具。 */
+const AgentToolsInstallBodySchema = z.object({
+  android: z.boolean().optional(),
+  ios: z.boolean().optional(),
+  force: z.boolean().optional(),
+});
+
 export async function registerHttpRoutes(
   app: FastifyInstance,
   deps: HttpDeps,
@@ -814,6 +824,87 @@ export async function registerHttpRoutes(
     handleTunnelAction(request, reply, false),
   );
 
+  /**
+   * 在节点上安装 Android adb / iOS go-ios。
+   * 内置节点由 server 进程直接装到 ~/.adh/tools，外接节点下发命令由 agent 安装，
+   * 下载源按节点所在平台自动选择（Windows / macOS / Linux）。
+   */
+  app.post('/api/agents/:id/tools/install', async (request, reply) => {
+    if (!isAdminRole(request.user?.role ?? '')) {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
+    const { id } = request.params as { id: string };
+    const agent = await deps.queries.getAgent(id);
+    if (!agent) return reply.code(404).send({ error: '节点不存在' });
+
+    const parsed = AgentToolsInstallBodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: '请求参数不正确' });
+    }
+    if (!parsed.data.android && !parsed.data.ios) {
+      return reply.code(400).send({ error: '请选择要安装的工具' });
+    }
+
+    const messages: string[] = [];
+    let capabilities: string[] | undefined;
+    let failure: string | undefined;
+
+    try {
+      if (id === BUILTIN_AGENT_ID) {
+        const result = await installAgentTools({
+          ...parsed.data,
+          log: (line) => messages.push(line),
+        });
+        capabilities = result.capabilities;
+        failure =
+          (result.android && !result.android.ok
+            ? result.android.error
+            : undefined) ??
+          (result.ios && !result.ios.ok ? result.ios.error : undefined);
+      } else {
+        const remote = await deps.commands.send(
+          id,
+          'agent.tools.install',
+          parsed.data,
+          undefined,
+          300_000,
+        );
+        const data = remote.data as
+          | { capabilities?: string[]; logs?: string[] }
+          | undefined;
+        capabilities = data?.capabilities;
+        messages.push(...(data?.logs ?? []));
+        if (!remote.ok) failure = remote.error ?? '安装失败';
+      }
+    } catch (error) {
+      failure = error instanceof Error ? error.message : '安装失败';
+    }
+
+    // 即使某个工具失败，也同步另一个已装好的能力，并刷新命令缓存
+    if (capabilities) {
+      await deps.queries.updateAgentCapabilities(id, capabilities);
+    }
+    ensureToolPath();
+    resetToolCommandCaches();
+
+    const summary = await deps.queries.getAgentSummary(id);
+    if (summary) {
+      deps.hub.broadcast({
+        t: 'agent.updated',
+        agent: withOnline(summary, deps.registry),
+      });
+    }
+
+    if (failure) {
+      return reply.code(400).send({ error: failure, messages, capabilities });
+    }
+    return {
+      ok: true,
+      capabilities: capabilities ?? [],
+      messages,
+    };
+  });
+
   /* ---------------------------------------------------------------- */
   /* 设备                                                              */
   /* ---------------------------------------------------------------- */
@@ -828,6 +919,7 @@ export async function registerHttpRoutes(
       ...(isOnline(device.agentId) ? device : { ...device, status: 'offline' as const }),
       inUse: inUse.has(device.id),
       control: deps.streams.getControl(device.id),
+      aiTask: deps.streams.getAiTask(device.id),
       allowViewers: deps.streams.getAllowViewers(device.id),
     }));
   });
@@ -836,7 +928,7 @@ export async function registerHttpRoutes(
     const { id } = request.params as { id: string };
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: 'device not found' });
-    return { ...device, inUse: deps.streams.isInUse(id), control: deps.streams.getControl(id), allowViewers: deps.streams.getAllowViewers(id) };
+    return { ...device, inUse: deps.streams.isInUse(id), control: deps.streams.getControl(id), aiTask: deps.streams.getAiTask(id), allowViewers: deps.streams.getAllowViewers(id) };
   });
 
   /** 编辑设备元信息（发布时间、安全键盘、管理员锁定）。 */
@@ -919,6 +1011,13 @@ export async function registerHttpRoutes(
     // 锁定后只有管理员能进入，其他人既不能控制也不能查看
     if (device.locked) {
       return reply.code(403).send({ error: '设备已被管理员锁定' });
+    }
+    // AI 任务执行期间不允许再建控制会话，提前返回明确提示
+    const aiTask = deps.streams.getAiTask(id);
+    if (aiTask) {
+      return reply.code(409).send({
+        error: `设备正在执行 AI 任务（${aiTask.displayName || aiTask.username}），请稍后再试`,
+      });
     }
     // 同时控制设备数按角色限制，0 表示不限
     if (request.user) {
@@ -1080,6 +1179,13 @@ export async function registerHttpRoutes(
       return reply.code(403).send({ error: '设备已被管理员锁定' });
     }
     if (!request.user) return reply.code(401).send({ error: '请先登录' });
+
+    const aiTask = deps.streams.getAiTask(id);
+    if (aiTask) {
+      return reply.code(409).send({
+        error: `设备正在执行 AI 任务（${aiTask.displayName || aiTask.username}），请稍后再试`,
+      });
+    }
 
     const current = deps.streams.getControl(id);
     const alreadyMine = current?.userId === request.user.id;

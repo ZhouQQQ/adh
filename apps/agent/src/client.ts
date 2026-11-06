@@ -5,8 +5,13 @@ import path from 'node:path';
 import {
   adbInputText,
   captureScreenshot,
+  detectAgentCapabilities,
+  ensureToolPath,
   getTunnelStatus,
+  installAndroidTools,
+  installGoIos,
   launchAndroidApp,
+  resetToolCommandCaches,
   runCommand,
   startTunnel,
   startWda,
@@ -27,6 +32,7 @@ import {
 } from '@adh/protocol';
 import type { Logger } from './log.js';
 import { AgentStreamManager } from './stream-client.js';
+import { VENDOR_DIR } from './tools.js';
 
 export interface AgentClientOptions {
   serverUrl: string;
@@ -193,6 +199,9 @@ export class AgentClient {
       bundleId?: string;
       container?: string;
       text?: string;
+      android?: boolean;
+      ios?: boolean;
+      force?: boolean;
     };
 
     if (
@@ -221,6 +230,63 @@ export class AgentClient {
           });
           // 控制台「节点管理」立即刷新隧道状态
           this.send({ t: 'agent.status', tunnel: status });
+        } catch (error) {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+      return;
+    }
+
+    if (message.action === 'agent.tools.install') {
+      void (async () => {
+        try {
+          const android = params.android === true;
+          const ios = params.ios === true;
+          if (!android && !ios) throw new Error('请选择要安装的工具');
+
+          const logs: string[] = [];
+          const log = (line: string): void => {
+            logs.push(line);
+          };
+          const results: { kind: string; ok: boolean; error?: string }[] = [];
+
+          if (android) {
+            const result = await installAndroidTools({
+              force: params.force === true,
+              vendorDir: VENDOR_DIR,
+              log,
+            });
+            results.push({ kind: 'adb', ok: result.ok, error: result.error });
+          }
+          if (ios) {
+            const result = await installGoIos({
+              force: params.force === true,
+              vendorDir: VENDOR_DIR,
+              log,
+            });
+            results.push({ kind: 'go-ios', ok: result.ok, error: result.error });
+          }
+
+          // 新装的可执行文件立刻生效：刷新 PATH 并清掉各模块的命令缓存
+          ensureToolPath();
+          resetToolCommandCaches();
+          const capabilities = await detectAgentCapabilities();
+          const status = await getTunnelStatus();
+          const error = results.find((item) => !item.ok)?.error;
+
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: !error,
+            error,
+            data: { capabilities, results, logs },
+          });
+          this.send({ t: 'agent.status', tunnel: status, capabilities });
         } catch (error) {
           this.send({
             t: 'cmd.result',

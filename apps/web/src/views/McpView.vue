@@ -25,7 +25,7 @@ const configExample = computed(() =>
   JSON.stringify(
     {
       mcpServers: {
-        adh: {
+        'ADH 设备农场': {
           url: `${serverUrl.value}/mcp?key=${newKey.value || 'adhk_xxx'}`,
         },
       },
@@ -33,13 +33,6 @@ const configExample = computed(() =>
     null,
     2,
   ),
-);
-
-const curlExample = computed(
-  () => `curl -X POST ${serverUrl.value}/api/tasks \\
-  -H "Authorization: Bearer ${newKey.value || '<你的 Key>'}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"instruction":"打开微信，进入小程序","platform":"android"}'`,
 );
 
 function formatTime(ms: number): string {
@@ -102,7 +95,7 @@ onMounted(() => {
   <div class="mcp-page">
     <n-spin :show="loading">
       <header class="mcp-header">
-        <h2>MCP 接入</h2>
+        <h2>ADH 设备农场 · MCP 接入</h2>
         <p>
           把设备农场接入 Codex、Claude Code、DeepSeek harness 等支持 MCP
           的 agent。系统会为每位用户自动生成 Key，agent 就能自动选择空闲设备并执行自然语言任务。
@@ -119,14 +112,6 @@ onMounted(() => {
         </p>
         <pre class="code-block">{{ configExample }}</pre>
         <n-button size="tiny" @click="copy(configExample)">复制配置</n-button>
-        <p class="hint">
-          配置里的域名取自当前浏览器地址；给其他机器使用时，请用局域网 IP
-          或域名打开本页后再复制。服务部署在子路径时，
-          <code>url</code> 已自动带上部署前缀。如果配置里还是
-          <code>adhk_xxx</code>，说明本浏览器没有保存明文，到最下面点「重置 Key」。
-          只有仅支持 stdio 的老客户端才需要使用仓库中的
-          <code>apps/server/src/mcp-cli.ts</code>。
-        </p>
       </section>
 
       <section class="mcp-card">
@@ -139,12 +124,6 @@ onMounted(() => {
           <li>「把所有标签为 regression 的设备打开设置，关掉蓝牙」</li>
           <li>「找一台空闲的 iOS 设备，打开设置看一下版本号」</li>
         </ul>
-        <p class="hint">
-          agent 会调用 <code>list_devices</code> 找空闲设备、
-          <code>run_task</code> 创建任务，再轮询 <code>get_task</code> 获取结果。
-        </p>
-        <pre class="code-block">{{ curlExample }}</pre>
-        <n-button size="tiny" @click="copy(curlExample)">复制 curl</n-button>
       </section>
 
       <section class="mcp-card">

@@ -172,8 +172,16 @@ export function registerAgentChannel(
         return;
       }
       if (message.t === 'agent.status') {
-        void queries
-          .updateAgentTunnel(agentId, message.tunnel)
+        const tasks: Promise<unknown>[] = [
+          queries.updateAgentTunnel(agentId, message.tunnel),
+        ];
+        // 节点刚装完 adb / go-ios 时会随状态上报新能力
+        if (message.capabilities) {
+          tasks.push(
+            queries.updateAgentCapabilities(agentId, message.capabilities),
+          );
+        }
+        void Promise.all(tasks)
           .then(() => broadcastAgent(agentId!, true))
           .catch((error: unknown) => {
             logger.warn({ err: String(error) }, 'agent tunnel status failed');

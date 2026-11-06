@@ -19,6 +19,7 @@ import {
   PhonePortraitOutline,
   PlayCircleOutline,
   ResizeOutline,
+  SparklesOutline,
   SpeedometerOutline,
   WifiOutline,
 } from '@vicons/ionicons5';
@@ -121,15 +122,22 @@ const controlName = computed(() =>
     : '',
 );
 
+const aiTaskName = computed(() =>
+  props.device.aiTask
+    ? props.device.aiTask.displayName || props.device.aiTask.username
+    : '',
+);
+
 /** 品牌 logo：小米 / 华为 / 荣耀 / OPPO / vivo / 苹果。 */
 const brandMeta = computed(() => {
   const key = deviceBrand(props.device);
   return key ? BRAND_META[key] : null;
 });
 
-/** 卡片状态色：红=锁定，蓝=我在用，黄=别人在用。 */
+/** 卡片状态色：红=锁定，蓝=我在用，黄=别人在用，紫=AI 任务执行中。 */
 const usageTone = computed(() => {
   if (props.device.locked) return 'locked';
+  if (props.device.aiTask) return 'ai';
   const control = props.device.control;
   if (!control) return '';
   return control.userId === user.value?.id ? 'mine' : 'busy';
@@ -137,6 +145,11 @@ const usageTone = computed(() => {
 const controlDuration = computed(() =>
   props.device.control
     ? formatDuration(props.device.control.since, now.value)
+    : '',
+);
+const aiTaskDuration = computed(() =>
+  props.device.aiTask
+    ? formatDuration(props.device.aiTask.since, now.value)
     : '',
 );
 const canKick = computed(
@@ -149,6 +162,7 @@ const canKick = computed(
 /** 别人正在控制时按钮显示「查看」，自己在控制时显示「继续控制」。 */
 const controlLabel = computed(() => {
   if (props.device.locked) return '已锁定';
+  if (props.device.aiTask) return 'AI 任务中';
   const control = props.device.control;
   if (!control) return '控制';
   return control.userId === user.value?.id ? '继续控制' : '查看';
@@ -205,6 +219,7 @@ const resolutionText = computed(() =>
 const canControl = computed(
   () =>
     !props.device.locked &&
+    !props.device.aiTask &&
     props.device.status === 'online' &&
     (props.device.platform === 'android' ||
       props.device.capabilities.includes('wda')),
@@ -300,7 +315,17 @@ const wifiTitle = computed(() => {
       </div>
 
       <div
-        v-if="device.control"
+        v-if="device.aiTask"
+        class="control-tag ai-task"
+        :class="{ shifted: selectable }"
+        :title="`${aiTaskName} 的 AI 任务正在执行`"
+      >
+        <n-icon :size="12"><SparklesOutline /></n-icon>
+        <span class="control-name">AI 任务 · {{ aiTaskName }}</span>
+        <span class="control-time">已执行 {{ aiTaskDuration }}</span>
+      </div>
+      <div
+        v-else-if="device.control"
         class="control-tag"
         :class="[usageTone, { shifted: selectable }]"
         :title="`${controlName} 正在控制`"
@@ -479,6 +504,10 @@ const wifiTitle = computed(() => {
   background: #f59e0b;
 }
 
+.tone-bar.ai {
+  background: #8b5cf6;
+}
+
 .device-card.offline {
   opacity: 0.65;
 }
@@ -579,6 +608,19 @@ const wifiTitle = computed(() => {
 
 .control-tag.busy::before {
   background: #f59e0b;
+}
+
+.control-tag.ai-task::before {
+  display: none;
+}
+
+.control-tag.ai-task {
+  border-color: #ddd6fe;
+  color: #5b21b6;
+}
+
+.control-tag.ai-task .control-name {
+  max-width: 110px;
 }
 
 /* 有勾选框时让开一点，贴着勾选框显示 */

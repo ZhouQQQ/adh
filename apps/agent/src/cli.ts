@@ -7,14 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   captureThumbnail,
+  detectAgentCapabilities,
   discoverAndroid,
   discoverIos,
+  ensureBundledTools,
   runCommand,
 } from '@adh/device-host';
 import {
   PROTOCOL_VERSION,
   renderBanner,
-  type AgentCapability,
   type AgentRuntimeInfo,
   type DeviceInfo,
 } from '@adh/protocol';
@@ -23,7 +24,7 @@ import { runDoctor } from './doctor.js';
 import { configFilePath, loadLocalConfig, saveLocalConfig } from './local-config.js';
 import { createLogger, type Logger } from './log.js';
 import { ThumbnailUploader } from './thumbnail-uploader.js';
-import { ensureToolPath, runInit } from './tools.js';
+import { ensureToolPath, runInit, VENDOR_DIR } from './tools.js';
 import {
   runRollback,
   runUpdate,
@@ -430,8 +431,9 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     }),
   );
 
-  // 先把安装包内置的工具目录放到 PATH 最前面，再检查
-  ensureToolPath();
+  // 优先使用系统 / ~/.adh/tools 里的工具；缺失时自动解压安装包内置的 vendor，
+  // 所以打包版可以跳过 `adh-agent init` 直接 connect
+  await ensureBundledTools(VENDOR_DIR, (line) => console.log(`  ${line}`));
 
   const adb = await probeCommand('adb');
   const goIos =
@@ -464,17 +466,9 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     }
   }
 
-  const androidOk = Boolean(adb);
-  const iosOk = Boolean(goIos);
-
-  const capabilities: AgentCapability[] = [];
-  if (androidOk) capabilities.push('android');
-
-  // iOS 首次发现时会自动执行 `ios tunnel start`（iOS 17+ 需要）
-  if (iosOk) {
-    const iosDevices = await discoverIos();
-    if (iosDevices.length > 0) capabilities.push('ios');
-  }
+  // 能力按「工具是否可用」上报，而不是「当前是否插着设备」：
+  // 没插设备时也要能在节点管理里启动 iOS 隧道
+  const capabilities = await detectAgentCapabilities();
 
   const name = (values.name as string | undefined) ?? local.name ?? os.hostname();
 
@@ -510,10 +504,9 @@ async function commandConnect(values: Record<string, unknown>): Promise<void> {
     // 被服务端要求停止（key 失效 / 被新实例替换）时退出进程
     onStopped: shutdown,
     discover: async (): Promise<DeviceInfo[]> => {
-      const android = androidOk
-        ? await discoverAndroid()
-        : { devices: [] as DeviceInfo[] };
-      const ios = iosOk ? await discoverIos() : [];
+      // 不缓存启动时的工具可用性：节点管理里新装 adb / go-ios 后下一轮就能发现设备
+      const android = await discoverAndroid();
+      const ios = await discoverIos();
       return [...android.devices, ...ios];
     },
   });

@@ -1,5 +1,7 @@
 export * from './exec.js';
 export * from './soc.js';
+export * from './tools.js';
+export * from './tool-cache.js';
 export * from './android-discover.js';
 export * from './android-screenshot.js';
 export * from './android-input.js';

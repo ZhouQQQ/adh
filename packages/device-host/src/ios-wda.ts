@@ -74,6 +74,11 @@ export async function probeWda(port: number, timeoutMs = 800): Promise<boolean> 
 
 let commandCache: { at: number; command: string | null } | null = null;
 
+/** 安装 go-ios 后清掉命令探测缓存。 */
+export function resetWdaCommandCache(): void {
+  commandCache = null;
+}
+
 async function resolveCommand(): Promise<string | null> {
   if (commandCache && Date.now() - commandCache.at < 60_000) {
     return commandCache.command;

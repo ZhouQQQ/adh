@@ -61,11 +61,28 @@ function filterDevices(
   });
 }
 
+/** 把任务上的回放 token 转成可直接打开的分享链接。 */
+function withReplayUrl(task: unknown, baseUrl: string): unknown {
+  if (!task || typeof task !== 'object') return task;
+  const record = task as Record<string, unknown>;
+  const token = record.replayToken;
+  if (typeof token !== 'string' || !token) return task;
+  const rest = { ...record };
+  delete rest.replayToken;
+  return {
+    ...rest,
+    replayUrl: `${baseUrl.replace(/\/+$/, '')}/r/${token}`,
+  };
+}
+
 /** 进程内直接调用 service，供 `/mcp` 使用。 */
 export function createLocalBackend(
   deps: LocalBackendDeps,
   user: AuthUser,
+  publicBaseUrl = '',
 ): McpBackend {
+  const replay = (task: unknown): unknown => withReplayUrl(task, publicBaseUrl);
+
   return {
     async listDevices(input) {
       const [devices, inUseIds] = await Promise.all([
@@ -91,16 +108,18 @@ export function createLocalBackend(
       return filterDevices(mapped, input);
     },
 
-    runTask(input) {
-      return deps.tasks.create(user, input);
+    async runTask(input) {
+      return replay(await deps.tasks.create(user, input));
     },
 
-    getTask(taskId) {
-      return deps.tasks.get(user.id, taskId);
+    async getTask(taskId) {
+      const task = await deps.tasks.get(user.id, taskId);
+      return task ? replay(task) : null;
     },
 
-    listTasks(limit) {
-      return deps.tasks.list(user.id, limit ?? 20);
+    async listTasks(limit) {
+      const tasks = await deps.tasks.list(user.id, limit ?? 20);
+      return tasks.map(replay);
     },
 
     async cancelTask(taskId) {
@@ -193,21 +212,21 @@ export function createHttpBackend(options: HttpBackendOptions): McpBackend {
         method: 'POST',
         body: input,
       });
-      return result.task;
+      return withReplayUrl(result.task, baseUrl);
     },
 
     async getTask(taskId) {
       const result = await call<{ task: unknown }>(
         `/api/tasks/${encodeURIComponent(taskId)}`,
       );
-      return result.task;
+      return withReplayUrl(result.task, baseUrl);
     },
 
     async listTasks(limit) {
       const result = await call<{ tasks: unknown[] }>(
         `/api/tasks?limit=${Math.min(50, Math.max(1, limit ?? 20))}`,
       );
-      return result.tasks;
+      return result.tasks.map((task) => withReplayUrl(task, baseUrl));
     },
 
     cancelTask(taskId) {

@@ -5,6 +5,7 @@ import {
   FRAME_KIND,
   encodeFrame,
   parseViewerMessage,
+  type AiTaskControl,
   type DeviceControlInfo,
   type DeviceSummary,
   type IosInput,
@@ -111,7 +112,7 @@ export class StreamManager {
   /** 设备最近一次计入使用次数的时间，用于去重。 */
   private readonly usageRecordedAt = new Map<string, number>();
   /** AI 任务执行期间锁定的设备，普通 viewer 不能进来抢控制权。 */
-  private readonly taskLocks = new Set<string>();
+  private readonly taskLocks = new Map<string, AiTaskControl>();
 
   constructor(private readonly deps: StreamManagerDeps) {}
 
@@ -177,16 +178,22 @@ export class StreamManager {
   }
 
   /** AI 任务期间占用设备，阻止 viewer 接管。 */
-  lockForTask(deviceId: string): void {
-    this.taskLocks.add(deviceId);
+  lockForTask(deviceId: string, task: AiTaskControl): void {
+    this.taskLocks.set(deviceId, task);
+    this.notifyDevice(deviceId);
   }
 
   unlockForTask(deviceId: string): void {
-    this.taskLocks.delete(deviceId);
+    if (this.taskLocks.delete(deviceId)) this.notifyDevice(deviceId);
   }
 
   isTaskLocked(deviceId: string): boolean {
     return this.taskLocks.has(deviceId);
+  }
+
+  /** 当前正在执行 AI 任务时，返回任务归属用户。 */
+  getAiTask(deviceId: string): AiTaskControl | undefined {
+    return this.taskLocks.get(deviceId);
   }
 
   /** 等待投屏会话的 ready 元数据；任务执行前必须先确认画面通道就绪。 */
@@ -203,6 +210,7 @@ export class StreamManager {
 
   /** 该设备是否已有控制会话（含 iOS 的心跳式控制权）。 */
   isInUse(deviceId: string): boolean {
+    if (this.taskLocks.has(deviceId)) return true;
     if (this.liveIosControl(deviceId)) return true;
     return [...this.sessions.values()].some(
       (session) => session.device.id === deviceId && !session.closed,
@@ -210,11 +218,10 @@ export class StreamManager {
   }
 
   listInUseDeviceIds(): string[] {
-    const ids = new Set(
-      [...this.sessions.values()]
-        .filter((session) => !session.closed)
-        .map((session) => session.device.id),
-    );
+    const ids = new Set<string>(this.taskLocks.keys());
+    for (const session of this.sessions.values()) {
+      if (!session.closed) ids.add(session.device.id);
+    }
     // iOS 没有投屏会话，控制权只存在于 iosControls 里
     for (const deviceId of [...this.iosControls.keys()]) {
       if (this.liveIosControl(deviceId)) ids.add(deviceId);
@@ -913,6 +920,7 @@ export class StreamManager {
           ...device,
           inUse: this.isInUse(deviceId),
           control: this.getControl(deviceId),
+          aiTask: this.getAiTask(deviceId),
           allowViewers: this.getAllowViewers(deviceId),
         },
       });

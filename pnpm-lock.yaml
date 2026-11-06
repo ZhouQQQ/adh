@@ -155,9 +155,16 @@ importers:
       '@adh/protocol':
         specifier: workspace:*
         version: link:../protocol
+      adm-zip:
+        specifier: ^0.6.1
+        version: 0.6.1
       jimp:
         specifier: ^1.6.1
         version: 1.6.1
+    devDependencies:
+      '@types/adm-zip':
+        specifier: ^0.6.0
+        version: 0.6.0
 
   packages/protocol:
     dependencies:

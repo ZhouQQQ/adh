@@ -10,8 +10,9 @@ import { logInfo, logWarn } from './log.js';
  * - 发现设备前自动确保隧道在跑
  * - 控制台可以手动启动 / 停止并查看状态
  *
- * Windows 上启动需要管理员权限（创建 TUN 网卡）和 wintun.dll，
- * 失败原因会记到 `error` 里透传到界面。
+ * Windows 上启动内核隧道需要管理员权限（创建 TUN 网卡）和 wintun.dll
+ * （与 ios.exe 同目录即可，不需要写 System32）；失败时自动回退
+ * `--userspace`，原因会记到 `error` 里透传到界面。
  */
 
 const ERROR_LIMIT = 4_096;
@@ -19,6 +20,11 @@ const ERROR_LIMIT = 4_096;
 let tunnelProcess: ChildProcess | null = null;
 let lastError: string | undefined;
 let commandCache: { at: number; command: string | null } | null = null;
+
+/** 安装 go-ios 后清掉命令探测缓存。 */
+export function resetTunnelCommandCache(): void {
+  commandCache = null;
+}
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -113,6 +119,15 @@ function needsElevation(text: string): boolean {
   return /elevated privileges|administrator|sudo|CAP_NET_ADMIN/i.test(text);
 }
 
+/**
+ * 除了权限问题，缺 wintun.dll 也应该改走用户态隧道：
+ * 内核失败时 go-ios 会报 `Unable to load library` / `wintun.dll`，
+ * 而 `--userspace` 用 gVisor netstack，不需要管理员和 DLL。
+ */
+function shouldFallbackToUserspace(text: string): boolean {
+  return needsElevation(text) || /wintun|Unable to load library/i.test(text);
+}
+
 async function startTunnelProcess(userspace: boolean): Promise<IosTunnelStatus> {
   const command = await resolveCommand();
   if (!command) {
@@ -142,7 +157,7 @@ async function startTunnelProcess(userspace: boolean): Promise<IosTunnelStatus> 
     if (Date.now() - startedAt < 5_000) {
       lastError =
         summarizeFailure(stderr) ??
-        'tunnel start 启动后立即退出：Windows 需要管理员权限，并把 wintun.dll 放到 C:\\Windows\\System32';
+        'tunnel start 启动后立即退出：Windows 内核隧道需要管理员权限和 wintun.dll（可放在 ios.exe 同目录），也可改用 --userspace';
     }
   };
   child.on('exit', cleanup);
@@ -154,8 +169,12 @@ async function startTunnelProcess(userspace: boolean): Promise<IosTunnelStatus> 
   // 给进程一点时间完成初始化 / 暴露早期失败
   await sleep(3_000);
   const status = await getTunnelStatus();
-  if (!status.running && !userspace && needsElevation(stderr)) {
-    logWarn('[ios] 当前进程没有管理员权限，改用用户态隧道重试');
+  if (!status.running && !userspace && shouldFallbackToUserspace(stderr)) {
+    logWarn(
+      /wintun|Unable to load library/i.test(stderr)
+        ? '[ios] 未加载到 wintun.dll，改用用户态隧道重试'
+        : '[ios] 当前进程没有管理员权限，改用用户态隧道重试',
+    );
     return startTunnelProcess(true);
   }
   if (status.running) {

@@ -1,5 +1,7 @@
 /** AI 助手对外的事件与消息类型。 */
 
+import type { AiScreenshot } from './device-control.js';
+
 export interface AiChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -14,6 +16,25 @@ export type AiEvent =
   | { type: 'reply'; content: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
+
+/** 一帧执行画面：初始画面，或某一轮动作执行后的画面。 */
+export interface AiFrame {
+  shot: AiScreenshot;
+  /** 截图时间戳。 */
+  at: number;
+  phase: 'initial' | 'after_action';
+  /** 本轮执行的动作；初始帧为空。 */
+  actions: AiFrameAction[];
+  /** 画面变化校验结论。 */
+  summary: string;
+}
+
+export interface AiFrameAction {
+  name: string;
+  args: Record<string, unknown>;
+  detail: string;
+  ok: boolean;
+}
 
 export interface AiToolCall {
   id: string;
