@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { OutgoingHttpHeaders, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -109,6 +110,32 @@ export function registerMcpRoutes(
     return { token, user, invalid: user === null };
   }
 
+  /**
+   * MCP 的响应由 SDK 直接写 socket（SSE），Hono 适配层在 writeHead 时会显式
+   * 带上 `connection: keep-alive`。反向代理复用这条上游连接转发下一个请求时，
+   * Fastify 会把它当作畸形报文并回 `Client Error` 400，所以这里统一强制关闭连接。
+   */
+  function forceConnectionClose(raw: ServerResponse): void {
+    const originalWriteHead = raw.writeHead.bind(raw);
+    raw.writeHead = ((
+      statusCode: number,
+      statusMessageOrHeaders?: string | OutgoingHttpHeaders,
+      headers?: OutgoingHttpHeaders,
+    ) => {
+      const hasStatusMessage = typeof statusMessageOrHeaders === 'string';
+      const source = hasStatusMessage ? headers : statusMessageOrHeaders;
+      const merged: OutgoingHttpHeaders = { ...(source ?? {}) };
+      for (const key of Object.keys(merged)) {
+        if (key.toLowerCase() === 'connection') delete merged[key];
+      }
+      merged.connection = 'close';
+      raw.shouldKeepAlive = false;
+      return hasStatusMessage
+        ? originalWriteHead(statusCode, statusMessageOrHeaders, merged)
+        : originalWriteHead(statusCode, merged);
+    }) as unknown as ServerResponse['writeHead'];
+  }
+
   /** transport 直接写原始响应，交给它之前必须先 hijack。 */
   async function forward(
     request: FastifyRequest,
@@ -117,6 +144,9 @@ export function registerMcpRoutes(
     body?: unknown,
   ): Promise<void> {
     reply.hijack();
+    // 不走 Fastify 的响应管线，顺手让 nginx 别缓冲 SSE。
+    reply.raw.setHeader('x-accel-buffering', 'no');
+    forceConnectionClose(reply.raw);
     try {
       await transport.handleRequest(request.raw, reply.raw, body);
     } catch (error) {
