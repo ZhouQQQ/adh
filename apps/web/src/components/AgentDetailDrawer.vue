@@ -158,7 +158,15 @@ async function copy(value: string, which: string): Promise<void> {
               <n-tag v-if="agent.builtin" size="tiny" type="info" :bordered="false" round>
                 内置
               </n-tag>
+              <n-tag v-if="agent.kind === 'portal'" size="tiny" type="success" :bordered="false" round>
+                直连
+              </n-tag>
             </n-space>
+          </n-descriptions-item>
+          <n-descriptions-item label="接入方式">
+            <n-tag size="small" :type="agent.kind === 'portal' ? 'success' : 'default'" :bordered="false" round>
+              {{ agent.kind === 'portal' ? '设备无线直连（无需宿主机）' : '宿主机 Agent' }}
+            </n-tag>
           </n-descriptions-item>
           <n-descriptions-item label="宿主机名">
             {{ agent.hostName ?? '—' }}
@@ -174,7 +182,7 @@ async function copy(value: string, which: string): Promise<void> {
           </n-descriptions-item>
           <n-descriptions-item label="设备数">{{ agent.deviceCount }}</n-descriptions-item>
           <n-descriptions-item label="Key">
-            <code class="key-text">{{ agent.builtin ? '由 server 自动管理' : agent.keyPreview }}</code>
+            <code class="key-text">{{ agent.builtin ? '由 server 自动管理' : agent.kind === 'portal' ? '由平台全局 Key 管理' : agent.keyPreview }}</code>
           </n-descriptions-item>
           <n-descriptions-item label="创建时间">
             {{ formatDateTime(agent.createdAt) }}
@@ -186,7 +194,7 @@ async function copy(value: string, which: string): Promise<void> {
           </n-descriptions-item>
         </n-descriptions>
 
-        <section v-if="!agent.builtin" class="section">
+        <section v-if="!agent.builtin && agent.kind !== 'portal'" class="section">
           <h4>接入命令</h4>
           <div class="code-row">
             <pre class="code">{{ command }}</pre>
@@ -216,8 +224,13 @@ async function copy(value: string, which: string): Promise<void> {
           </div>
         </section>
 
-        <n-alert v-else type="info" :bordered="false" class="section">
+        <n-alert v-else-if="agent.builtin" type="info" :bordered="false" class="section">
           内置节点由 server 进程直接管理本机设备，无需接入命令。
+        </n-alert>
+
+        <n-alert v-else type="success" :bordered="false" class="section">
+          该节点是设备内直连 App，使用平台全局 Key 接入，不需要宿主机和 USB 线。
+          在「设备管理 → 设备无线直连」里可以查看连接地址并下载 APK。
         </n-alert>
 
         <section class="section">

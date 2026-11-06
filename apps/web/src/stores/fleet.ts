@@ -8,6 +8,8 @@ export type ConnectionState = 'connecting' | 'online' | 'offline';
 const agents = ref<AgentSummary[]>([]);
 const devices = ref<DeviceSummary[]>([]);
 const connection = ref<ConnectionState>('connecting');
+/** 首次快照是否已经取回（区分「还没加载」和「真的没有设备」）。 */
+const loaded = ref(false);
 
 let socket: WebSocket | null = null;
 let retryTimer: number | undefined;
@@ -99,6 +101,9 @@ async function refresh(): Promise<void> {
     devices.value = deviceList;
   } catch {
     /* 网络抖动时忽略，WebSocket 重连后会补 */
+  } finally {
+    // 首次无论成功失败都结束骨架屏，避免网络异常时一直转圈
+    loaded.value = true;
   }
 }
 
@@ -136,7 +141,9 @@ export function useFleet(): {
   agents: Ref<AgentSummary[]>;
   devices: Ref<DeviceSummary[]>;
   connection: Ref<ConnectionState>;
+  /** 首次快照是否已取回。 */
+  loaded: Ref<boolean>;
   refresh: () => Promise<void>;
 } {
-  return { agents, devices, connection, refresh };
+  return { agents, devices, connection, loaded, refresh };
 }

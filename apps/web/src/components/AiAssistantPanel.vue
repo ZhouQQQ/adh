@@ -434,6 +434,8 @@ async function clear(): Promise<void> {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
+  overflow: hidden;
   background: var(--surface);
 }
 
@@ -468,6 +470,8 @@ async function clear(): Promise<void> {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* 不能出现横向滚动条：内容一律在面板内换行 */
+  overflow-x: hidden;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -487,6 +491,8 @@ async function clear(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ai-message.user {
@@ -520,12 +526,14 @@ async function clear(): Promise<void> {
 
 .ai-bubble {
   max-width: 88%;
+  min-width: 0;
   padding: 8px 10px;
   border-radius: 10px;
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -582,7 +590,12 @@ async function clear(): Promise<void> {
   border-radius: 8px;
   background: #18181b;
   color: #e4e4e7;
-  overflow-x: auto;
+  max-width: 100%;
+  /* 代码块也强制换行，避免把面板撑出横向滚动 */
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ai-bubble.markdown :deep(pre code) {
@@ -605,8 +618,10 @@ async function clear(): Promise<void> {
 
 .ai-bubble.markdown :deep(table) {
   width: 100%;
+  max-width: 100%;
   margin: 6px 0;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 12px;
 }
 
@@ -615,6 +630,8 @@ async function clear(): Promise<void> {
   padding: 4px 8px;
   border: 1px solid var(--border);
   text-align: left;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ai-bubble.markdown :deep(hr) {

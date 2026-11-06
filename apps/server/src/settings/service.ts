@@ -1,4 +1,5 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { SqlDriver } from '../db/driver.js';
 
@@ -93,6 +94,19 @@ export const DEFAULT_AI_SYSTEM_PROMPT = `你是一个操作 Android / iOS 手机
 - 观察/问答任务直接输出中文回答，1~3 句；只有查询任务需要进入目标页面时才调用 tap，不要滑动。
 - 需要操作时只调用工具，不要输出思考过程；不需要操作时直接回答。`;
 
+/** 无论用户是否自定义提示词，都必须追加的输入规则。 */
+const AI_INPUT_RULES = `
+
+## 输入（必须遵守）
+- 输入金额、密码、验证码等纯数字/英文内容时，点击一次输入框后立刻调用 input_text（底层优先走 ADB 输入），不要用截图里的 App 数字键盘逐个点。
+- 输入框已聚焦（有光标或键盘已弹出）时不要再次点击，直接 input_text；同一位置点了两次还没反应，说明没点中或不是输入框，改用 input_text 或换坐标。
+- input_text 只传最终要输入的纯文本（例如 0.01 / 745488），不要传命令、转义符或分多次输入。
+- 输入完成后核对输入框内容是否等于目标值；不一致时先删除（press_key BACKSPACE）再重输一次，不要连续点输入框。`;
+
+function withInputRules(prompt: string): string {
+  return prompt.includes('输入金额、密码、验证码') ? prompt : `${prompt}${AI_INPUT_RULES}`;
+}
+
 const DEFAULT_TITLE = '设备农场';
 const DEFAULT_SUBTITLE = 'Device Hub';
 /** 普通用户默认只能同时控制 2 台设备。 */
@@ -132,6 +146,15 @@ export class SettingsService {
   /** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
   getIdleTimeoutMinutes(): number {
     return this.idleTimeoutMinutes;
+  }
+
+  /** 设备直连全局配对 Key，首次访问时生成并持久化。 */
+  async getPortalKey(): Promise<string> {
+    const existing = (await this.getValue('portal.key'))?.trim();
+    if (existing) return existing;
+    const key = 'adh_' + randomBytes(16).toString('hex');
+    await this.setValue('portal.key', key);
+    return key;
   }
 
   async getValue(name: string): Promise<string | null> {
@@ -198,7 +221,7 @@ export class SettingsService {
       // 参考 Midscene：手机 UI 操作固定 temperature = 0，不开放给用户调
       temperature: 0,
       // 没配置或配置为空时回退到内置默认提示词
-      systemPrompt: systemPrompt?.trim() || DEFAULT_AI_SYSTEM_PROMPT,
+      systemPrompt: withInputRules(systemPrompt?.trim() || DEFAULT_AI_SYSTEM_PROMPT),
     };
   }
 
@@ -311,3 +334,7 @@ export class SettingsService {
     }
   }
 }
+
+
+
+

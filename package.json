@@ -17,6 +17,7 @@
     "typecheck": "pnpm -r typecheck",
     "package:agent": "node scripts/package-agent.mjs",
     "package:server": "node scripts/package-server.mjs",
+    "portal:build": "node scripts/build-portal.mjs",
     "migrate:data": "node apps/server/scripts/migrate-to-mysql-oss.mjs",
     "start": "pnpm --filter @adh/server start"
   },
@@ -27,3 +28,4 @@
     "typescript": "^5.7.3"
   }
 }
+

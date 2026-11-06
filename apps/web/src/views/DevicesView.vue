@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
@@ -11,10 +11,16 @@ import {
   useDialog,
   useMessage,
 } from 'naive-ui';
-import { SearchOutline } from '@vicons/ionicons5';
+import {
+  AddOutline,
+  DesktopOutline,
+  PhonePortraitOutline,
+  SearchOutline,
+} from '@vicons/ionicons5';
 import type { DeviceStatus, DeviceSummary, Platform } from '@adh/protocol';
 import DeviceCard from '../components/DeviceCard.vue';
 import DeviceDetailDrawer from '../components/DeviceDetailDrawer.vue';
+import PortalSetupModal from '../components/PortalSetupModal.vue';
 import { api } from '../api';
 import { useFleet } from '../stores/fleet';
 import { useAuth } from '../stores/auth';
@@ -23,7 +29,7 @@ import { BRANDS, deviceBrand, type BrandKey } from '../utils/brand';
 import { memoryGb } from '../utils/format';
 
 const router = useRouter();
-const { devices, agents, refresh } = useFleet();
+const { devices, agents, loaded, refresh } = useFleet();
 const { user } = useAuth();
 const {
   operatorDeviceLimit,
@@ -32,6 +38,68 @@ const {
 } = useSite();
 const message = useMessage();
 const dialog = useDialog();
+const portalShow = ref(false);
+const isSuper = computed(() => user.value?.role === 'superadmin');
+/** 管理员和超管可以删除设备记录。 */
+const canDelete = computed(
+  () => user.value?.role === 'superadmin' || user.value?.role === 'admin',
+);
+
+/** 单台设备删除（设备卡片三点菜单）。 */
+function confirmRemoveDevice(device: DeviceSummary): void {
+  dialog.warning({
+    title: '删除设备',
+    content: `确定删除「${device.marketName || device.name}」的设备记录吗？只影响平台数据，不会卸载手机上的应用。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await api.deleteDevice(device.id);
+        message.success('已删除设备');
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '删除失败');
+      }
+    },
+  });
+}
+
+/** 释放自己持有的控制权。 */
+async function disconnectDevice(device: DeviceSummary): Promise<void> {
+  try {
+    await api.stopDeviceStream(device.id);
+    message.success('已断开控制');
+    await refresh();
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '断开失败');
+  }
+}
+
+/** 批量删除选中的设备记录（不影响设备上的应用）。 */
+function deleteSelected(): void {
+  const ids = [...selectedIds.value];
+  if (ids.length === 0) return;
+  dialog.warning({
+    title: '删除设备',
+    content: `将删除选中的 ${ids.length} 台设备记录，只影响平台数据，不会卸载手机上的应用。确定删除？`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      let failed = 0;
+      for (const id of ids) {
+        try {
+          await api.deleteDevice(id);
+        } catch {
+          failed += 1;
+        }
+      }
+      clearSelection();
+      await refresh();
+      if (failed > 0) message.warning(`${failed} 台设备删除失败`);
+      else message.success(`已删除 ${ids.length} 台设备`);
+    },
+  });
+}
 
 async function kickDevice(device: DeviceSummary): Promise<void> {
   const control = device.control;
@@ -297,7 +365,9 @@ const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
   return devices.value
     .filter((device) => {
-      if (agentFilter.value !== 'all' && device.agentId !== agentFilter.value) {
+      if (agentFilter.value === 'portal') {
+        if (!device.capabilities?.includes('portal')) return false;
+      } else if (agentFilter.value !== 'all' && device.agentId !== agentFilter.value) {
         return false;
       }
       if (platform.value !== 'all' && device.platform !== platform.value) {
@@ -369,14 +439,34 @@ const agentNames = computed(
   () => new Map(agents.value.map((agent) => [agent.id, agent.name])),
 );
 
-/** 节点筛选项，没有设备的节点置灰。 */
-const agentOptions = computed(() =>
-  agents.value.map((agent) => ({
-    value: agent.id,
-    label: agent.name,
-    enabled: devices.value.some((device) => device.agentId === agent.id),
-  })),
-);
+/** 节点筛选项：宿主机节点各自一项，所有直连设备合并为「直连」一项。 */
+const agentOptions = computed(() => {
+  const list: {
+    value: string;
+    label: string;
+    enabled: boolean;
+    kind: 'host' | 'portal';
+  }[] = agents.value
+    .filter((agent) => agent.kind !== 'portal')
+    .map((agent) => ({
+      value: agent.id,
+      label: agent.name,
+      enabled: devices.value.some((device) => device.agentId === agent.id),
+      kind: 'host',
+    }));
+  const hasPortal =
+    agents.value.some((agent) => agent.kind === 'portal') ||
+    devices.value.some((device) => device.capabilities?.includes('portal'));
+  if (hasPortal) {
+    list.push({
+      value: 'portal',
+      label: '无线直连',
+      enabled: devices.value.some((device) => device.capabilities?.includes('portal')),
+      kind: 'portal' as const,
+    });
+  }
+  return list;
+});
 
 const STATUS_LABEL: Record<DeviceStatus, string> = {
   online: '在线',
@@ -404,7 +494,10 @@ const activeFilters = computed(() => {
   if (agentFilter.value !== 'all') {
     list.push({
       key: 'agent',
-      label: `节点: ${agentNames.value.get(agentFilter.value) ?? agentFilter.value}`,
+      label:
+        agentFilter.value === 'portal'
+          ? '节点: 无线直连'
+          : `节点: ${agentNames.value.get(agentFilter.value) ?? agentFilter.value}`,
     });
   }
   if (status.value !== 'all') {
@@ -897,6 +990,10 @@ function resetFilters(): void {
             :disabled="!agent.enabled"
             @click="agentFilter = agent.value"
           >
+            <n-icon :size="13" class="opt-icon">
+              <PhonePortraitOutline v-if="agent.kind === 'portal'" />
+              <DesktopOutline v-else />
+            </n-icon>
             {{ agent.label }}
           </button>
         </div>
@@ -962,7 +1059,18 @@ function resetFilters(): void {
       </div>
     </div>
 
-    <div v-if="filtered.length > 0" class="grid">
+    <div v-if="!loaded" class="grid">
+      <div v-for="n in 8" :key="n" class="skeleton-card">
+        <div class="skeleton-thumb shimmer" />
+        <div class="skeleton-body">
+          <div class="skeleton-line shimmer" style="width: 58%" />
+          <div class="skeleton-line shimmer" style="width: 34%" />
+          <div class="skeleton-line shimmer" style="width: 76%" />
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="filtered.length > 0 || isSuper" class="grid">
       <DeviceCard
         v-for="device in filtered"
         :key="device.id"
@@ -974,9 +1082,27 @@ function resetFilters(): void {
         @control="openControl"
         @select="toggleSelect"
         @kick="kickDevice"
+        @disconnect="disconnectDevice"
         @lock="toggleLock"
+        @remove="confirmRemoveDevice"
         @refresh="refresh"
       />
+
+      <button
+        v-if="isSuper"
+        type="button"
+        class="direct-card"
+        @click="portalShow = true"
+      >
+        <span class="direct-plus">+</span>
+        <span class="direct-title">
+          <strong>设备无线直连</strong>
+          <span class="direct-badge">仅 Android</span>
+        </span>
+        <span class="direct-usb">
+          iOS 请使用「宿主机 Agent」接入（需要 WDA）
+        </span>
+      </button>
     </div>
 
     <n-empty
@@ -1005,6 +1131,14 @@ function resetFilters(): void {
       <button type="button" class="selection-btn primary" @click="batchControl">
         批量控制
       </button>
+      <button
+        v-if="canDelete"
+        type="button"
+        class="selection-btn danger"
+        @click="deleteSelected"
+      >
+        删除
+      </button>
     </div>
 
     <DeviceDetailDrawer
@@ -1012,6 +1146,8 @@ function resetFilters(): void {
       :device="selectedDevice"
       @control="openControl"
     />
+
+    <PortalSetupModal v-model:show="portalShow" />
   </div>
 </template>
 
@@ -1145,6 +1281,11 @@ function resetFilters(): void {
   color: var(--text);
 }
 
+.opt-icon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
 .opt:disabled {
   color: #d4d4d8;
   cursor: not-allowed;
@@ -1197,6 +1338,125 @@ function resetFilters(): void {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
   gap: 16px;
+}
+
+/* 首次加载的骨架卡片 */
+.skeleton-card {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e4e4e7;
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.skeleton-thumb {
+  flex: 1;
+  min-height: 210px;
+  background: #f4f4f5;
+}
+
+.skeleton-body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+}
+
+.skeleton-line {
+  height: 11px;
+  border-radius: 6px;
+  background: #f4f4f5;
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.78),
+    transparent
+  );
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.direct-card {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed #d4d4d8;
+  border-radius: 12px;
+  background: #fafafa;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.direct-card:hover {
+  border-color: #18181b;
+  background: #ffffff;
+  color: #18181b;
+}
+
+.direct-plus {
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f4f4f5;
+  font-size: 26px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.direct-card strong {
+  font-size: 14px;
+  color: #18181b;
+}
+
+.direct-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.direct-badge {
+  padding: 1px 6px;
+  border: 1px solid #e4e4e7;
+  border-radius: 999px;
+  background: #ffffff;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.direct-card > span:last-child {
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
 .empty {
@@ -1257,6 +1517,16 @@ function resetFilters(): void {
   background: #e4e4e7;
 }
 
+.selection-btn.danger {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fca5a5;
+}
+
+.selection-btn.danger:hover {
+  background: rgba(220, 38, 38, 0.28);
+  color: #fecaca;
+}
+
 @media (max-width: 720px) {
   .filter-row {
     flex-direction: column;
@@ -1268,3 +1538,12 @@ function resetFilters(): void {
   }
 }
 </style>
+
+
+
+
+
+
+
+
+

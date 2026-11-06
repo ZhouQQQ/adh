@@ -108,14 +108,14 @@ function onResizeMove(event: PointerEvent): void {
   );
   if (!item) return;
   const width = Math.max(
-    220,
+    40,
     Math.min(
       window.innerWidth - item.x,
       resize.originWidth + (event.clientX - resize.startX),
     ),
   );
   const height = Math.max(
-    320,
+    60,
     Math.min(
       window.innerHeight - item.y,
       resize.originHeight + (event.clientY - resize.startY),
@@ -419,5 +419,66 @@ function goControl(item: FloatingPreview): void {
     var(--border-strong) 50% 100%
   );
   opacity: 0.9;
+}
+
+/* 左侧等比缩放：竖向滑块，1% ~ 100% */
+.win-zoom {
+  position: absolute;
+  left: 0;
+  top: 26px;
+  bottom: 30px;
+  width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    90deg,
+    rgba(9, 9, 11, 0.55),
+    rgba(9, 9, 11, 0)
+  );
+  cursor: ns-resize;
+  z-index: 2;
+}
+
+.zoom-range {
+  width: 14px;
+  height: calc(100% - 10px);
+  margin: 0;
+  padding: 0;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  appearance: none;
+  background: transparent;
+  cursor: ns-resize;
+}
+
+.zoom-range::-webkit-slider-runnable-track {
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.zoom-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.zoom-range::-moz-range-track {
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.zoom-range::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
 }
 </style>

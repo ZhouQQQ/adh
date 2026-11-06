@@ -127,7 +127,24 @@ onMounted(() => {
       </section>
 
       <section class="mcp-card">
-        <div class="step-title"><span>3</span> 重置 Key</div>
+        <div class="step-title"><span>3</span> 可用工具</div>
+        <p class="hint">
+          Agent 会自动调用这些工具，多数情况下你只需要用自然语言描述目标。
+        </p>
+        <ul class="examples">
+          <li><code>list_devices</code> 列出在线、未锁定、空闲的设备</li>
+          <li><code>get_device</code> 查看单台设备详情、锁定状态和当前控制者</li>
+          <li><code>run_task</code> 在指定或自动选择的设备上执行自然语言任务</li>
+          <li><code>batch_task</code> 一句话拆成多台设备任务（自动判断并行 / 顺序）</li>
+          <li><code>get_task</code> 查询任务状态、执行步骤和结果，含回放链接</li>
+          <li><code>list_tasks</code> 列出最近创建的任务</li>
+          <li><code>cancel_task</code> 取消单个任务</li>
+          <li><code>cancel_all_tasks</code> 停掉当前用户所有未完成任务</li>
+        </ul>
+      </section>
+
+      <section class="mcp-card">
+        <div class="step-title"><span>4</span> 重置 Key</div>
         <p class="hint">
           系统已为每位用户维护一把默认 Key，上面的配置会自动填入。
           换设备或清缓存后，点下面的「重置 Key」会删除旧 Key 并创建一把新的。

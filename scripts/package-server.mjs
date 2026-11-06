@@ -474,6 +474,28 @@ async function main() {
 
     writeLaunchers(outDir, resolveVersion());
 
+    // 把直连 APK 一起打进包里，Web 端「设备无线直连」可以直接下载
+    const portalApk = [
+      argValue('--portal-apk'),
+      path.join(root, 'apps/portal-android/app/build/outputs/apk/debug/app-debug.apk'),
+      path.join(distDir, 'portal', 'adh-portal.apk'),
+    ]
+      .filter(Boolean)
+      .map((item) => path.resolve(item))
+      .find((item) => fs.existsSync(item));
+    if (portalApk) {
+      const portalDir = path.join(outDir, 'portal');
+      fs.mkdirSync(portalDir, { recursive: true });
+      fs.copyFileSync(portalApk, path.join(portalDir, 'adh-portal.apk'));
+      console.log(
+        `  内置直连 APK: ${(fs.statSync(portalApk).size / 1024).toFixed(0)} KB`,
+      );
+    } else {
+      console.warn(
+        '  未找到直连 APK（先执行 pnpm portal:build，或传 --portal-apk <path>）',
+      );
+    }
+
     const zipPath = path.join(distDir, `adh-server-${platform}.zip`);
     const zipped = zipDir(outDir, zipPath);
     results.push({

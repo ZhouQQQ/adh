@@ -1,4 +1,4 @@
-import os from 'node:os';
+﻿import os from 'node:os';
 import { BUILTIN_AGENT_ID, type DeviceInfo } from '@adh/protocol';
 import {
   captureThumbnail,
@@ -74,6 +74,13 @@ export class LocalAgent {
       { agentId: row.id, name: row.name, adbAvailable },
       'builtin local agent started',
     );
+
+    // server 重启后内存里的 tracked 是空的，先把库里遗留的在线状态清掉，
+    // 再由第一轮扫描把仍在线的设备恢复，避免未连接的设备一直显示在线。
+    const stale = await this.deps.queries.markAgentDevicesOffline(BUILTIN_AGENT_ID);
+    for (const device of stale) {
+      this.deps.hub.broadcast({ t: 'device.updated', device });
+    }
 
     void this.discover();
     this.discoveryTimer = setInterval(

@@ -27,8 +27,9 @@ const previews = ref<FloatingPreview[]>([]);
 
 const DEFAULT_WIDTH = 260;
 const DEFAULT_HEIGHT = 470;
-const MIN_WIDTH = 220;
-const MIN_HEIGHT = 320;
+// 允许缩到很小（配合 1% 缩放），右下角拖拽也不会被卡住
+const MIN_WIDTH = 12;
+const MIN_HEIGHT = 16;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);

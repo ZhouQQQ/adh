@@ -15,6 +15,16 @@ export interface DeviceFileEntry {
   mtime: string;
 }
 
+export interface PortalInfo {
+  key: string;
+  keyPreview: string;
+  address: string;
+  port: number;
+  lanIp: string | null;
+  android: { available: boolean; url: string; version: string };
+  ios: { available: boolean; note: string };
+}
+
 export type PackageKind = 'apk' | 'ipa';
 
 export interface PackageRecord {
@@ -169,6 +179,7 @@ export interface DashboardData {
 export interface ServerInfo {
   version: string;
   port: number;
+  lanIp: string | null;
   storage?:
     | { driver: 'local' }
     | { driver: 'oss'; bucket: string; prefix: string };
@@ -408,6 +419,15 @@ export const api = {
     });
   },
 
+  /** 退出批量控制时停掉当前用户所有未完成任务。 */
+  cancelPendingTasks(): Promise<{ ok: boolean; count: number }> {
+    return request('/api/tasks/cancel-pending', {
+      method: 'POST',
+      body: JSON.stringify({}),
+      keepalive: true,
+    });
+  },
+
   listUsers(): Promise<{ users: UserRecord[] }> {
     return request('/api/users');
   },
@@ -494,6 +514,10 @@ export const api = {
 
   serverInfo(): Promise<ServerInfo> {
     return request('/api/server-info');
+  },
+
+  portalInfo(): Promise<PortalInfo> {
+    return request('/api/portal/info');
   },
 
   listAgents(): Promise<AgentSummary[]> {
@@ -1279,4 +1303,9 @@ export function thumbnailUrl(device: DeviceSummary): string {
   if (token) query.set('token', token);
   return withBase(`/api/devices/${device.id}/thumbnail?${query.toString()}`);
 }
+
+
+
+
+
 

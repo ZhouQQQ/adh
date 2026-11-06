@@ -11,6 +11,7 @@ import {
   NImage,
   NSpace,
   NTag,
+  useDialog,
   useMessage,
 } from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
@@ -34,8 +35,31 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:show': [value: boolean] }>();
 
 const message = useMessage();
+const dialog = useDialog();
 const { isAdmin } = useAuth();
 const { agents, refresh } = useFleet();
+
+/** 管理员 / 超管删除设备记录（不影响手机上的应用）。 */
+function confirmDelete(): void {
+  const current = props.device;
+  if (!current) return;
+  dialog.warning({
+    title: '删除设备',
+    content: `确定删除「${current.name}」的设备记录吗？只影响平台数据，不会卸载手机上的应用。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await api.deleteDevice(current.id);
+        message.success('已删除设备');
+        emit('update:show', false);
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '删除失败');
+      }
+    },
+  });
+}
 
 /** 只展示手动上传的图片，自动截图不放详情里。 */
 const manualThumbnail = computed(
@@ -250,6 +274,15 @@ async function onImageSelected(event: Event): Promise<void> {
           >
             {{ device.locked ? '解除锁定' : '锁定设备' }}
           </n-button>
+          <n-button
+            v-if="isAdmin"
+            size="tiny"
+            type="error"
+            ghost
+            @click="confirmDelete"
+          >
+            删除设备
+          </n-button>
         </div>
 
         <div class="detail-top">
@@ -314,6 +347,16 @@ async function onImageSelected(event: Event): Promise<void> {
           </n-descriptions-item>
           <n-descriptions-item label="品牌">
             <CopyValue :value="device.brand" />
+          </n-descriptions-item>
+          <n-descriptions-item label="接入方式">
+            <n-tag
+              size="small"
+              :type="device.capabilities?.includes('portal') ? 'success' : 'default'"
+              :bordered="false"
+              round
+            >
+              {{ device.capabilities?.includes('portal') ? '设备无线直连（无需宿主机）' : '宿主机 Agent' }}
+            </n-tag>
           </n-descriptions-item>
           <n-descriptions-item label="平台">
             <CopyValue :value="platformLabel" />

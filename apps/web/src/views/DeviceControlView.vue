@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, h, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NButton,
@@ -14,6 +14,7 @@ import {
   NSwitch,
   NTag,
   type DropdownOption,
+  useDialog,
   useMessage,
 } from 'naive-ui';
 import {
@@ -25,9 +26,11 @@ import {
   ChevronDownOutline,
   CloudDownloadOutline,
   CloudOfflineOutline,
+  DesktopOutline,
   CloseCircleOutline,
   CopyOutline,
   EllipsisVerticalOutline,
+  EyeOutline,
   ExpandOutline,
   FolderOpenOutline,
   GridOutline,
@@ -39,6 +42,7 @@ import {
   MoonOutline,
   NotificationsOutline,
   PaperPlaneOutline,
+  PhonePortraitOutline,
   PersonCircleOutline,
   PowerOutline,
   RefreshOutline,
@@ -47,6 +51,7 @@ import {
   StopCircleOutline,
   SunnyOutline,
   SwapHorizontalOutline,
+  TrashOutline,
   VideocamOutline,
   VolumeHighOutline,
   VolumeLowOutline,
@@ -88,6 +93,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
+const dialog = useDialog();
 const { devices, agents, refresh } = useFleet();
 const { user, isAdmin, logout } = useAuth();
 
@@ -160,6 +166,30 @@ const sessionId = ref<string | null>(null);
 const aiOpen = ref(localStorage.getItem('adh.ai.open') === '1');
 const infoOpen = ref(localStorage.getItem('adh.info.open') !== '0');
 const sideOpen = ref(localStorage.getItem('adh.side.open') !== '0');
+
+/** 画面上叠加元素的开关，全部可按需关掉。 */
+function flag(key: string, fallback: boolean): Ref<boolean> {
+  const saved = localStorage.getItem(key);
+  return ref(saved === null ? fallback : saved === '1');
+}
+
+const showLatencyHud = flag('adh.hud.latency', true);
+const showFps = flag('adh.hud.fps', true);
+const showStageActions = flag('adh.stage.actions', true);
+const showPipZoom = flag('adh.stage.zoom', true);
+
+function setFlag(key: string, target: Ref<boolean>, value: boolean): void {
+  target.value = value;
+  localStorage.setItem(key, value ? '1' : '0');
+}
+
+// 模板里 ref 会自动解包，所以这里导出成普通函数，避免把 boolean 当成 Ref 传进去
+const toggles = {
+  latency: (value: boolean) => setFlag('adh.hud.latency', showLatencyHud, value),
+  fps: (value: boolean) => setFlag('adh.hud.fps', showFps, value),
+  actions: (value: boolean) => setFlag('adh.stage.actions', showStageActions, value),
+  zoom: (value: boolean) => setFlag('adh.stage.zoom', showPipZoom, value),
+};
 const aiAvailable = ref(false);
 const loading = ref(true);
 const errorText = ref<string | null>(null);
@@ -324,6 +354,21 @@ const isRemoteIos = computed(
 );
 /** iOS 端不支持的操作统一提示。 */
 const iosTip = 'iOS 暂不支持该操作';
+/** 设备侧直连 App（无宿主机 Agent）。 */
+const isPortal = computed(
+  () => device.value?.capabilities?.includes('portal') ?? false,
+);
+/** 直连 App 没有 scrcpy 的「只关背光」，息屏等于锁屏，会直接中断投屏。 */
+const portalScreenTip = '设备无线直连不支持息屏 / 亮屏：息屏会锁屏并中断投屏';
+/** 直连 App 调音量在部分 ROM 上不生效，先禁用。 */
+const portalVolumeTip = '设备无线直连暂不支持音量控制，请在手机上直接调节';
+/** 文件管理 / 应用管理只支持 server 本机接入的设备。 */
+const isLocalDevice = computed(
+  () => device.value?.agentId === BUILTIN_AGENT_ID,
+);
+const localOnlyTip = isPortal
+  ? '直连模式暂不支持该操作'
+  : '该功能需要 server 本机接入的设备';
 
 /** iOS 帧率说明：关掉后记住，不再打扰。 */
 const IOS_FPS_TIP_KEY = 'adh.ios-fps-tip.dismissed';
@@ -336,6 +381,41 @@ function dismissIosFpsTip(): void {
 const quality = ref<'low' | 'medium' | 'high' | 'ultra'>('medium');
 const pipActive = ref(false);
 let docPip: Window | null = null;
+
+/** 画中画窗口的等比缩放百分比（1~100），记在本地。 */
+const PIP_ZOOM_KEY = 'adh.pip.zoom';
+const pipZoom = ref(
+  Math.min(100, Math.max(1, Number(localStorage.getItem(PIP_ZOOM_KEY)) || 50)),
+);
+
+/**
+ * 按百分比缩放主预览画面（iOS / Android / 直连 / 宿主机 Agent 通用）。
+ * 只改 CSS transform，不动画布尺寸，也不影响触摸坐标换算。
+ */
+function applyPipZoom(percent: number): void {
+  const value = Math.min(100, Math.max(1, Math.round(percent)));
+  pipZoom.value = value;
+  localStorage.setItem(PIP_ZOOM_KEY, String(value));
+}
+
+function onPipZoomInput(event: Event): void {
+  applyPipZoom(Number((event.target as HTMLInputElement).value));
+}
+
+/** 重置：按实际画面像素算出铺满可用区域的比例。 */
+function resetPipZoom(): void {
+  const size = playerRef.value?.getFrameSize?.();
+  const host = stageRef.value;
+  if (!size?.width || !size?.height || !host) {
+    applyPipZoom(100);
+    return;
+  }
+  // .player 四周各 12px padding
+  const availWidth = Math.max(80, host.clientWidth - 24);
+  const availHeight = Math.max(80, host.clientHeight - 24);
+  const ratio = Math.min(availWidth / size.width, availHeight / size.height);
+  applyPipZoom(Math.min(100, Math.max(1, Math.round(ratio * 100))));
+}
 const reloadNonce = ref(0);
 const safeKeyboard = ref(false);
 /** 密码输入键盘 / 虚拟全键盘。 */
@@ -379,6 +459,13 @@ watch([sessionId, quality, reloadNonce], () => {
   playerReady.value = false;
 });
 
+/** 连接状态胶囊：连接中 / 已连接（绿） / 失败（红）。 */
+const connState = computed<{ tone: 'wait' | 'ok' | 'bad'; text: string }>(() => {
+  if (errorText.value) return { tone: 'bad', text: '连接失败' };
+  if (playerReady.value) return { tone: 'ok', text: '已连接' };
+  return { tone: 'wait', text: '连接中' };
+});
+
 /** 设备被锁定后，任何人都不能控制或查看，只有管理员能解锁。 */
 const lockedBlocked = computed(() => Boolean(device.value?.locked));
 
@@ -403,9 +490,40 @@ const moreOptions = computed<DropdownOption[]>(() => [
           h(device.value?.locked ? LockOpenOutline : LockClosedOutline),
       }),
   },
+  {
+    label: '删除设备',
+    key: 'delete',
+    icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
+    props: { style: 'color: #dc2626' },
+  },
 ]);
 
+/** 控制页里删除当前设备记录，删完退回设备列表。 */
+function confirmDeleteDevice(): void {
+  const current = device.value;
+  if (!current) return;
+  dialog.warning({
+    title: '删除设备',
+    content: `确定删除「${current.marketName || current.name}」的设备记录吗？只影响平台数据，不会卸载手机上的应用。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await api.deleteDevice(current.id);
+        message.success('已删除设备');
+        void router.replace('/devices');
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '删除失败');
+      }
+    },
+  });
+}
+
 async function onMoreSelect(key: string): Promise<void> {
+  if (key === 'delete') {
+    confirmDeleteDevice();
+    return;
+  }
   if (key !== 'lock') return;
   const current = device.value;
   if (!current) return;
@@ -437,8 +555,39 @@ const observerLabel = computed(() => {
   return `${names.slice(0, 2).join('、')} 等 ${names.length} 人`;
 });
 
+/** 正在看的人（含自己和控制者），用于右上角在线名单。 */
+const watchingList = computed(() =>
+  viewers.value.map((item) => ({
+    ...item,
+    label: item.displayName || item.username,
+    since: formatClock(item.joinedAt),
+    watching: item.joinedAt > 0 ? formatDuration(item.joinedAt, now.value) : '—',
+  })),
+);
+
+function formatClock(ts: number): string {
+  if (!ts) return '—';
+  const date = new Date(ts);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(
+    date.getMinutes(),
+  ).padStart(2, '0')}`;
+}
+
 function onViewerList(list: StreamViewerInfo[]): void {
   viewers.value = list;
+}
+
+/** 直连设备回报的媒体音量，用一条轻提示确认操作已生效。 */
+function onVolume(payload: {
+  level: number;
+  max: number;
+  muted: boolean;
+}): void {
+  if (payload.muted || payload.level === 0) {
+    message.info('设备已静音');
+    return;
+  }
+  message.info(`设备音量 ${payload.level}/${payload.max}`);
 }
 
 async function toggleViewers(value: boolean): Promise<void> {
@@ -719,6 +868,32 @@ async function kickControl(): Promise<void> {
   }
 }
 
+/** 断开前二次确认，避免误点把控制权放掉。 */
+function confirmStopControl(): void {
+  dialog.warning({
+    title: '断开连接',
+    content: '断开后会释放这台设备的控制权，其他人可以接管。确定断开？',
+    positiveText: '确定断开',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      void stopControl();
+    },
+  });
+}
+
+/** 强制踢掉别人时同样需要确认。 */
+function confirmKickControl(): void {
+  dialog.warning({
+    title: '强制断开',
+    content: '将强制断开当前控制者，对方会立即失去操作权限。确定继续？',
+    positiveText: '强制断开',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      void kickControl();
+    },
+  });
+}
+
 /** 键盘位置 / 大小 / 类型存服务端，多人共享，也按设备区分。 */
 function saveSafeKeyboard(layout: SafeKeyboardLayout): void {
   const id = device.value?.id;
@@ -769,6 +944,12 @@ async function onQualityChange(
     return;
   }
 
+  // 直连设备：只让 App 重启编码器，投屏会话和 WebSocket 都不动
+  if (isPortal.value) {
+    playerRef.value?.setQuality(value);
+    return;
+  }
+
   if (!device.value) return;
 
   loading.value = true;
@@ -782,6 +963,25 @@ async function onQualityChange(
   } finally {
     loading.value = false;
   }
+}
+
+/** 建立投屏会话最多等 10 秒，超时直接提示，避免一直卡在「连接中」。 */
+const STREAM_CONNECT_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(task: Promise<T>, ms: number, text: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(text)), ms);
+    task.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function createSession(): Promise<void> {
@@ -844,7 +1044,11 @@ async function createSession(): Promise<void> {
   codecBlocked.value = false;
 
   try {
-    const result = await api.createStream(device.value.id, quality.value);
+    const result = await withTimeout(
+      api.createStream(device.value.id, quality.value),
+      STREAM_CONNECT_TIMEOUT_MS,
+      '连接超时（10 秒），请检查设备是否在线或稍后重试',
+    );
     sessionId.value = result.sessionId;
   } catch (error) {
     errorText.value =
@@ -872,6 +1076,14 @@ function sendKey(
     | 'mute',
 ): void {
   if (!requireController()) return;
+  // 直连设备调音量不生效，直接拦掉，避免点了没反应
+  if (
+    isPortal.value &&
+    (key === 'volumeUp' || key === 'volumeDown' || key === 'mute')
+  ) {
+    message.warning(portalVolumeTip);
+    return;
+  }
   playerRef.value?.sendKey(key);
 }
 
@@ -901,6 +1113,10 @@ function deviceFileName(extension: string): string {
 
 function setScreen(on: boolean): void {
   if (!requireController()) return;
+  if (isPortal.value) {
+    message.warning(portalScreenTip);
+    return;
+  }
   playerRef.value?.setScreen(on);
 }
 
@@ -1134,17 +1350,21 @@ async function toggleRecording(): Promise<void> {
   message.success('录屏已保存');
 }
 
-function onPlayerClosed(): void {
-  sessionId.value = null;
+/** 播放器错误：输入类提示用 toast，避免画面被错误占位替换。 */
+function onPlayerError(text: string): void {
+  if (text.includes('输入框') || text.includes('输入')) {
+    message.warning(text);
+    return;
+  }
+  errorText.value = text;
+}
+
+function onPlayerClosed(): void {  sessionId.value = null;
   playerReady.value = false;
   if (!errorText.value) {
     errorText.value = '画面连接已断开，点击重试';
   }
   releasedBy.value = '';
-}
-
-async function goBack(): Promise<void> {
-  void router.push('/devices');
 }
 
 /** 设备断联后手动重连：先刷新设备状态，再重建播放器。 */
@@ -1153,7 +1373,13 @@ async function reconnect(): Promise<void> {
   const current = device.value;
   if (!current) return;
   if (current.status !== 'online') {
-    message.warning('设备仍未上线，请检查 USB 连接和 WDA');
+    message.warning(
+      isIos.value
+        ? '设备仍未上线，请确认已信任电脑且 WDA 正在运行'
+        : isPortal.value
+          ? '设备仍未上线，请确认手机上的 ADH 直连 App 在运行并已连上服务器'
+          : '设备仍未上线，请检查 USB 连接和 USB 调试开关',
+    );
     return;
   }
   errorText.value = null;
@@ -1179,13 +1405,10 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  // 网页全屏下按 Esc 先退出全屏，不直接离开页面
+  // 控制页在独立标签页打开，ESC 只退出全屏，不再跳转
   if (isWebFullscreen.value) {
     isWebFullscreen.value = false;
-    return;
   }
-
-  void goBack();
 }
 
 /** 打开画中画：优先用 Document PiP（可拖到浏览器外），不支持时用页面内浮窗。 */
@@ -1238,6 +1461,8 @@ async function openSmallWindow(): Promise<void> {
     recent: () => player.sendKey('recent'),
   });
   pipActive.value = true;
+  // 记住上次的缩放比例，打开时直接套用
+  applyPipZoom(pipZoom.value);
 }
 
 function closePip(): void {
@@ -1300,18 +1525,15 @@ onBeforeUnmount(() => {
     :class="{ 'web-fullscreen': isWebFullscreen }"
   >
     <header class="toolbar">
-      <n-button
-        quaternary
-        circle
-        size="small"
-        title="返回设备列表"
-        @click="goBack"
+      <div class="title">{{ device?.marketName || device?.name || '设备控制' }}</div>
+      <n-icon
+        class="conn-icon"
+        :size="15"
+        :title="isPortal ? '直连' : `Agent · ${agentName}`"
       >
-        <template #icon>
-          <n-icon><ArrowBackOutline /></n-icon>
-        </template>
-      </n-button>
-      <div class="title">{{ device?.name ?? '设备控制' }}</div>
+        <PhonePortraitOutline v-if="isPortal" />
+        <DesktopOutline v-else />
+      </n-icon>
       <n-tag
         v-if="device?.locked"
         size="small"
@@ -1350,6 +1572,10 @@ onBeforeUnmount(() => {
       </n-tag>
 
       <div class="toolbar-center">
+        <span class="conn-pill" :class="connState.tone" :title="`投屏连接状态：${connState.text}`">
+          <i class="conn-dot" />
+          {{ connState.text }}
+        </span>
         <label
           v-if="controller || isAdmin"
           class="viewers-switch"
@@ -1363,6 +1589,38 @@ onBeforeUnmount(() => {
             @update:value="toggleViewers"
           />
         </label>
+
+        <!-- 正在观看的人：谁在看、什么时候开始、看了多久 -->
+        <n-popover
+          v-if="watchingList.length > 0"
+          trigger="hover"
+          placement="bottom-end"
+          :show-arrow="false"
+        >
+          <template #trigger>
+            <button type="button" class="presence-badge">
+              <n-icon :size="13"><EyeOutline /></n-icon>
+              {{ watchingList.length }}
+            </button>
+          </template>
+          <div class="presence-panel">
+            <div class="presence-title">正在查看（{{ watchingList.length }}）</div>
+            <div
+              v-for="item in watchingList"
+              :key="item.userId"
+              class="presence-item"
+            >
+              <div class="presence-main">
+                <span class="presence-name">{{ item.label }}</span>
+                <span v-if="item.controller" class="presence-tag">控制中</span>
+              </div>
+              <div class="presence-meta">
+                {{ item.since }} 开始 · 已看 {{ item.watching }}
+              </div>
+            </div>
+          </div>
+        </n-popover>
+
         <n-select
           v-model:value="quality"
           size="tiny"
@@ -1400,8 +1658,27 @@ onBeforeUnmount(() => {
             >
               AI 助手
             </n-checkbox>
+            <n-checkbox
+              :checked="showLatencyHud"
+              @update:checked="toggles.latency"
+            >
+              延迟
+            </n-checkbox>
+            <n-checkbox :checked="showFps" @update:checked="toggles.fps">
+              帧率
+            </n-checkbox>
+            <n-checkbox
+              :checked="showStageActions"
+              @update:checked="toggles.actions"
+            >
+              画面按钮
+            </n-checkbox>
+            <n-checkbox :checked="showPipZoom" @update:checked="toggles.zoom">
+              比例缩放
+            </n-checkbox>
           </div>
         </n-popover>
+
         <n-button size="tiny" ghost @click="openShare">
           <template #icon>
             <n-icon><ShareSocialOutline /></n-icon>
@@ -1426,7 +1703,7 @@ onBeforeUnmount(() => {
           type="error"
           ghost
           :disabled="!controller"
-          @click="stopControl"
+          @click="confirmStopControl"
         >
           <template #icon>
             <n-icon><CloseCircleOutline /></n-icon>
@@ -1438,7 +1715,7 @@ onBeforeUnmount(() => {
           size="tiny"
           type="error"
           ghost
-          @click="kickControl"
+          @click="confirmKickControl"
         >
           <template #icon>
             <n-icon><CloseCircleOutline /></n-icon>
@@ -1578,12 +1855,15 @@ onBeforeUnmount(() => {
             :device-id="device?.id"
             :quality="quality"
             :control-allowed="controller"
-            show-latency
+            :show-latency="showLatencyHud"
+            :show-fps="showFps"
+            :display-scale="pipZoom"
             @controller-change="onPlayerControllerChange"
-            @error="errorText = $event"
+            @error="onPlayerError"
             @control-released="onControlReleased"
             @viewers-allow="onViewersAllow"
             @viewer-list="onViewerList"
+            @volume="onVolume"
             @ready="playerReady = true"
             @closed="onPlayerClosed"
           />
@@ -1630,7 +1910,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="sessionId && !isIos && !playerReady"
+          v-if="sessionId && !isIos && !playerReady && device?.status === 'online'"
           class="connecting-overlay"
         >
           <n-spin :size="20" />
@@ -1721,7 +2001,13 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="(sessionId || isIos) && !allowViewers && !controller && !isAdmin"
+          v-if="
+            (sessionId || isIos) &&
+            !allowViewers &&
+            !controller &&
+            !isAdmin &&
+            device?.status === 'online'
+          "
           class="viewers-closed-overlay"
         >
           <div class="offline-title">控制者已关闭其他人查看</div>
@@ -1733,7 +2019,15 @@ onBeforeUnmount(() => {
         <div v-if="device && device.status !== 'online'" class="offline-overlay">
           <div class="offline-title">设备已离线</div>
           <div class="offline-desc">
-            请检查 USB 连接；iOS 还需要确认手机已信任电脑、WDA 正在运行。
+            <template v-if="isIos">
+              请确认手机已信任这台电脑，并且 WebDriverAgent（WDA）正在运行。
+            </template>
+            <template v-else-if="isPortal">
+              请确认手机上的 ADH 直连 App 正在运行，且已连上服务器。
+            </template>
+            <template v-else>
+              请检查 USB 连接是否正常，以及设备是否已开启 USB 调试。
+            </template>
           </div>
           <n-button size="small" type="primary" @click="reconnect">
             重新连接
@@ -1757,19 +2051,43 @@ onBeforeUnmount(() => {
           <span>录制中</span>
         </div>
 
-        <div class="stage-actions">
-          <button type="button" class="overlay-btn" @click="togglePip">
-            <n-icon :size="13"><BrowsersOutline /></n-icon>
-            {{ pipActive ? '收回画中画' : '画中画' }}
-          </button>
-          <button type="button" class="overlay-btn" @click="toggleWebFullscreen">
-            <n-icon :size="13"><ScanOutline /></n-icon>
-            {{ isWebFullscreen ? '退出网页全屏' : '网页全屏' }}
-          </button>
-          <button type="button" class="overlay-btn" @click="toggleFullscreen">
-            <n-icon :size="13"><ExpandOutline /></n-icon>
-            {{ isFullscreen ? '退出全屏' : '全屏' }}
-          </button>
+        <div v-if="showStageActions || showPipZoom" class="stage-actions">
+          <template v-if="showStageActions">
+            <button type="button" class="overlay-btn" @click="togglePip">
+              <n-icon :size="13"><BrowsersOutline /></n-icon>
+              {{ pipActive ? '收回画中画' : '画中画' }}
+            </button>
+            <button type="button" class="overlay-btn" @click="toggleWebFullscreen">
+              <n-icon :size="13"><ScanOutline /></n-icon>
+              {{ isWebFullscreen ? '退出网页全屏' : '网页全屏' }}
+            </button>
+            <button type="button" class="overlay-btn" @click="toggleFullscreen">
+              <n-icon :size="13"><ExpandOutline /></n-icon>
+              {{ isFullscreen ? '退出全屏' : '全屏' }}
+            </button>
+          </template>
+
+          <div v-if="showPipZoom" class="pip-zoom-row" title="画中画等比缩放">
+            <span class="pip-zoom-label">比例缩放</span>
+            <input
+              class="pip-zoom-range"
+              type="range"
+              min="1"
+              max="100"
+              step="1"
+              :value="pipZoom"
+              @input="onPipZoomInput"
+            />
+            <span class="pip-zoom-value">{{ pipZoom }}%</span>
+            <button
+              type="button"
+              class="pip-zoom-reset"
+              title="重置为自适应页面高度"
+              @click.stop="resetPipZoom"
+            >
+              重置
+            </button>
+          </div>
         </div>
 
         <SafeKeyboardOverlay
@@ -1802,15 +2120,15 @@ onBeforeUnmount(() => {
           <div class="fs-group">
             <div class="fs-title">音量</div>
             <div class="fs-grid">
-              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('volumeDown')">
+              <button type="button" class="bar-btn" :disabled="!controller || isPortal" :title="isPortal ? portalVolumeTip : undefined" @click="sendKey('volumeDown')">
                 <n-icon :size="13"><VolumeLowOutline /></n-icon>
                 音量−
               </button>
-              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('volumeUp')">
+              <button type="button" class="bar-btn" :disabled="!controller || isPortal" :title="isPortal ? portalVolumeTip : undefined" @click="sendKey('volumeUp')">
                 <n-icon :size="13"><VolumeHighOutline /></n-icon>
                 音量+
               </button>
-              <button type="button" class="bar-btn" :disabled="!controller" @click="sendKey('mute')">
+              <button type="button" class="bar-btn" :disabled="!controller || isPortal" :title="isPortal ? portalVolumeTip : undefined" @click="sendKey('mute')">
                 <n-icon :size="13"><VolumeMuteOutline /></n-icon>
                 静音
               </button>
@@ -1824,11 +2142,11 @@ onBeforeUnmount(() => {
                 <n-icon :size="13"><PowerOutline /></n-icon>
                 电源
               </button>
-              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos || isPortal" :title="isIos ? iosTip : isPortal ? portalScreenTip : undefined" @click="setScreen(false)">
                 <n-icon :size="13"><MoonOutline /></n-icon>
                 息屏
               </button>
-              <button type="button" class="bar-btn" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
+              <button type="button" class="bar-btn" :disabled="!controller || isIos || isPortal" :title="isIos ? iosTip : isPortal ? portalScreenTip : undefined" @click="setScreen(true)">
                 <n-icon :size="13"><SunnyOutline /></n-icon>
                 亮屏
               </button>
@@ -1863,8 +2181,7 @@ onBeforeUnmount(() => {
                 type="button"
                 class="bar-btn span-2"
                 :class="{ on: safeKeyboard && keyboardType === 'password' }"
-                :disabled="!controller || isIos"
-                :title="isIos ? iosTip : undefined"
+                :disabled="!controller"
                 @click="toggleKeyboard('password')"
               >
                 <n-icon :size="13"><KeypadOutline /></n-icon>
@@ -1878,8 +2195,7 @@ onBeforeUnmount(() => {
                 type="button"
                 class="bar-btn span-2"
                 :class="{ on: safeKeyboard && keyboardType === 'full' }"
-                :disabled="!controller || isIos"
-                :title="isIos ? iosTip : undefined"
+                :disabled="!controller"
                 @click="toggleKeyboard('full')"
               >
                 <n-icon :size="13"><GridOutline /></n-icon>
@@ -1902,43 +2218,6 @@ onBeforeUnmount(() => {
       </div>
 
       <aside v-if="sideOpen" class="side" :class="{ readonly: !controller }">
-        <section v-if="device?.platform === 'ios'" class="section">
-          <div class="section-title">App 目录导入</div>
-          <n-select
-            v-model:value="appBundleId"
-            size="small"
-            filterable
-            :options="appOptions"
-            :loading="appsLoading"
-            placeholder="选择目标 App"
-            @update:show="onAppSelectShow"
-          />
-          <n-select
-            v-model:value="appContainer"
-            size="small"
-            class="app-container-select"
-            :options="[
-              { label: 'Documents', value: 'documents' },
-              { label: 'tmp', value: 'temp' },
-            ]"
-          />
-          <n-button
-            size="small"
-            :disabled="!controller || galleryBusy"
-            @click="pickAppImage"
-          >
-            上传图片到 App 目录
-          </n-button>
-          <p class="album-hint">写入 App 容器，测试 App 需自行读取该目录</p>
-          <input
-            ref="appFileInput"
-            type="file"
-            accept="image/*"
-            class="album-input"
-            @change="onAppFile"
-          />
-        </section>
-
         <section class="section">
           <div class="section-title">导航</div>
           <div class="grid-3">
@@ -1964,30 +2243,6 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="section">
-          <div class="section-title">音量</div>
-          <div class="grid-3">
-            <n-button size="small" :disabled="!controller" @click="sendKey('volumeDown')">
-              <template #icon>
-                <n-icon><VolumeLowOutline /></n-icon>
-              </template>
-              音量−
-            </n-button>
-            <n-button size="small" :disabled="!controller" @click="sendKey('volumeUp')">
-              <template #icon>
-                <n-icon><VolumeHighOutline /></n-icon>
-              </template>
-              音量+
-            </n-button>
-            <n-button size="small" :disabled="!controller" @click="sendKey('mute')">
-              <template #icon>
-                <n-icon><VolumeMuteOutline /></n-icon>
-              </template>
-              静音
-            </n-button>
-          </div>
-        </section>
-
-        <section class="section">
           <div class="section-title">设备</div>
           <div class="grid-3">
             <n-button size="small" :disabled="!controller" @click="sendKey('power')">
@@ -1996,21 +2251,39 @@ onBeforeUnmount(() => {
               </template>
               电源
             </n-button>
-            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(false)">
+            <n-button size="small" :disabled="!controller || isIos || isPortal" :title="isIos ? iosTip : isPortal ? portalScreenTip : undefined" @click="setScreen(false)">
               <template #icon>
                 <n-icon><MoonOutline /></n-icon>
               </template>
               息屏
             </n-button>
-            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="setScreen(true)">
+            <n-button size="small" :disabled="!controller || isIos || isPortal" :title="isIos ? iosTip : isPortal ? portalScreenTip : undefined" @click="setScreen(true)">
               <template #icon>
                 <n-icon><SunnyOutline /></n-icon>
               </template>
               亮屏
             </n-button>
+            <n-button size="small" :disabled="!controller || isPortal" :title="isPortal ? portalVolumeTip : undefined" @click="sendKey('volumeDown')">
+              <template #icon>
+                <n-icon><VolumeLowOutline /></n-icon>
+              </template>
+              音量−
+            </n-button>
+            <n-button size="small" :disabled="!controller || isPortal" :title="isPortal ? portalVolumeTip : undefined" @click="sendKey('volumeUp')">
+              <template #icon>
+                <n-icon><VolumeHighOutline /></n-icon>
+              </template>
+              音量+
+            </n-button>
+            <n-button size="small" :disabled="!controller || isPortal" :title="isPortal ? portalVolumeTip : undefined" @click="sendKey('mute')">
+              <template #icon>
+                <n-icon><VolumeMuteOutline /></n-icon>
+              </template>
+              静音
+            </n-button>
           </div>
           <div class="grid-2">
-            <n-button size="small" :disabled="!controller || isIos" :title="isIos ? iosTip : undefined" @click="fileShow = true">
+            <n-button size="small" :disabled="!controller || isIos || !isLocalDevice" :title="isIos ? iosTip : !isLocalDevice ? localOnlyTip : undefined" @click="fileShow = true">
               <template #icon>
                 <n-icon><FolderOpenOutline /></n-icon>
               </template>
@@ -2077,7 +2350,7 @@ onBeforeUnmount(() => {
               </template>
               安装应用
             </n-button>
-            <n-button size="small" @click="openApps">
+            <n-button size="small" :disabled="!isLocalDevice" :title="isLocalDevice ? undefined : localOnlyTip" @click="openApps">
               <template #icon>
                 <n-icon><AppsOutline /></n-icon>
               </template>
@@ -2128,8 +2401,7 @@ onBeforeUnmount(() => {
               safeKeyboard && keyboardType === 'password' ? 'primary' : 'default'
             "
             :ghost="safeKeyboard && keyboardType === 'password'"
-            :disabled="!controller || isIos"
-            :title="isIos ? iosTip : undefined"
+            :disabled="!controller"
             @click="toggleKeyboard('password')"
           >
             <template #icon>
@@ -2146,8 +2418,7 @@ onBeforeUnmount(() => {
             block
             :type="safeKeyboard && keyboardType === 'full' ? 'primary' : 'default'"
             :ghost="safeKeyboard && keyboardType === 'full'"
-            :disabled="!controller || isIos"
-            :title="isIos ? iosTip : undefined"
+            :disabled="!controller"
             @click="toggleKeyboard('full')"
           >
             <template #icon>
@@ -2193,6 +2464,43 @@ onBeforeUnmount(() => {
             accept="image/*"
             class="album-input"
             @change="onGalleryFile"
+          />
+        </section>
+
+        <section v-if="device?.platform === 'ios'" class="section">
+          <div class="section-title">App 目录导入</div>
+          <n-select
+            v-model:value="appBundleId"
+            size="small"
+            filterable
+            :options="appOptions"
+            :loading="appsLoading"
+            placeholder="选择目标 App"
+            @update:show="onAppSelectShow"
+          />
+          <n-select
+            v-model:value="appContainer"
+            size="small"
+            class="app-container-select"
+            :options="[
+              { label: 'Documents', value: 'documents' },
+              { label: 'tmp', value: 'temp' },
+            ]"
+          />
+          <n-button
+            size="small"
+            :disabled="!controller || galleryBusy"
+            @click="pickAppImage"
+          >
+            上传图片到 App 目录
+          </n-button>
+          <p class="album-hint">写入 App 容器，测试 App 需自行读取该目录</p>
+          <input
+            ref="appFileInput"
+            type="file"
+            accept="image/*"
+            class="album-input"
+            @change="onAppFile"
           />
         </section>
       </aside>
@@ -2300,10 +2608,130 @@ onBeforeUnmount(() => {
   margin-right: auto;
 }
 
+/* 投屏连接状态：绿色是明确的「已连接」信号 */
+.conn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.conn-pill.wait {
+  background: #f4f4f5;
+  color: #71717a;
+}
+
+.conn-pill.ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.conn-pill.bad {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.conn-pill.ok .conn-dot {
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+}
+
+.conn-pill.wait .conn-dot {
+  animation: conn-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes conn-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
 .toolbar-right {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+/* 右上角在线人数徽标 */
+.presence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: default;
+}
+
+.presence-badge:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.presence-panel {
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.presence-title {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.presence-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.presence-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.presence-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.presence-tag {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.presence-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-toggles {
@@ -2362,6 +2790,11 @@ onBeforeUnmount(() => {
 .title {
   font-size: 13px;
   font-weight: 600;
+}
+
+.conn-icon {
+  flex: none;
+  color: var(--text-dim);
 }
 
 .viewer-tag {
@@ -2546,9 +2979,10 @@ onBeforeUnmount(() => {
   top: 10px;
   right: 10px;
   z-index: 10;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  /* 用 grid：三个按钮各占一列，下面的拖动条横跨三列，宽度自然和按钮组一致 */
+  display: grid;
+  grid-template-columns: auto auto auto;
+  justify-content: end;
   gap: 6px;
   max-width: calc(100% - 20px);
 }
@@ -2575,6 +3009,91 @@ onBeforeUnmount(() => {
 .overlay-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* 画中画缩放：占满三个按钮的列宽 */
+.pip-zoom-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 10, 11, 0.6);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+
+.pip-zoom-label,
+.pip-zoom-value {
+  flex: none;
+  font-size: 11px;
+  color: #d4d4d8;
+  line-height: 1;
+}
+
+.pip-zoom-value {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pip-zoom-reset {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pip-zoom-reset:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.pip-zoom-range {
+  flex: 1;
+  min-width: 0;
+  height: 16px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pip-zoom-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.pip-zoom-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.pip-zoom-range::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.pip-zoom-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
 }
 
 .overlay-btn:disabled:hover {
@@ -2990,14 +3509,15 @@ onBeforeUnmount(() => {
 .offline-overlay {
   position: absolute;
   inset: 0;
-  z-index: 12;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   padding: 24px;
-  background: rgba(9, 9, 11, 0.78);
+  /* 不透明底：下面如果还有别的遮罩层，文字不会透出来叠在一起 */
+  background: #09090b;
   color: #e4e4e7;
   text-align: center;
 }
@@ -3176,6 +3696,10 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+
+
+
 
 
 

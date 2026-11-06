@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 投屏流的二进制帧格式。
  *
  *   [1 byte kind][payload...]
@@ -7,7 +7,7 @@
  * 文本帧（JSON）承载控制消息与元数据，因此这里只需要区分媒体类型。
  */
 export const FRAME_KIND = {
-  /** H.264 access unit（AVCC，长度前缀格式） */
+  /** H.264 access unit（Annex-B；viewer 解码前再转 AVCC） */
   h264: 1,
   /** 完整 JPEG 图片（iOS WDA MJPEG） */
   jpeg: 2,

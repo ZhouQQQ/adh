@@ -3,8 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { z } from 'zod';
-import {
+import { z } from 'zod';import {
   BUILTIN_AGENT_ID,
   UpdateAgentBodySchema,
   type AgentSummary,
@@ -79,6 +78,21 @@ export interface HttpDeps {
 const CreateAgentBody = z.object({
   name: z.string().trim().min(1).max(40),
 });
+
+/** 取本机局域网 IPv4，用来把 127.0.0.1 换成手机能访问的地址。 */
+function lanIpv4(): string | null {
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const item of list ?? []) {
+      if (item.family === 'IPv4' && !item.internal) return item.address;
+    }
+  }
+  return null;
+}
+
+function isLoopbackHost(host: string): boolean {
+  const name = host.split(':')[0] ?? '';
+  return name === 'localhost' || name === '127.0.0.1' || name === '::1';
+}
 
 const InstallBody = z.object({
   packageId: z.string().regex(/^[a-f0-9]{64}$/),
@@ -1582,7 +1596,15 @@ export async function registerHttpRoutes(
       return { ok: true };
     }
 
-    const host = request.headers.host ?? `127.0.0.1:${deps.port}`;
+    const forwardedHost = String(request.headers['x-forwarded-host'] ?? '')
+      .split(',')[0]
+      ?.trim();
+    const rawHost = forwardedHost || request.headers.host || `127.0.0.1:${deps.port}`;
+    // 开发时前端可能通过 localhost / 127.0.0.1 访问，这种地址手机连不上，
+    // 必须换成 server 所在机器的局域网 IP。
+    const host = isLoopbackHost(rawHost)
+      ? `${lanIpv4() ?? '127.0.0.1'}:${deps.port}`
+      : rawHost;
     // 走 nginx / 反代时用外部协议（https），否则 Agent 下载安装包会被重定向或失败
     const forwarded = String(request.headers['x-forwarded-proto'] ?? '')
       .split(',')[0]
@@ -2179,8 +2201,36 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/battery', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = await requireLocalDevice(id, reply);
-    if (!device) return reply;
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+
+    // 设备直连 App：由手机自己读取电量，不经过 adb
+    if (device.agentId !== BUILTIN_AGENT_ID) {
+      const owner = await deps.queries.getAgent(device.agentId);
+      if (owner?.kind !== 'portal') {
+        return reply.code(400).send({
+          error: '该功能需要设备直接连在 server 所在机器上（内置 Agent），当前设备由远程 Agent 接入',
+        });
+      }
+      try {
+        const result = await deps.commands.send(
+          device.agentId,
+          'battery',
+          { udid: device.udid },
+          device.id,
+          10_000,
+        );
+        if (!result.ok) {
+          return reply.code(400).send({ error: result.error ?? '读取电量失败' });
+        }
+        const data = result.data as { battery?: unknown } | undefined;
+        return { battery: data?.battery ?? null };
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : '读取电量失败',
+        });
+      }
+    }
 
     if (device.platform === 'ios') {
       const result = await runIos(['batterycheck', `--udid=${device.udid}`]);
@@ -2207,8 +2257,34 @@ export async function registerHttpRoutes(
 
   app.get('/api/devices/:id/runtime', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const device = await requireLocalDevice(id, reply);
-    if (!device) return reply;
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+
+    if (device.agentId !== BUILTIN_AGENT_ID) {
+      const owner = await deps.queries.getAgent(device.agentId);
+      if (owner?.kind !== 'portal') {
+        return reply.code(400).send({
+          error: '该功能需要设备直接连在 server 所在机器上（内置 Agent），当前设备由远程 Agent 接入',
+        });
+      }
+      try {
+        const result = await deps.commands.send(
+          device.agentId,
+          'runtime',
+          { udid: device.udid },
+          device.id,
+          15_000,
+        );
+        if (!result.ok) {
+          return reply.code(400).send({ error: result.error ?? '读取运行状态失败' });
+        }
+        return result.data;
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : '读取运行状态失败',
+        });
+      }
+    }
 
     if (device.platform === 'ios') {
       const [batteryResult, diskResult, wda] = await Promise.all([
@@ -2568,7 +2644,34 @@ export async function registerHttpRoutes(
       };
     }
 
-    // Android 的网络信息需要本机 adb
+    // Android 的网络信息需要本机 adb；设备直连 App 由手机自己上报
+    if (device.agentId !== BUILTIN_AGENT_ID) {
+      const owner = await deps.queries.getAgent(device.agentId);
+      if (owner?.kind !== 'portal') {
+        return reply.code(400).send({
+          error: '该功能需要设备直接连在 server 所在机器上（内置 Agent），当前设备由远程 Agent 接入',
+        });
+      }
+      try {
+        const result = await deps.commands.send(
+          device.agentId,
+          'runtime',
+          { udid: device.udid },
+          device.id,
+          15_000,
+        );
+        const wifi = (result.data as { wifi?: { connected?: boolean; ssid?: string | null; ip?: string | null } } | undefined)?.wifi;
+        return {
+          platform: 'android',
+          connected: Boolean(wifi?.connected),
+          ssid: wifi?.ssid ?? null,
+          ip: wifi?.ip ?? null,
+        };
+      } catch {
+        return { platform: 'android', connected: false, ssid: null, ip: null };
+      }
+    }
+
     const local = await requireLocalDevice(id, reply);
     if (!local) return reply;
 
@@ -2887,6 +2990,10 @@ export async function registerHttpRoutes(
   });
 
   app.delete('/api/devices/:id', async (request, reply) => {
+    // 删除记录只给管理员和超管，operator 只能使用设备
+    if (!request.user || !isAdminRole(request.user.role)) {
+      return reply.code(403).send({ error: '需要管理员权限' });
+    }
     const { id } = request.params as { id: string };
     const device = await deps.queries.getDevice(id);
     if (!device) return reply.code(404).send({ error: 'device not found' });

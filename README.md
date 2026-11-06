@@ -1,4 +1,4 @@
-# ADH · 分布式设备农场
+﻿# ADH · 分布式设备农场
 
 把分散在多台电脑上的 Android / iOS 真机集中到一个 Web 控制台：实时投屏、直接操作、批量安装。
 
@@ -53,6 +53,7 @@ flowchart TB
 
 - **投屏与控制**：scrcpy（Android）、WDA（iOS），触摸、滑动、缩放、按键、文本输入
 - **应用管理**：APK / IPA 上传、图标解析、一键安装
+- **设备直连（Android Portal）**：在「设备管理 → 设备直连」复制带全局 Key 的地址并下载 APK，装到手机内即可直连，无需宿主机；支持投屏、无障碍控制、文本输入、截图、应用安装、相册导入。iOS 不允许第三方 App 注入触摸，需宿主机 Agent + WDA
 - **文件管理**：浏览、上传、下载、打包 zip
 - **批量控制**：多设备网格、跨设备联动、批量安装
 - **AI 助手**：控制者可用自然语言多轮对话操作设备，纯视觉闭环（截图 → 决策 → 动作 → 再截图校验），支持点击、滑动、输入和按键；模型在系统设置里配置
@@ -225,10 +226,19 @@ pnpm package:server --platform linux    # 打离线 server 包
 
 默认走 HTTP；需要 HTTPS（例如用局域网 IP 访问、要求 WebCodecs 安全上下文）时用 `ADH_HTTPS=1 pnpm dev`。
 
+Android 设备直连 App 需要 JDK 17 + Android SDK 34：
+
+```bat
+pnpm portal:build
+```
+
+产物在 `apps/portal-android/app/build/outputs/apk/debug/app-debug.apk`。
+
 ```
 apps/server/          API、WS、内置 Agent、OSS
 apps/agent/           宿主机守护进程
 apps/web/             Vue 控制台
+apps/portal-android/  Android 设备直连 App（Kotlin）
 packages/protocol/    消息 schema、H.264 工具
 packages/device-host/ adb / scrcpy / iOS 采集
 docs/                 设备接入与部署文档
@@ -239,3 +249,4 @@ docs/                 设备接入与部署文档
 - 内网工具，请部署在可信网络，不要直接暴露到公网
 - 写操作自动记入审计日志；设备控制、安装、文件操作记入设备日志
 - iOS 的 WiFi SSID 系统不开放，只能显示 IP
+

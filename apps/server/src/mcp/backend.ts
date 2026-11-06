@@ -22,6 +22,23 @@ export interface ListDevicesInput {
   idleOnly?: boolean;
 }
 
+/** 单台设备的详细信息，供 MCP 的 get_device 使用。 */
+export interface McpDeviceDetail extends McpDevice {
+  udid: string;
+  agentId: string;
+  model?: string;
+  marketName?: string;
+  brand?: string;
+  resolution?: { width: number; height: number };
+  locked: boolean;
+  control: {
+    userId: string;
+    username: string;
+    displayName?: string;
+    since: number;
+  } | null;
+}
+
 /**
  * MCP 工具的执行后端。
  *
@@ -30,10 +47,16 @@ export interface ListDevicesInput {
  */
 export interface McpBackend {
   listDevices(input: ListDevicesInput): Promise<McpDevice[]>;
+  getDevice(deviceId: string): Promise<McpDeviceDetail | null>;
   runTask(input: CreateTaskInput): Promise<unknown>;
+  batchTask(input: {
+    instruction: string;
+    deviceIds?: string[];
+  }): Promise<unknown>;
   getTask(taskId: string): Promise<unknown | null>;
   listTasks(limit?: number): Promise<unknown[]>;
   cancelTask(taskId: string): Promise<unknown>;
+  cancelAllTasks(): Promise<{ ok: boolean; count: number }>;
 }
 
 export interface LocalBackendDeps {
@@ -108,8 +131,59 @@ export function createLocalBackend(
       return filterDevices(mapped, input);
     },
 
+    async getDevice(deviceId) {
+      const device = await deps.queries.getDevice(deviceId);
+      if (!device) return null;
+      const agentOnline =
+        device.agentId === BUILTIN_AGENT_ID ||
+        deps.registry.isOnline(device.agentId);
+      const online = device.status === 'online' && agentOnline;
+      const control = deps.streams.getControl(deviceId);
+      return {
+        id: device.id,
+        name: device.name,
+        platform: device.platform,
+        status: online ? 'online' : 'offline',
+        tags: device.tags ?? [],
+        osVersion: device.osVersion,
+        idle: online && !device.locked && !control,
+        udid: device.udid,
+        agentId: device.agentId,
+        model: device.model ?? undefined,
+        marketName: device.marketName ?? undefined,
+        brand: device.brand ?? undefined,
+        resolution: device.resolution,
+        locked: Boolean(device.locked),
+        control: control
+          ? {
+              userId: control.userId,
+              username: control.username,
+              displayName: control.displayName,
+              since: control.since,
+            }
+          : null,
+      };
+    },
+
     async runTask(input) {
       return replay(await deps.tasks.create(user, input));
+    },
+
+    async batchTask(input) {
+      const plan = await deps.tasks.planBatch({
+        instruction: input.instruction,
+        deviceIds: input.deviceIds,
+      });
+      if (plan.scope === 'none' || plan.tasks.length === 0) {
+        return { scope: plan.scope, summary: plan.summary, tasks: [] };
+      }
+      const tasks = await deps.tasks.createBatch(user, plan.tasks, plan.mode);
+      return {
+        scope: plan.scope,
+        mode: plan.mode,
+        summary: plan.summary,
+        tasks: tasks.map(replay),
+      };
     },
 
     async getTask(taskId) {
@@ -130,6 +204,11 @@ export function createLocalBackend(
       }
       await deps.tasks.cancel(user.id, taskId);
       return { ok: true };
+    },
+
+    async cancelAllTasks() {
+      const count = await deps.tasks.cancelPending(user.id);
+      return { ok: true, count };
     },
   };
 }
@@ -205,6 +284,83 @@ export function createHttpBackend(options: HttpBackendOptions): McpBackend {
         })),
         input,
       );
+    },
+
+    async getDevice(deviceId) {
+      const device = await call<{
+        id: string;
+        name: string;
+        platform: string;
+        status: string;
+        tags?: string[];
+        osVersion?: string;
+        udid: string;
+        agentId: string;
+        model?: string;
+        marketName?: string;
+        brand?: string;
+        resolution?: { width: number; height: number };
+        locked?: boolean;
+        inUse?: boolean;
+        control?: {
+          userId: string;
+          username: string;
+          displayName?: string;
+          since: number;
+        } | null;
+      }>(`/api/devices/${encodeURIComponent(deviceId)}`);
+
+      return {
+        id: device.id,
+        name: device.name,
+        platform: device.platform,
+        status: device.status,
+        tags: device.tags ?? [],
+        osVersion: device.osVersion,
+        idle: device.status === 'online' && !device.locked && !device.inUse,
+        udid: device.udid,
+        agentId: device.agentId,
+        model: device.model,
+        marketName: device.marketName,
+        brand: device.brand,
+        resolution: device.resolution,
+        locked: Boolean(device.locked),
+        control: device.control ?? null,
+      };
+    },
+
+    async batchTask(input) {
+      const plan = await call<{
+        plan: {
+          scope: 'single' | 'batch' | 'none';
+          mode: 'parallel' | 'sequential';
+          summary: string;
+          tasks: Array<{ deviceId: string; instruction: string }>;
+        };
+      }>('/api/tasks/batch/plan', {
+        method: 'POST',
+        body: { instruction: input.instruction, deviceIds: input.deviceIds },
+      });
+
+      if (plan.plan.scope === 'none' || plan.plan.tasks.length === 0) {
+        return { ...plan.plan, tasks: [] };
+      }
+
+      const created = await call<{ tasks: unknown[] }>('/api/tasks/batch', {
+        method: 'POST',
+        body: { tasks: plan.plan.tasks, mode: plan.plan.mode },
+      });
+      return {
+        ...plan.plan,
+        tasks: created.tasks.map((task) => withReplayUrl(task, baseUrl)),
+      };
+    },
+
+    async cancelAllTasks() {
+      return call<{ ok: boolean; count: number }>('/api/tasks/cancel-pending', {
+        method: 'POST',
+        body: {},
+      });
     },
 
     async runTask(input) {

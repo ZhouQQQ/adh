@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+﻿import { randomBytes, randomUUID } from 'node:crypto';
 import type {
   AgentRuntimeInfo,
   AgentSummary,
@@ -16,7 +16,7 @@ import type { SqlDriver } from './driver.js';
 import type { AgentRow, DeviceRow } from './schema.js';
 
 const AGENT_COLUMNS = `
-  id, name, host_name AS hostName, os, arch, version, capabilities,
+  id, name, kind, instance_id AS instanceId, host_name AS hostName, os, arch, version, capabilities,
   token, last_seen AS lastSeen, created_at AS createdAt,
   tunnel_status AS tunnelStatus
 `;
@@ -111,6 +111,7 @@ export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
   return {
     id: row.id,
     name: row.name,
+    kind: row.kind === 'portal' ? 'portal' : 'host',
     hostName: row.hostName ?? undefined,
     os: row.os,
     arch: row.arch,
@@ -218,6 +219,69 @@ export function createQueries(db: SqlDriver) {
       return row;
     },
 
+    /** 设备直连 App 的稳定实例（同一台手机重连复用同一 agent 行）。 */
+    async findPortalAgentByInstance(
+      instanceId: string,
+    ): Promise<AgentRow | undefined> {
+      const [row] = await db.query<AgentRow>(
+        `SELECT ${AGENT_COLUMNS} FROM adh_agents WHERE kind = 'portal' AND instance_id = ?`,
+        [instanceId],
+      );
+      return row;
+    },
+
+    /**
+     * 设备直连：全局只有一个配对 Key，但每台设备必须有自己的 agentId，
+     * 否则多台手机会互相顶掉连接。这里按 instanceId 复用 / 新建 agent 行。
+     */
+    async ensurePortalAgent(
+      instanceId: string,
+      runtime: AgentRuntimeInfo,
+    ): Promise<AgentRow> {
+      const existing = await this.findPortalAgentByInstance(instanceId);
+      if (existing) {
+        await this.updateAgentRuntime(existing.id, runtime);
+        return (await this.getAgent(existing.id)) ?? existing;
+      }
+
+      const now = Date.now();
+      const row: AgentRow = {
+        id: randomUUID(),
+        name: `直连 · ${runtime.name}`,
+        kind: 'portal',
+        instanceId,
+        hostName: runtime.name,
+        os: runtime.os,
+        arch: runtime.arch,
+        version: runtime.version,
+        capabilities: JSON.stringify(runtime.capabilities),
+        token: generateAgentKey(),
+        lastSeen: now,
+        createdAt: now,
+        tunnelStatus: null,
+      };
+      await db.execute(
+        `INSERT INTO adh_agents
+          (id, name, kind, instance_id, host_name, os, arch, version, capabilities, token, last_seen, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          row.id,
+          row.name,
+          row.kind,
+          row.instanceId,
+          row.hostName,
+          row.os,
+          row.arch,
+          row.version,
+          row.capabilities,
+          row.token,
+          row.lastSeen,
+          row.createdAt,
+        ],
+      );
+      return row;
+    },
+
     async findAgentByName(name: string): Promise<AgentRow | undefined> {
       const [row] = await db.query<AgentRow>(
         `SELECT ${AGENT_COLUMNS} FROM adh_agents WHERE name = ?`,
@@ -240,6 +304,8 @@ export function createQueries(db: SqlDriver) {
       const row: AgentRow = {
         id: randomUUID(),
         name,
+        kind: 'host',
+        instanceId: null,
         hostName: null,
         os: '',
         arch: '',
@@ -252,11 +318,13 @@ export function createQueries(db: SqlDriver) {
       };
       await db.execute(
         `INSERT INTO adh_agents
-          (id, name, host_name, os, arch, version, capabilities, token, last_seen, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, name, kind, instance_id, host_name, os, arch, version, capabilities, token, last_seen, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.id,
           row.name,
+          row.kind,
+          row.instanceId,
           row.hostName,
           row.os,
           row.arch,
@@ -291,6 +359,8 @@ export function createQueries(db: SqlDriver) {
       const row: AgentRow = {
         id: BUILTIN_AGENT_ID,
         name,
+        kind: 'host',
+        instanceId: null,
         hostName: name,
         os: process.platform === 'win32' ? 'windows' : process.platform,
         arch: process.arch,
@@ -303,11 +373,13 @@ export function createQueries(db: SqlDriver) {
       };
       await db.execute(
         `INSERT INTO adh_agents
-          (id, name, host_name, os, arch, version, capabilities, token, last_seen, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, name, kind, instance_id, host_name, os, arch, version, capabilities, token, last_seen, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.id,
           row.name,
+          row.kind,
+          row.instanceId,
           row.hostName,
           row.os,
           row.arch,
@@ -743,3 +815,6 @@ export function createQueries(db: SqlDriver) {
 }
 
 export type Queries = ReturnType<typeof createQueries>;
+
+
+

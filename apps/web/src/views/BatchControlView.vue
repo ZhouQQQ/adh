@@ -186,11 +186,18 @@ function pendingChatTasks(): TaskSnapshot[] {
 }
 
 async function cancelPendingTasks(): Promise<void> {
-  await Promise.all(
-    pendingChatTasks().map((task) =>
-      api.cancelTask(task.id).catch(() => undefined),
-    ),
-  );
+  // 全量停止该用户所有未完成任务：前端列表可能不全（刷新后丢失 taskId），
+  // 只按列表逐个取消会漏掉正在跑的任务。
+  await api.cancelPendingTasks().catch(() => undefined);
+}
+
+/** AI 对话里当前未完成的任务数量。 */
+const pendingTaskCount = computed(() => pendingChatTasks().length);
+
+async function stopAllChatTasks(): Promise<void> {
+  const count = pendingChatTasks().length;
+  await cancelPendingTasks();
+  message.success(count > 0 ? `已停止 ${count} 个任务` : '已停止所有任务');
 }
 
 function confirmExitWithTasks(count: number): Promise<boolean> {
@@ -984,6 +991,12 @@ async function onQualityChange(
             </div>
           </div>
           <div v-if="chatBusy" class="chat-typing">AI 正在理解你的指令…</div>
+          <div v-else-if="pendingTaskCount > 0" class="chat-stop-bar">
+            <span>{{ pendingTaskCount }} 个任务执行中</span>
+            <n-button size="tiny" type="error" ghost @click="stopAllChatTasks">
+              停止全部
+            </n-button>
+          </div>
         </div>
 
         <footer class="ai-chat-input">

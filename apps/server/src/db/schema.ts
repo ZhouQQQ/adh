@@ -1,10 +1,14 @@
-/**
+﻿/**
  * 数据库行的 TypeScript 结构。
  * SQLite / MySQL 共用一套字段名，时间戳一律是毫秒整数。
  */
 export interface AgentRow {
   id: string;
   name: string;
+  /** host | portal */
+  kind: string;
+  /** 直连 App 的稳定实例 ID */
+  instanceId: string | null;
   hostName: string | null;
   os: string;
   arch: string;

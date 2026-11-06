@@ -153,6 +153,14 @@ export function registerTaskRoutes(
     return { ok: true };
   });
 
+  /** 退出批量控制时一次性停掉当前用户所有未完成任务。 */
+  app.post('/api/tasks/cancel-pending', async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: '未登录' });
+    const count = await deps.tasks.cancelPending(user.id);
+    return { ok: true, count };
+  });
+
   /**
    * 公开回放：用任务级 token 鉴权，不要求登录。
    * token 在任务创建时生成，页面可以直接发给任务发起人。

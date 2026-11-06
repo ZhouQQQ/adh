@@ -28,6 +28,10 @@ const props = defineProps<{
   flush?: boolean;
   /** 实时预览左上角显示网络延迟（低 / 中 / 高）。 */
   showLatency?: boolean;
+  /** 显示实时渲染帧率。 */
+  showFps?: boolean;
+  /** 画面显示比例（1~100，100 为自适应铺满）。 */
+  displayScale?: number;
 }>();
 const emit = defineEmits<{
   'controller-change': [value: boolean];
@@ -40,9 +44,47 @@ const emit = defineEmits<{
   'viewers-allow': [allow: boolean];
   /** 当前观看者名单（含控制者标记），在有投屏会话时由服务端推送。 */
   'viewer-list': [viewers: StreamViewerInfo[]];
+  /** 设备侧回报的媒体音量（直连 App 支持）。 */
+  volume: [{ level: number; max: number; muted: boolean }];
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
+const playerRef = ref<HTMLDivElement | null>(null);
+
+/** 当前画面像素尺寸（canvas.width/height 变化时同步，供缩放计算）。 */
+const frameSize = ref({ width: 0, height: 0 });
+/** 播放区域可用尺寸，随容器变化（批量设备墙缩放、窗口 resize 都会触发）。 */
+const containerSize = ref({ width: 0, height: 0 });
+let resizeObserver: ResizeObserver | null = null;
+
+/**
+ * 显示尺寸：100% = 画面原始像素 1:1，但永远不超过容器，
+ * 超出时自动等比缩小，保证画面完整不被裁切。
+ */
+const canvasStyle = computed(() => {
+  const scale = (props.displayScale ?? 100) / 100;
+  const { width, height } = frameSize.value;
+  if (!width || !height) return {};
+
+  // 非 flush 时 .player 四周各 12px padding
+  const pad = props.flush ? 0 : 24;
+  const availWidth = Math.max(40, containerSize.value.width - pad);
+  const availHeight = Math.max(40, containerSize.value.height - pad);
+  const fit = Math.min(1, availWidth / width, availHeight / height);
+  const finalScale = Math.min(scale, fit);
+
+  return {
+    width: `${Math.round(width * finalScale)}px`,
+    height: `${Math.round(height * finalScale)}px`,
+    maxWidth: 'none',
+    maxHeight: 'none',
+  };
+});
+
+/** 供父组件计算「自适应比例」用。 */
+function getFrameSize(): { width: number; height: number } {
+  return { ...frameSize.value };
+}
 const pipVideoRef = ref<HTMLVideoElement | null>(null);
 const connected = ref(false);
 const controller = ref(false);
@@ -117,9 +159,65 @@ function stopLatencyProbe(): void {
 const fps = ref(0);
 let renderedFrames = 0;
 let fpsWindowStart = performance.now();
+let readySent = false;
+let hasFrame = false;
+
+/* ------------------- 切画质 / 重建解码器时的画面冻结 ------------------- */
+
+const freezeSrc = ref('');
+const freezeFading = ref(false);
+const freezeStyle = ref<Record<string, string>>({});
+
+/** 把当前画面截一张盖在最上层，避免重建解码器时 canvas 被清空导致黑屏。 */
+function freezeFrame(): void {
+  const canvas = canvasRef.value;
+  if (!canvas || !hasFrame || canvas.width === 0) return;
+  const rect = canvas.getBoundingClientRect();
+  freezeStyle.value = {
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  };
+  try {
+    freezeSrc.value = canvas.toDataURL('image/png');
+  } catch {
+    freezeSrc.value = '';
+    return;
+  }
+  freezeFading.value = false;
+  // 兜底：如果新画质一直没出帧，3 秒后也要放开，不能永久盖住
+  window.setTimeout(() => {
+    if (freezeSrc.value && !freezeFading.value) unfreezeFrame();
+  }, 3000);
+}
+
+/** 新画质的第一帧画出来之后，把冻结层淡出。 */
+function unfreezeFrame(): void {
+  if (!freezeSrc.value || freezeFading.value) return;
+  freezeFading.value = true;
+  window.setTimeout(() => {
+    freezeSrc.value = '';
+    freezeFading.value = false;
+  }, 260);
+}
+
+/**
+ * 通知父组件「画面已经可用」。
+ * 不只依赖 server 的 ready 消息：首帧真正画出来也算就绪，
+ * 否则父组件的「正在连接设备…」遮罩会一直挂着（画面能看、能操作，状态却是连接中）。
+ */
+function markReady(): void {
+  if (readySent) return;
+  readySent = true;
+  starting.value = false;
+  connected.value = true;
+  emit('ready');
+}
 
 /** 每绘制一帧调用一次，按 1 秒窗口统计实际渲染帧率（丢帧会直接反映出来）。 */
 function markFrameRendered(): void {
+  hasFrame = true;
+  unfreezeFrame();
+  markReady();
   renderedFrames += 1;
   const now = performance.now();
   const elapsed = now - fpsWindowStart;
@@ -269,8 +367,12 @@ function configureDecoder(ready: StreamReady): void {
   lastReady = ready;
   lastOutputAt = Date.now();
 
+  // 重建解码器会重置 canvas 尺寸并清空内容，先冻结当前画面
+  freezeFrame();
+
   canvas.width = ready.width;
   canvas.height = ready.height;
+  frameSize.value = { width: ready.width, height: ready.height };
   waitingKey = true;
 
   decoder?.close();
@@ -384,15 +486,21 @@ function handleText(raw: string): void {
       if (canvas && ready.width > 0 && ready.height > 0) {
         canvas.width = ready.width;
         canvas.height = ready.height;
+        frameSize.value = { width: ready.width, height: ready.height };
       }
-      connected.value = true;
-      starting.value = false;
-      emit('ready');
+      markReady();
       return;
     }
     configureDecoder(ready);
-    starting.value = false;
-    emit('ready');
+    markReady();
+    return;
+  }
+  if (message.t === 'rotated') {
+    // 旋转 / 热切画质后编码器重启，参数集变了，必须重建解码器
+    const ready = message as unknown as StreamReady;
+    if (ready.codec === 'jpeg' || ready.platform === 'ios') return;
+    configureDecoder(ready);
+    send({ t: 'requestIdr' });
     return;
   }
   if (message.t === 'role') {
@@ -415,6 +523,16 @@ function handleText(raw: string): void {
       ? (message.viewers as StreamViewerInfo[])
       : [];
     emit('viewer-list', list);
+    return;
+  }
+  if (message.t === 'volume') {
+    const level = Number(message.level ?? 0);
+    const max = Number(message.max ?? 0);
+    emit('volume', {
+      level: Number.isFinite(level) ? level : 0,
+      max: Number.isFinite(max) && max > 0 ? max : 15,
+      muted: Boolean(message.muted),
+    });
     return;
   }
   if (message.t === 'error') {
@@ -536,6 +654,7 @@ async function drawIosFrame(data: Uint8Array): Promise<void> {
   if (canvas) {
     if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
     if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
+    frameSize.value = { width: bitmap.width, height: bitmap.height };
     const context = canvas.getContext('2d');
     if (context) {
       context.drawImage(bitmap, 0, 0);
@@ -1126,6 +1245,13 @@ function setScreen(on: boolean): void {
   sendLocal({ t: 'screen', on });
 }
 
+/** 直连设备热切换画质：只让 App 重启编码器，不断开投屏会话。 */
+function setQuality(next: 'low' | 'medium' | 'high' | 'ultra'): void {
+  if (isIos.value) return;
+  if (!controller.value) return;
+  sendLocal({ t: 'quality', quality: next });
+}
+
 /** 把当前画面导出成 PNG。 */
 function screenshot(): Promise<Blob | null> {
   if (isIos.value) return iosScreenshotPng();
@@ -1378,10 +1504,25 @@ onMounted(() => {
   pipVideoRef.value?.addEventListener('leavepictureinpicture', releasePipStream);
   startLatencyProbe();
   connect();
+
+  // 容器尺寸变化（设备墙缩放、窗口 resize）时重新计算可用显示尺寸
+  const host = playerRef.value;
+  if (host) {
+    const syncSize = (): void => {
+      containerSize.value = { width: host.clientWidth, height: host.clientHeight };
+    };
+    syncSize();
+    if (typeof ResizeObserver === 'function') {
+      resizeObserver = new ResizeObserver(syncSize);
+      resizeObserver.observe(host);
+    }
+  }
 });
 
 onBeforeUnmount(() => {
   unmounted = true;
+  resizeObserver?.disconnect();
+  resizeObserver = null;
   stopLatencyProbe();
   releasePipStream();
   socket?.close();
@@ -1428,6 +1569,8 @@ defineExpose({
   sendClipboard,
   sendRotate,
   setScreen,
+  setQuality,
+  getFrameSize,
   expandNotification,
   applyInput,
   screenshot,
@@ -1445,10 +1588,11 @@ defineExpose({
 </script>
 
 <template>
-  <div class="player" :class="{ flush }">
+  <div ref="playerRef" class="player" :class="{ flush }">
     <canvas
       ref="canvasRef"
       class="surface"
+      :style="canvasStyle"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
@@ -1456,6 +1600,14 @@ defineExpose({
       @wheel.prevent="onWheel"
       @contextmenu="onContextMenu"
       @auxclick="onAuxClick"
+    />
+    <img
+      v-if="freezeSrc"
+      class="freeze-frame"
+      :class="{ fading: freezeFading }"
+      :style="freezeStyle"
+      :src="freezeSrc"
+      alt=""
     />
     <video
       ref="pipVideoRef"
@@ -1473,9 +1625,9 @@ defineExpose({
     </div>
     <div v-else-if="starting" class="overlay">正在连接设备…</div>
     <div v-else-if="!connected" class="overlay">连接已断开</div>
-    <div v-if="showLatency" class="hud">
+    <div v-if="showLatency || showFps" class="hud">
       <div
-        v-if="latencyLevel"
+        v-if="showLatency && latencyLevel"
         class="latency"
         :class="latencyLevel"
         :title="`浏览器到服务器往返 ${latencyMs}ms`"
@@ -1484,7 +1636,7 @@ defineExpose({
         <span class="latency-label">延迟 {{ latencyLabel }}</span>
         <span class="latency-value">{{ latencyMs }}ms</span>
       </div>
-      <div v-if="connected" class="latency fps" title="实际渲染帧率">
+      <div v-if="showFps && connected" class="latency fps" title="实际渲染帧率">
         <span class="latency-dot" />
         <span class="latency-label">FPS</span>
         <span class="latency-value">{{ fps }}</span>
@@ -1522,6 +1674,24 @@ defineExpose({
   cursor: crosshair;
   outline: none;
   border-radius: 6px;
+  transform-origin: center center;
+  transition: transform 120ms ease-out;
+}
+
+/* 切画质 / 重建解码器时盖住旧画面，新帧出来后再淡出 */
+.freeze-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  border-radius: 6px;
+  opacity: 1;
+  transition: opacity 240ms ease;
+}
+
+.freeze-frame.fading {
+  opacity: 0;
 }
 
 .pip-video {

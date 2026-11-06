@@ -1,0 +1,7 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ADH Portal</string>
+    <string name="a11y_name">ADH Portal 控制</string>
+    <string name="a11y_desc">允许 ADH 控制台读取界面并执行点击、滑动、返回等操作。仅用于远程协助。</string>
+    <string name="ime_name">ADH 输入法</string>
+</resources>

@@ -1,4 +1,4 @@
-import fastifyStatic from '@fastify/static';
+﻿import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import Fastify, {
   type FastifyBaseLogger,
@@ -37,6 +37,7 @@ import { loadDashboard } from './stats/dashboard.js';
 import { SettingsService } from './settings/service.js';
 import { isAdminRole } from './auth/service.js';
 import { registerSettingsRoutes } from './http/settings-routes.js';
+import { registerPortalRoutes } from './http/portal-routes.js';
 import { registerAiRoutes } from './http/ai-routes.js';
 import { AiChatStore } from './ai/history.js';
 import { ApiKeyService } from './auth/api-keys.js';
@@ -165,6 +166,10 @@ async function main(): Promise<void> {
 
     const path = stripBase(rawPath);
     const isApi = path.startsWith('/api');
+    // agent 自身上传缩略图：路由内部用 agent key 校验，不走用户登录
+    if (path.startsWith('/api/agent/')) return;
+    // agent 下载安装包：路由内部用 agent key 校验
+    if (path.startsWith('/api/packages/') && path.endsWith('/download')) return;
     const isBrowserWs =
       path === WS_PATHS.web || path.startsWith(`${WS_PATHS.stream}/`);
 
@@ -276,6 +281,7 @@ async function main(): Promise<void> {
       hub,
       thumbnails,
       commands,
+      settings,
       serverVersion: SERVER_VERSION,
       logger,
     });
@@ -323,6 +329,13 @@ async function main(): Promise<void> {
     });
 
     await registerSettingsRoutes(scope, { settings });
+
+    registerPortalRoutes(scope, {
+      settings,
+      port: config.port,
+      basePath,
+      version: SERVER_VERSION,
+    });
 
     registerAiRoutes(scope, {
       queries,
@@ -505,3 +518,6 @@ main().catch((error: unknown) => {
   console.error(error);
   process.exit(1);
 });
+
+
+

@@ -434,6 +434,20 @@ export class TaskService {
     return true;
   }
 
+  /** 停掉该用户所有未完成任务（退出批量控制时调用）。 */
+  async cancelPending(userId: string): Promise<number> {
+    const rows = await this.deps.db.query<{ id: string }>(
+      `SELECT id FROM adh_tasks
+       WHERE user_id = ? AND status IN ('queued', 'running')`,
+      [userId],
+    );
+    let count = 0;
+    for (const row of rows) {
+      if (await this.cancel(userId, row.id)) count += 1;
+    }
+    return count;
+  }
+
   private async pickDevice(input: CreateTaskInput): Promise<DeviceSummary> {
     const devices = await this.deps.queries.listDevices();
     const inUse = new Set(this.deps.streams.listInUseDeviceIds());

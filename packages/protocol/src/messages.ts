@@ -1,4 +1,4 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 /* ------------------------------------------------------------------ */
 /* 基础类型                                                            */
@@ -162,6 +162,8 @@ export type IosTunnelStatus = z.infer<typeof IosTunnelStatusSchema>;
 
 export const AgentRuntimeInfoSchema = z.object({
   name: z.string().min(1),
+  /** 设备直连 App 的稳定实例 ID；普通宿主机 Agent 不填。 */
+  instanceId: z.string().optional(),
   os: z.string(),
   arch: z.string(),
   version: z.string(),
@@ -173,6 +175,8 @@ export type AgentRuntimeInfo = z.infer<typeof AgentRuntimeInfoSchema>;
 export const AgentSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  /** host = 宿主机 Agent；portal = 设备内直连 App。 */
+  kind: z.enum(['host', 'portal']).default('host'),
   /** agent 上报的宿主机名称，只读。 */
   hostName: z.string().optional(),
   os: z.string(),
@@ -294,6 +298,9 @@ export const DeviceActionSchema = z.enum([
   'input.text',
   'input.rotate',
   'screenshot',
+  /** 设备直连：读取电量 / 运行状态（内存、存储、网络、开机时长）。 */
+  'battery',
+  'runtime',
   'app.install',
   'app.uninstall',
   'app.list',
@@ -404,6 +411,8 @@ export const StreamViewerInfoSchema = z.object({
   username: z.string(),
   displayName: z.string().optional(),
   controller: z.boolean().default(false),
+  /** 进入时间（毫秒时间戳），用于显示「已看多久」。 */
+  joinedAt: z.number().default(0),
 });
 export type StreamViewerInfo = z.infer<typeof StreamViewerInfoSchema>;
 
@@ -485,6 +494,12 @@ export const ViewerPanelSchema = z.object({
   panel: z.enum(['notification', 'settings']).default('notification'),
 });
 
+/** 热切换画质：直连设备只重启编码器，不重建投屏会话。 */
+export const ViewerQualitySchema = z.object({
+  t: z.literal('quality'),
+  quality: z.enum(['low', 'medium', 'high', 'ultra']),
+});
+
 /** viewer 发送的请求关键帧（背压恢复时使用）。 */
 export const ViewerRequestIdrSchema = z.object({
   t: z.literal('requestIdr'),
@@ -549,6 +564,7 @@ export const ViewerToStreamMessageSchema = z.discriminatedUnion('t', [
   ViewerRotateSchema,
   ViewerScreenSchema,
   ViewerPanelSchema,
+  ViewerQualitySchema,
   ViewerRequestIdrSchema,
   ViewerIosInputSchema,
 ]);
@@ -596,3 +612,4 @@ export function parseViewerMessage(raw: string): ViewerToStreamMessage | null {
     return null;
   }
 }
+

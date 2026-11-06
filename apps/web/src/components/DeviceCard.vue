@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   NButton,
@@ -10,6 +10,7 @@ import {
 } from 'naive-ui';
 import { LogoAndroid, LogoApple } from '@vicons/ionicons5';
 import {
+  DesktopOutline,
   EllipsisVerticalOutline,
   FingerPrintOutline,
   HardwareChipOutline,
@@ -18,6 +19,7 @@ import {
   PersonOutline,
   PhonePortraitOutline,
   PlayCircleOutline,
+  TrashOutline,
   ResizeOutline,
   SparklesOutline,
   SpeedometerOutline,
@@ -47,7 +49,9 @@ const emit = defineEmits<{
   control: [device: DeviceSummary];
   select: [id: string];
   kick: [device: DeviceSummary];
+  disconnect: [device: DeviceSummary];
   lock: [device: DeviceSummary];
+  remove: [device: DeviceSummary];
   refresh: [];
 }>();
 
@@ -84,12 +88,25 @@ const moreOptions = computed<DropdownOption[]>(() => {
     });
   }
 
+  if (isAdmin.value) {
+    options.push({
+      label: '删除设备',
+      key: 'remove',
+      icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
+      props: { style: 'color: #dc2626' },
+    });
+  }
+
   return options;
 });
 
 async function onMoreSelect(key: string): Promise<void> {
   if (key === 'lock') {
     emit('lock', props.device);
+    return;
+  }
+  if (key === 'remove') {
+    emit('remove', props.device);
     return;
   }
   if (key !== 'start-wda') return;
@@ -115,6 +132,11 @@ async function onMoreSelect(key: string): Promise<void> {
     wdaBusy.value = false;
   }
 }
+
+const isPortal = computed(() => props.device.capabilities?.includes('portal') ?? false);
+const connectionTitle = computed(() =>
+  isPortal.value ? '直连' : `Agent · ${props.agentName}`,
+);
 
 const controlName = computed(() =>
   props.device.control
@@ -159,6 +181,13 @@ const canKick = computed(
     props.device.control?.userId !== user.value?.id,
 );
 
+/** 当前控制者就是自己：可以主动断开释放控制权。 */
+const isMine = computed(
+  () =>
+    Boolean(props.device.control) &&
+    props.device.control?.userId === user.value?.id,
+);
+
 /** 别人正在控制时按钮显示「查看」，自己在控制时显示「继续控制」。 */
 const controlLabel = computed(() => {
   if (props.device.locked) return '已锁定';
@@ -189,6 +218,11 @@ const statusMeta = computed(() => {
       return { type: 'default' as const, label: '离线' };
   }
 });
+
+/** 缩略图上的合并标签：图标区分直连/Agent，文字表示在线状态，悬浮看完整说明。 */
+const connTitle = computed(() =>
+  `${connectionTitle.value} · ${statusMeta.value.label}`,
+);
 
 /** 标题优先显示机型市场名（如 iPhone 16 Pro），回退到设备名。 */
 const titleText = computed(
@@ -351,12 +385,17 @@ const wifiTitle = computed(() => {
 
       <div class="thumb-badges">
         <n-tag
-          class="status-tag"
+          class="conn-tag"
           size="small"
           :type="statusMeta.type"
           :bordered="false"
           round
+          :title="connTitle"
         >
+          <n-icon :size="15">
+            <PhonePortraitOutline v-if="isPortal" />
+            <DesktopOutline v-else />
+          </n-icon>
           {{ statusMeta.label }}
         </n-tag>
         <n-tag
@@ -372,7 +411,13 @@ const wifiTitle = computed(() => {
     </div>
 
     <div class="body">
-      <div class="title" :title="titleText">{{ titleText }}</div>
+      <div class="title" :title="titleText">
+        <n-icon class="conn-icon" :size="12" :title="connectionTitle">
+          <PhonePortraitOutline v-if="isPortal" />
+          <DesktopOutline v-else />
+        </n-icon>
+        <span class="title-text">{{ titleText }}</span>
+      </div>
       <div class="subtitle">{{ subtitle }}</div>
 
       <div class="kv-grid">
@@ -423,17 +468,25 @@ const wifiTitle = computed(() => {
       </div>
 
     <div class="actions">
-      <n-button size="tiny" quaternary @click="emit('detail', device)">
+      <n-button class="detail-btn" size="tiny" quaternary @click="emit('detail', device)">
         详情
       </n-button>
       <n-button
+        class="control-btn"
         size="tiny"
-        type="primary"
-        secondary
         :disabled="!canControl"
         @click="emit('control', device)"
       >
         {{ controlLabel }}
+      </n-button>
+      <n-button
+        v-if="isMine"
+        size="tiny"
+        type="error"
+        quaternary
+        @click="emit('disconnect', device)"
+      >
+        断开
       </n-button>
       <n-button
         v-if="canKick"
@@ -561,8 +614,14 @@ const wifiTitle = computed(() => {
   z-index: 2;
 }
 
-.status-tag {
+.conn-tag {
   backdrop-filter: blur(6px);
+}
+
+.conn-tag :deep(.n-tag__content) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .battery-tag {
@@ -683,11 +742,23 @@ const wifiTitle = computed(() => {
 
 .title {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 15px;
   font-weight: 600;
-  white-space: nowrap;
+}
+
+.title-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conn-icon {
+  flex: none;
+  color: var(--text-dim);
 }
 
 .subtitle {
@@ -764,8 +835,38 @@ const wifiTitle = computed(() => {
   flex: 1;
 }
 
+/* 详情按钮窄一点，把空间留给控制 / 断开 */
+.actions :deep(.detail-btn) {
+  flex: 0 0 auto;
+  min-width: 54px;
+}
+
+/* 控制按钮：浅色底 + 深色文字，去掉 secondary 的边框 */
+.actions :deep(.n-button.control-btn) {
+  border: none;
+  background: #e4e4e7;
+  color: #18181b;
+  font-weight: 500;
+  transition: background-color 0.15s ease;
+}
+
+.actions :deep(.n-button.control-btn:hover) {
+  background: #d4d4d8;
+  color: #18181b;
+}
+
+.actions :deep(.n-button.control-btn:disabled) {
+  background: #f4f4f5;
+  color: #a1a1aa;
+}
+
 .actions :deep(.more-btn) {
   flex: none;
   width: 28px;
 }
 </style>
+
+
+
+
+

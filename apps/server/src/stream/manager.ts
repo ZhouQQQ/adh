@@ -28,7 +28,11 @@ import type { SettingsService } from '../settings/service.js';
 import type { WebHub } from '../ws/web-hub.js';
 
 /** 最后一个观看者离开后，保留会话等待重连的时间。 */
-const VIEWER_IDLE_TIMEOUT_MS = 5 * 60_000;
+/**
+ * viewer 全部离开后会话保留多久。
+ * 时间给长一点：用户经常退出控制页再进来，不希望每次都让手机重新授权投屏。
+ */
+const VIEWER_IDLE_TIMEOUT_MS = 30 * 60_000;
 /** 控制者异常掉线后给原用户的重连窗口，超时才允许其他人接管。 */
 const CONTROLLER_RECONNECT_WINDOW_MS = 30_000;
 const AGENT_ATTACH_TIMEOUT_MS = 15_000;
@@ -62,6 +66,8 @@ interface StreamSession {
   controllerSince: number;
   /** 最近一次的控制者用户 id，刷新重连时用来恢复控制权 */
   controllerUserId: string | null;
+  /** 控制者用户信息：断开后的 30 秒重连窗口内仍然算他在控制 */
+  controllerUser: AuthUser | null;
   /** 控制者断开的时间 */
   controllerLeftAt: number;
   /** 控制者掉线后的重连窗口计时器 */
@@ -95,6 +101,8 @@ interface ViewerMeta {
   user?: AuthUser;
   ip?: string;
   lastTouch: number;
+  /** 进入会话的时间，用于「已看多久」。 */
+  joinedAt: number;
 }
 
 /** socket 对应的用户信息，用于写设备操作日志。 */
@@ -208,19 +216,22 @@ export class StreamManager {
     return false;
   }
 
-  /** 该设备是否已有控制会话（含 iOS 的心跳式控制权）。 */
+  /** 该设备是否已被真正占用：会话建立但还没收到首帧不算。 */
   isInUse(deviceId: string): boolean {
     if (this.taskLocks.has(deviceId)) return true;
     if (this.liveIosControl(deviceId)) return true;
     return [...this.sessions.values()].some(
-      (session) => session.device.id === deviceId && !session.closed,
+      (session) =>
+        session.device.id === deviceId &&
+        !session.closed &&
+        session.controllerSince > 0,
     );
   }
 
   listInUseDeviceIds(): string[] {
     const ids = new Set<string>(this.taskLocks.keys());
     for (const session of this.sessions.values()) {
-      if (!session.closed) ids.add(session.device.id);
+      if (!session.closed && session.controllerSince > 0) ids.add(session.device.id);
     }
     // iOS 没有投屏会话，控制权只存在于 iosControls 里
     for (const deviceId of [...this.iosControls.keys()]) {
@@ -236,14 +247,24 @@ export class StreamManager {
     if (ios) return this.toControlInfo(ios);
 
     const session = this.findSessionByDevice(deviceId);
-    if (!session || !session.controller) return undefined;
-    const meta = viewerMeta.get(session.controller);
-    if (!meta?.user) return undefined;
+    if (!session) return undefined;
+    // 还没收到首帧，不算真正开始控制
+    if (!session.controllerSince) return undefined;
+
+    // 控制者刚离开（返回列表 / 刷新页面）时，30 秒重连窗口内仍然算他在控制，
+    // 列表上要能继续看到「谁在控制」，不能一离开就消失。
+    const activeUser = session.controller
+      ? viewerMeta.get(session.controller)?.user
+      : undefined;
+    const user = activeUser ?? session.controllerUser ?? undefined;
+    if (!user) return undefined;
+    if (!session.controller && !session.controllerUserId) return undefined;
+
     return {
-      userId: meta.user.id,
-      username: meta.user.username,
-      displayName: meta.user.displayName ?? undefined,
-      role: meta.user.role,
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName ?? undefined,
+      role: user.role,
       since: session.controllerSince,
     };
   }
@@ -513,6 +534,7 @@ export class StreamManager {
     session.controller = target;
     session.controllerSince = Date.now();
     session.controllerUserId = user.id;
+    session.controllerUser = user;
     session.controllerLeftAt = 0;
     this.clearControllerRelease(session);
     this.touchActivity(session);
@@ -580,7 +602,13 @@ export class StreamManager {
   ): Promise<{ sessionId: string; reused: boolean }> {
     // 同一台设备复用已有会话：第二个进入的人只会拿到只读权限
     const reuse = this.findSessionByDevice(deviceId);
-    if (reuse) return { sessionId: reuse.id, reused: true };
+    if (reuse) {
+      // 远程会话的 agent 连接为空，说明推流早就断了，这是僵尸会话，不能再复用
+      if (reuse.local || reuse.agentSocket) {
+        return { sessionId: reuse.id, reused: true };
+      }
+      this.destroy(reuse.id, '会话已失效，重新建立');
+    }
 
     const device = await this.deps.queries.getDevice(deviceId);
     if (!device) throw new Error('设备不存在');
@@ -603,6 +631,7 @@ export class StreamManager {
       controller: null,
       controllerSince: 0,
       controllerUserId: null,
+      controllerUser: null,
       controllerLeftAt: 0,
       controllerReleaseTimer: null,
       allowViewers: true,
@@ -643,13 +672,15 @@ export class StreamManager {
     if (session.viewers.size === 0) return;
     const viewers = [...session.viewers]
       .map((socket) => {
-        const user = viewerMeta.get(socket)?.user;
+        const meta = viewerMeta.get(socket);
+        const user = meta?.user;
         if (!user) return null;
         return {
           userId: user.id,
           username: user.username,
           displayName: user.displayName ?? undefined,
           controller: session.controller === socket,
+          joinedAt: meta.joinedAt || 0,
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
@@ -672,6 +703,7 @@ export class StreamManager {
         return;
       }
       session.controllerUserId = null;
+      session.controllerUser = null;
       session.controllerLeftAt = Date.now();
       const payload = {
         t: 'control.released' as const,
@@ -723,43 +755,72 @@ export class StreamManager {
       return;
     }
 
+    // 推流连接已经断了（App 掉线重连过）：viewer 进来时补请求一次，
+    // 否则会一直卡在「正在连接设备」。
+    if (!session.local && !session.agentSocket && !session.agentTimer) {
+      const live = this.deps.registry.get(session.device.agentId);
+      if (live) this.requestRemote(session, live.socket);
+    }
+
     const previousController = session.controller;
     // 已有人控制时，只有原控制者本人重连才能恢复，其他人保持只读
     const sameUser = Boolean(user && session.controllerUserId === user.id);
     // iOS 的控制权由 ios/control 接口单独管理，会话里只负责推流
+    // 同一用户刷新页面时，旧 socket 可能还没断，这里允许新连接直接接管。
     const becomesController =
       session.device.platform !== 'ios' &&
-      !previousController &&
+      (!previousController || sameUser) &&
       (!session.controllerUserId || sameUser);
 
     session.viewers.add(socket);
     if (becomesController) {
       // 同一用户刷新页面重连时保留原来的开始时间，计时不能重置
       const resumed = sameUser && session.controllerSince > 0;
+      if (previousController && previousController !== socket) {
+        // 旧连接让出控制权（通常是刷新前的那个 socket）
+        sendJson(previousController, { t: 'role', controller: false });
+      }
       session.controller = socket;
-      if (!resumed) session.controllerSince = Date.now();
+      // 计时从「真正收到首帧、看到画面」开始，ready 之前不算占用
+      if (!resumed) session.controllerSince = 0;
       session.controllerUserId = user?.id ?? null;
+      session.controllerUser = user ?? null;
       session.controllerLeftAt = 0;
       this.clearControllerRelease(session);
       this.touchActivity(session);
     }
 
-    viewerMeta.set(socket, { user, ip, lastTouch: 0 });
+    // 同一用户刷新页面时沿用原来的进入时间，避免时长被重置
+    const existingJoinedAt = (() => {
+      if (!user) return 0;
+      for (const viewer of session.viewers) {
+        const meta = viewerMeta.get(viewer);
+        if (meta?.user?.id === user.id && meta.joinedAt > 0) return meta.joinedAt;
+      }
+      return 0;
+    })();
+    viewerMeta.set(socket, {
+      user,
+      ip,
+      lastTouch: 0,
+      joinedAt: existingJoinedAt || Date.now(),
+    });
 
-    // 控制权发生变化时立刻记录使用并推送设备卡片（控制者、使用中）
-    if (becomesController) void this.recordUsage(session.device.id);
+    // 使用次数也挪到 ready 之后记录：连不上就不算一次使用
 
-    if (user) {
+    if (user && !becomesController) {
       void this.deps.deviceLogs.write({
         deviceId: session.device.id,
         deviceName: session.device.name,
         userId: user.id,
         username: user.username,
-        action: becomesController ? 'control.start' : 'control.view',
-        detail: becomesController ? '获得控制权' : '只读观看',
+        action: 'control.view',
+        detail: '只读观看',
         ip,
       });
     }
+    // 控制者的「开始控制」日志延到首帧到达时再写，
+    // 避免点了控制但根本没连上也记一条。
 
     this.clearIdleTimer(session);
 
@@ -787,6 +848,18 @@ export class StreamManager {
       session.viewers.delete(socket);
       if (session.controller === socket) {
         const leavingUser = viewerMeta.get(socket)?.user;
+        // 真正控制过才记一条结束日志
+        if (leavingUser && session.controllerSince > 0) {
+          void this.deps.deviceLogs.write({
+            deviceId: session.device.id,
+            deviceName: session.device.name,
+            userId: leavingUser.id,
+            username: leavingUser.username,
+            action: 'control.stop',
+            detail: '结束控制设备',
+            ip: viewerMeta.get(socket)?.ip,
+          });
+        }
         session.controller = null;
         session.controllerLeftAt = Date.now();
         // 保留 controllerUserId：只有本人重连能恢复，其他观看者保持只读
@@ -810,7 +883,16 @@ export class StreamManager {
       return;
     }
     const agent = await this.deps.queries.findAgentByToken(token);
-    if (!agent || agent.id !== session.device.agentId) {
+    // 设备直连 App 用平台全局 key 建流；普通 Agent 仍用各自的 token
+    let authorized = Boolean(agent && agent.id === session.device.agentId);
+    if (!agent) {
+      const portalKey = await this.deps.settings.getPortalKey();
+      if (token === portalKey) {
+        const owner = await this.deps.queries.getAgent(session.device.agentId);
+        authorized = owner?.kind === 'portal';
+      }
+    }
+    if (!authorized) {
       sendJson(socket, { t: 'error', message: '无效的 agent 凭证' });
       socket.close();
       return;
@@ -832,8 +914,36 @@ export class StreamManager {
         if (viewer.readyState === 1) viewer.send(message);
       }
       try {
-        const parsed = JSON.parse(message) as { t?: string };
-        if (parsed.t === 'ready') session.meta = parsed as StreamReady;
+        const parsed = JSON.parse(message) as { t?: string; message?: unknown };
+        if (parsed.t === 'ready') {
+          session.meta = parsed as StreamReady;
+          // 首帧配置到位才算「连上了」：这时候才开始计时、算一次使用、广播占用
+          if (session.controller && !session.controllerSince) {
+            session.controllerSince = Date.now();
+            this.broadcastViewerList(session);
+            sendJson(session.controller, { t: 'role', controller: true });
+            void this.recordUsage(session.device.id);
+            const controlMeta = viewerMeta.get(session.controller);
+            if (controlMeta?.user) {
+              void this.deps.deviceLogs.write({
+                deviceId: session.device.id,
+                deviceName: session.device.name,
+                userId: controlMeta.user.id,
+                username: controlMeta.user.username,
+                action: 'control.start',
+                detail: '开始控制设备',
+                ip: controlMeta.ip,
+              });
+            }
+          }
+        }
+        // 设备端推流失败时把原因打到 server 日志，否则前端只会一直转圈
+        if (parsed.t === 'error') {
+          this.deps.logger.warn(
+            { sessionId, deviceId: session.device.id, err: String(parsed.message ?? '') },
+            'stream agent error',
+          );
+        }
       } catch {
         /* 非 JSON 帧忽略 */
       }

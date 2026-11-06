@@ -27,10 +27,13 @@ export function createAdhMcpServer(
         '',
         '可用工具与能力：',
         '- list_devices：列出设备农场中的 Android / iOS 设备，默认只返回在线、未锁定、空闲设备；',
+        '- get_device：查看单台设备的详细信息，包括分辨率、锁定状态和当前控制者；',
         '- run_task：用自然语言在指定或自动选择的空闲设备上创建 AI 任务，立即返回 taskId；',
+        '- batch_task：一句话拆成多台设备的任务（并行或顺序），适合批量操作；',
         '- get_task：查询任务状态、执行步骤和最终结果；任务有录制时同时返回 replayUrl（可直接发给用户查看执行过程）；',
         '- list_tasks：列出当前 API Key 对应用户最近创建的任务；',
-        '- cancel_task：取消排队中或执行中的任务。',
+        '- cancel_task：取消排队中或执行中的任务；',
+        '- cancel_all_tasks：停掉当前用户所有未完成任务。',
         '',
         '推荐流程：先用 list_devices 选择空闲设备，再用 run_task 下发任务；run_task 是异步的，之后每 1 秒调用 get_task 轮询，',
         '直到 status 变成 succeeded / failed / cancelled / timeout。任务执行可能需要几十秒，不要只查询一次就下结论。',
@@ -70,6 +73,23 @@ export function createAdhMcpServer(
   );
 
   server.registerTool(
+    'get_device',
+    {
+      title: '查看设备详情',
+      description:
+        '查询单台设备的详细信息：在线状态、分辨率、是否锁定、当前控制者（谁在用、从什么时候开始）。',
+      inputSchema: {
+        deviceId: z.string().min(1).describe('设备 id，可从 list_devices 获取'),
+      },
+    },
+    async ({ deviceId }) => {
+      const device = await backend.getDevice(deviceId);
+      if (!device) throw new Error('设备不存在');
+      return text(device);
+    },
+  );
+
+  server.registerTool(
     'run_task',
     {
       title: '创建手机任务',
@@ -97,6 +117,29 @@ export function createAdhMcpServer(
       return text({
         task,
         hint: '任务已进入队列，请每秒轮询 get_task，直到 status 为 succeeded/failed/cancelled/timeout；结束后可用返回的 replayUrl 查看执行过程。',
+      });
+    },
+  );
+
+  server.registerTool(
+    'batch_task',
+    {
+      title: '批量任务',
+      description:
+        '把一句话拆成多台设备的任务。用户说「一起 / 都 / 每台」时用这个；会自动判断并行还是顺序执行，并返回每台设备对应的任务 id。',
+      inputSchema: {
+        instruction: z.string().min(1).describe('要执行的自然语言任务'),
+        deviceIds: z
+          .array(z.string())
+          .optional()
+          .describe('候选设备 id 列表；不传则用全部在线空闲设备'),
+      },
+    },
+    async (args) => {
+      const result = await backend.batchTask(args);
+      return text({
+        ...((result as object) ?? {}),
+        hint: '每个任务都要分别轮询 get_task；批量任务可用 cancel_all_tasks 一次性停止。',
       });
     },
   );
@@ -142,6 +185,17 @@ export function createAdhMcpServer(
       },
     },
     async ({ taskId }) => text(await backend.cancelTask(taskId)),
+  );
+
+  server.registerTool(
+    'cancel_all_tasks',
+    {
+      title: '停止全部任务',
+      description:
+        '停掉当前用户所有排队中 / 执行中的任务，用于批量任务中途放弃。',
+      inputSchema: {},
+    },
+    async () => text(await backend.cancelAllTasks()),
   );
 
   return server;

@@ -14,6 +14,7 @@ import type { Queries } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
 import type { CommandBus } from '../command-bus.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
+import type { SettingsService } from '../settings/service.js';
 import type { WebHub } from './web-hub.js';
 
 export interface AgentChannelDeps {
@@ -22,6 +23,7 @@ export interface AgentChannelDeps {
   hub: WebHub;
   thumbnails: ThumbnailStore;
   commands: CommandBus;
+  settings: SettingsService;
   serverVersion: string;
   logger: Logger;
 }
@@ -70,12 +72,19 @@ export function registerAgentChannel(
       token: string,
       runtime: AgentRuntimeInfo,
     ): Promise<void> => {
-      const row = await queries.findAgentByToken(token);
+      // 普通宿主机 Agent 用独立 key；设备直连 App 用平台全局 key，
+      // 每台手机按 instanceId 复用/创建自己的 agent 行，避免互相顶掉。
+      let row = await queries.findAgentByToken(token);
       if (!row) {
-        logger.warn({ host: runtime.name }, 'rejected agent: unknown key');
-        send({ t: 'stop', reason: 'invalid key' });
-        socket.close(4001, 'invalid key');
-        return;
+        const portalKey = await deps.settings.getPortalKey();
+        if (token !== portalKey) {
+          logger.warn({ host: runtime.name }, 'rejected agent: unknown key');
+          send({ t: 'stop', reason: 'invalid key' });
+          socket.close(4001, 'invalid key');
+          return;
+        }
+        const instanceId = runtime.instanceId?.trim() || runtime.name;
+        row = await queries.ensurePortalAgent(instanceId, runtime);
       }
 
       agentId = row.id;
@@ -107,6 +116,8 @@ export function registerAgentChannel(
         agentId,
         heartbeatSec: AGENT_HEARTBEAT_SEC,
         serverVersion: deps.serverVersion,
+        // 直连设备额外下发本行 token，用于流 / 缩略图 / 安装包下载
+        token: row.kind === 'portal' ? row.token : undefined,
       });
 
       void broadcastAgent(agentId, true);
@@ -189,6 +200,13 @@ export function registerAgentChannel(
         return;
       }
       if (message.t === 'cmd.result') {
+        // 失败时把设备端返回的原因记下来，方便排查「点了没反应」
+        if (!message.ok) {
+          logger.warn(
+            { agentId, id: message.id, error: message.error },
+            'agent command failed',
+          );
+        }
         deps.commands.handleResult(message);
         return;
       }
