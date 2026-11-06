@@ -18,7 +18,7 @@ jobs:
   # 1. 直连 App（Android APK）
   # ---------------------------------------------------------------- #
   portal-apk:
-    name: Build portal APK
+    name: adh-portal apk package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: portal-apk
+          name: adh-portal-apk
           path: apps/portal-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
@@ -80,7 +80,7 @@ jobs:
       # 把 APK 放回 Gradle 产物路径，package:server 会把它复制进包内 portal/
       - uses: actions/download-artifact@v4
         with:
-          name: portal-apk
+          name: adh-portal-apk
           path: apps/portal-android/app/build/outputs/apk/debug
 
       - name: Build web
@@ -116,13 +116,14 @@ jobs:
       - name: Collect files
         run: |
           mkdir -p release
-          cp artifacts/portal-apk/app-debug.apk "release/adh-portal-${ADH_VERSION}.apk"
+          cp artifacts/adh-portal-apk/app-debug.apk "release/adh-portal-apk-${ADH_VERSION}.apk"
           cp artifacts/server-agent/*.zip release/
           cp artifacts/server-agent/*.json release/
           ls -lh release
 
       - uses: softprops/action-gh-release@v2
         with:
+          name: ADH ${{ github.ref_name }}
           files: release/*
           generate_release_notes: true
           fail_on_unmatched_files: true
