@@ -121,6 +121,20 @@ jobs:
           cp artifacts/server-agent/*.json release/
           ls -lh release
 
+      # 以前叫 adh-portal-<tag>.apk，重打包时会残留一份旧文件，这里顺手清掉
+      - name: Remove stale APK assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          names=$(gh release view "${{ github.ref_name }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          for name in $names; do
+            case "$name" in
+              adh-portal-v*.apk)
+                gh release delete-asset "${{ github.ref_name }}" "$name" -y
+                ;;
+            esac
+          done
+
       - uses: softprops/action-gh-release@v2
         with:
           name: ADH ${{ github.ref_name }}
