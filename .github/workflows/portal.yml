@@ -101,6 +101,7 @@ jobs:
             dist/adh-server-darwin.zip
             dist/adh-agent-win32.zip
             dist/adh-agent-darwin.zip
+            dist/adh-agent-manifest.json
           if-no-files-found: error
 
   # ---------------------------------------------------------------- #
@@ -123,6 +124,7 @@ jobs:
             base=$(basename "$file" .zip)
             cp "$file" "release/${base}-${ADH_VERSION}.zip"
           done
+          cp artifacts/server-agent/adh-agent-manifest.json release/
           ls -lh release
 
       # 清理历史命名：不带版本号的 zip、旧 APK、manifest、已下线的 linux 包
@@ -134,7 +136,7 @@ jobs:
           names=$(gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null || true)
           for name in $names; do
             case "$name" in
-              adh-portal-v*.apk|adh-agent-manifest.json|adh-*-linux.zip|adh-server-win32.zip|adh-server-darwin.zip|adh-agent-win32.zip|adh-agent-darwin.zip)
+              adh-portal-v*.apk|adh-*-linux.zip|adh-server-win32.zip|adh-server-darwin.zip|adh-agent-win32.zip|adh-agent-darwin.zip)
                 gh release delete-asset "$tag" "$name" -y || true
                 ;;
             esac
