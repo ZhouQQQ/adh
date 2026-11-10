@@ -49,7 +49,7 @@ class AgentClient(private val listener: Listener) {
         stopped = true
         connected = false
         handler.removeCallbacksAndMessages(null)
-        socket?.close(1000, "client stop")
+        socket?.close(1000, "user stop")
         socket = null
     }
 
@@ -77,6 +77,8 @@ class AgentClient(private val listener: Listener) {
                     android.util.Log.i("ADH", "agent closed $code $reason")
                     connected = false
                     if (socket === webSocket) socket = null
+                    // 主动 stop 引发的关闭不算「连接中断」，别让通知栏闪一条告警
+                    if (stopped) return
                     listener.onDisconnected(reason.ifBlank { "连接已关闭" })
                     scheduleReconnect()
                 }
@@ -85,6 +87,7 @@ class AgentClient(private val listener: Listener) {
                     android.util.Log.w("ADH", "agent failure", t)
                     connected = false
                     if (socket === webSocket) socket = null
+                    if (stopped) return
                     listener.onDisconnected(t.message ?: "网络错误")
                     scheduleReconnect()
                 }

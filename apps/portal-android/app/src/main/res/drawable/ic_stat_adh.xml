@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知栏小图标：必须是纯白剪影（系统会整体染色），所以只用 alpha 表达形状。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,3h6a1,1 0 0 1 1,1v6a1,1 0 0 1 -1,1h-6a1,1 0 0 1 -1,-1v-6a1,1 0 0 1 1,-1z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14,3h6a1,1 0 0 1 1,1v6a1,1 0 0 1 -1,1h-6a1,1 0 0 1 -1,-1v-6a1,1 0 0 1 1,-1z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,13h6a1,1 0 0 1 1,1v6a1,1 0 0 1 -1,1h-6a1,1 0 0 1 -1,-1v-6a1,1 0 0 1 1,-1z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14,13h6a1,1 0 0 1 1,1v6a1,1 0 0 1 -1,1h-6a1,1 0 0 1 -1,-1v-6a1,1 0 0 1 1,-1z" />
+</vector>

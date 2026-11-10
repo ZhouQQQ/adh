@@ -63,7 +63,7 @@ class PortalService : Service(), AgentClient.Listener {
             stream = null
             agent?.stop()
             agent = null
-            updateNotification("共享屏幕已停止，请在 App 里重新授权")
+            updateNotification(StatusText.PROJECTION_STOPPED)
         }
     }
 
@@ -101,7 +101,7 @@ class PortalService : Service(), AgentClient.Listener {
 
     private fun startAgent() {
         if (!Config.configured) {
-            updateNotification("尚未配置 server 地址和 Key")
+            updateNotification(StatusText.NOT_CONFIGURED)
             PortalState.status = "未配置 server 地址"
             return
         }
@@ -109,7 +109,7 @@ class PortalService : Service(), AgentClient.Listener {
         if (!ProjectionController.hasConsent) {
             PortalState.connected = false
             PortalState.status = "未授权共享屏幕"
-            updateNotification("未授权共享屏幕，请在 App 里点「共享屏幕」")
+            updateNotification(StatusText.NO_PROJECTION)
             return
         }
         if (agent != null) return
@@ -122,7 +122,8 @@ class PortalService : Service(), AgentClient.Listener {
     override fun onConnected() {
         PortalState.connected = true
         try {
-            updateNotification("已连接 ${Config.serverUrl}")
+            updateNotification(StatusText.CONNECTED)
+            PortalState.append("已连接 ${Config.serverUrl}")
             val client = agent ?: return
             val info = DeviceReporter.info(this)
             android.util.Log.i("ADH", "devices.sync ${info}")
@@ -130,18 +131,21 @@ class PortalService : Service(), AgentClient.Listener {
             uploadThumbnail(true)
         } catch (error: Exception) {
             android.util.Log.e("ADH", "onConnected failed", error)
-            updateNotification("同步设备信息失败：${error.message}")
+            PortalState.append("同步设备信息失败：${error.message}")
+            updateNotification(StatusText.SYNC_FAILED)
         }
     }
 
     override fun onDisconnected(reason: String) {
         PortalState.connected = false
-        updateNotification("连接中断：$reason")
+        PortalState.append("连接中断：$reason")
+        updateNotification(StatusText.reconnecting(reason))
     }
 
     override fun onStopped(reason: String) {
         PortalState.connected = false
-        updateNotification("已停止：$reason")
+        PortalState.append("连接已结束：$reason")
+        updateNotification(StatusText.stopped(reason))
         stream?.stop(reason)
         stream = null
         agent = null
@@ -219,9 +223,9 @@ class PortalService : Service(), AgentClient.Listener {
             // 控制台退出是常态，别提示成「投屏已结束」，让用户以为要重新授权
             updateNotification(
                 if (reason.isNullOrBlank() || reason.contains("控制台")) {
-                    "待命，等待控制台连接"
+                    StatusText.STANDBY
                 } else {
-                    "投屏已结束：$reason"
+                    StatusText.streamEnded(reason)
                 },
             )
         }
@@ -631,11 +635,12 @@ class PortalService : Service(), AgentClient.Listener {
 
     private fun reply(id: String, ok: Boolean, data: Any? = null, error: String? = null) {
         agent?.send(Protocol.cmdResult(id, ok, data, error))
-        if (!ok && !error.isNullOrBlank()) updateNotification(error)
+        // 指令失败只写日志：通知栏是给用户看连接状态的，不该被技术报错刷屏
+        if (!ok && !error.isNullOrBlank()) PortalState.append("指令失败：$error")
     }
 
     private fun ensureForeground(withProjection: Boolean) {
-        val notification = buildNotification(lastStatus.ifBlank { "正在连接 ${Config.serverUrl}" })
+        val notification = buildNotification(lastStatus.ifBlank { StatusText.CONNECTING })
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // 只能在真正要建立投屏的那一刻带上 mediaProjection 类型：
             // Android 14+ 声明了该类型后若迟迟不调用 getMediaProjection()，系统会直接抛异常。
@@ -655,9 +660,13 @@ class PortalService : Service(), AgentClient.Listener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "ADH Portal",
+                "设备连接状态",
                 NotificationManager.IMPORTANCE_LOW,
-            ).apply { description = "保持设备与控制台的连接" }
+            ).apply {
+                description = "显示设备与控制台的连接情况，静默常驻，不会响铃"
+                setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
@@ -676,11 +685,18 @@ class PortalService : Service(), AgentClient.Listener {
             Notification.Builder(this)
         }
         return builder
-            .setContentTitle("ADH Portal")
+            .setContentTitle(StatusText.TITLE)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_stat_adh)
+            .setLargeIcon(
+                android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_brand_round),
+            )
             .setContentIntent(intent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
             .build()
     }
 
