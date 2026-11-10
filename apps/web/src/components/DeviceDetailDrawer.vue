@@ -127,6 +127,15 @@ const agentName = computed(() => {
   return agents.value.find((agent) => agent.id === device.agentId)?.name ?? '未知节点';
 });
 
+/** 直连设备记录的是「谁用自己的 Key 连的」，只用于展示，不限制管理权限。 */
+const portalOwner = computed(() => {
+  const device = props.device;
+  if (!device) return '';
+  const agent = agents.value.find((item) => item.id === device.agentId);
+  if (agent?.kind !== 'portal') return '';
+  return agent.ownerUsername ?? '';
+});
+
 const statusMeta = computed(() => {
   switch (props.device?.status) {
     case 'online':
@@ -357,6 +366,9 @@ async function onImageSelected(event: Event): Promise<void> {
             >
               {{ device.capabilities?.includes('portal') ? '设备无线直连（无需宿主机）' : '宿主机 Agent' }}
             </n-tag>
+          </n-descriptions-item>
+          <n-descriptions-item v-if="portalOwner" label="连接账号">
+            <CopyValue :value="portalOwner" />
           </n-descriptions-item>
           <n-descriptions-item label="平台">
             <CopyValue :value="platformLabel" />

@@ -285,7 +285,7 @@ async function main(): Promise<void> {
       hub,
       thumbnails,
       commands,
-      settings,
+      apiKeys,
       serverVersion: SERVER_VERSION,
       logger,
     });
@@ -335,7 +335,7 @@ async function main(): Promise<void> {
     await registerSettingsRoutes(scope, { settings });
 
     registerPortalRoutes(scope, {
-      settings,
+      apiKeys,
       port: config.port,
       basePath,
       version: SERVER_VERSION,

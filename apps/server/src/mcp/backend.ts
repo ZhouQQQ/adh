@@ -31,12 +31,75 @@ export interface McpDeviceDetail extends McpDevice {
   brand?: string;
   resolution?: { width: number; height: number };
   locked: boolean;
+  /** Web 控制页地址，任务执行中打开即只读观看。 */
+  watchUrl?: string;
   control: {
     userId: string;
     username: string;
     displayName?: string;
     since: number;
   } | null;
+}
+
+/** 节点（宿主机 Agent / 设备直连）。 */
+export interface McpAgent {
+  id: string;
+  name: string;
+  kind: 'host' | 'portal';
+  online: boolean;
+  os: string;
+  version: string;
+  capabilities: string[];
+  deviceCount: number;
+  /** 直连节点的连接账号，仅用于说明是谁连的，不影响管理权限。 */
+  ownerUsername?: string;
+}
+
+/** 应用库里的安装包（APK / IPA）。 */
+export interface McpPackage {
+  id: string;
+  name: string;
+  kind: string;
+  size: number;
+  uploadedAt: number;
+  remark?: string | null;
+  tags?: string[];
+}
+
+/** 设备上已安装的应用。 */
+export interface McpApp {
+  name: string;
+  version?: string | null;
+  size?: number | null;
+}
+
+export interface McpScreenshot {
+  mimeType: string;
+  base64: string;
+}
+
+/** 实时观看信息：控制页链接 + 当前会话状态。 */
+export interface McpWatchInfo {
+  deviceId: string;
+  watchUrl: string;
+  sessionId?: string;
+  reused?: boolean;
+  /** 设备正在被 AI 任务占用时，打开页面只能只读观看。 */
+  readOnly?: boolean;
+  aiTask?: unknown;
+}
+
+export interface McpInstallResult {
+  deviceId: string;
+  deviceName?: string;
+  ok: boolean;
+  error?: string;
+}
+
+/** JSON + 二进制两种调用方式，两种 transport 共用同一套工具实现。 */
+interface RestTransport {
+  json<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T>;
+  binary(path: string): Promise<{ data: Buffer; mimeType: string }>;
 }
 
 /**
@@ -57,6 +120,29 @@ export interface McpBackend {
   listTasks(limit?: number): Promise<unknown[]>;
   cancelTask(taskId: string): Promise<unknown>;
   cancelAllTasks(): Promise<{ ok: boolean; count: number }>;
+  listAgents(): Promise<McpAgent[]>;
+  listPackages(): Promise<McpPackage[]>;
+  installApp(input: {
+    deviceIds: string[];
+    packageId: string;
+  }): Promise<McpInstallResult[]>;
+  listDeviceApps(deviceId: string): Promise<McpApp[]>;
+  uninstallApp(input: {
+    deviceId: string;
+    packageName: string;
+  }): Promise<{ ok: boolean }>;
+  launchApp(input: {
+    deviceId: string;
+    packageName: string;
+  }): Promise<{ ok: boolean }>;
+  screenshot(deviceId: string): Promise<McpScreenshot>;
+  watchDevice(deviceId: string): Promise<McpWatchInfo>;
+  /** Web 控制页地址，设备类工具统一带上，调用方不用再多问一次。 */
+  controlUrl(deviceId: string): string | undefined;
+  setDeviceLock(input: {
+    deviceId: string;
+    locked: boolean;
+  }): Promise<unknown>;
 }
 
 export interface LocalBackendDeps {
@@ -84,17 +170,189 @@ function filterDevices(
   });
 }
 
-/** 把任务上的回放 token 转成可直接打开的分享链接。 */
+/** Web 控制页地址（实时画面）。 */
+function watchUrlFor(baseUrl: string, deviceId: string): string | undefined {
+  const root = baseUrl.replace(/\/+$/, '');
+  if (!root) return undefined;
+  return `${root}/devices/${encodeURIComponent(deviceId)}/control`;
+}
+
+/** 任务附带两个可直接发给人的链接：执行过程回放，以及设备实时控制页。 */
 function withReplayUrl(task: unknown, baseUrl: string): unknown {
   if (!task || typeof task !== 'object') return task;
+  const root = baseUrl.replace(/\/+$/, '');
   const record = task as Record<string, unknown>;
   const token = record.replayToken;
-  if (typeof token !== 'string' || !token) return task;
+  const deviceId = typeof record.deviceId === 'string' ? record.deviceId : '';
+
   const rest = { ...record };
   delete rest.replayToken;
   return {
     ...rest,
-    replayUrl: `${baseUrl.replace(/\/+$/, '')}/r/${token}`,
+    ...(typeof token === 'string' && token
+      ? { replayUrl: `${root}/r/${token}` }
+      : {}),
+    // 实时画面：任务执行中打开是只读观看，任务结束后就是正常控制页
+    ...(deviceId
+      ? { watchUrl: `${root}/devices/${encodeURIComponent(deviceId)}/control` }
+      : {}),
+  };
+}
+
+/**
+ * 安装、应用列表、截图、节点列表这些能力都走平台自己的 REST 接口，
+ * 两种 MCP transport 共用同一份实现，避免逻辑走样。
+ */
+function createRestTools(
+  transport: RestTransport,
+  baseUrl: string,
+): Pick<
+  McpBackend,
+  | 'listAgents'
+  | 'listPackages'
+  | 'installApp'
+  | 'listDeviceApps'
+  | 'uninstallApp'
+  | 'launchApp'
+  | 'screenshot'
+  | 'watchDevice'
+  | 'setDeviceLock'
+> {
+  const root = baseUrl.replace(/\/+$/, '');
+  const watchUrlOf = (deviceId: string): string =>
+    `${root}/devices/${encodeURIComponent(deviceId)}/control`;
+
+  return {
+    async listAgents() {
+      const agents = await transport.json<
+        Array<{
+          id: string;
+          name: string;
+          kind?: 'host' | 'portal';
+          online?: boolean;
+          os?: string;
+          version?: string;
+          capabilities?: string[];
+          deviceCount?: number;
+          ownerUsername?: string;
+        }>
+      >('/api/agents');
+      return agents.map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        kind: agent.kind === 'portal' ? 'portal' : 'host',
+        online: Boolean(agent.online),
+        os: agent.os ?? '',
+        version: agent.version ?? '',
+        capabilities: agent.capabilities ?? [],
+        deviceCount: agent.deviceCount ?? 0,
+        ownerUsername: agent.ownerUsername,
+      }));
+    },
+
+    async listPackages() {
+      const result = await transport.json<{ packages: McpPackage[] }>(
+        '/api/packages',
+      );
+      return result.packages.map((item) => ({
+        id: item.id,
+        name: item.name,
+        kind: item.kind,
+        size: item.size,
+        uploadedAt: item.uploadedAt,
+        remark: item.remark ?? null,
+        tags: item.tags ?? [],
+      }));
+    },
+
+    async installApp(input) {
+      const results: McpInstallResult[] = [];
+      for (const deviceId of input.deviceIds) {
+        try {
+          await transport.json(
+            `/api/devices/${encodeURIComponent(deviceId)}/install`,
+            { method: 'POST', body: { packageId: input.packageId } },
+          );
+          results.push({ deviceId, ok: true });
+        } catch (error) {
+          results.push({
+            deviceId,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return results;
+    },
+
+    async listDeviceApps(deviceId) {
+      const result = await transport.json<{ packages: McpApp[] }>(
+        `/api/devices/${encodeURIComponent(deviceId)}/apps`,
+      );
+      return result.packages.map((item) => ({
+        name: item.name,
+        version: item.version ?? null,
+        size: item.size ?? null,
+      }));
+    },
+
+    uninstallApp(input) {
+      return transport.json<{ ok: boolean }>(
+        `/api/devices/${encodeURIComponent(input.deviceId)}/apps/uninstall`,
+        { method: 'POST', body: { package: input.packageName } },
+      );
+    },
+
+    launchApp(input) {
+      return transport.json<{ ok: boolean }>(
+        `/api/devices/${encodeURIComponent(input.deviceId)}/apps/launch`,
+        { method: 'POST', body: { package: input.packageName } },
+      );
+    },
+
+    async screenshot(deviceId) {
+      const { data, mimeType } = await transport.binary(
+        `/api/devices/${encodeURIComponent(deviceId)}/screenshot`,
+      );
+      return { mimeType, base64: data.toString('base64') };
+    },
+
+    /**
+     * 打开一台设备的实时画面：先确保投屏会话存在（复用任务自己的会话），
+     * 再返回 Web 控制页链接，其他人打开就能看到任务执行过程。
+     */
+    async watchDevice(deviceId) {
+      const watchUrl = watchUrlOf(deviceId);
+      try {
+        const session = await transport.json<{
+          sessionId?: string;
+          reused?: boolean;
+          readOnly?: boolean;
+          aiTask?: unknown;
+        }>(`/api/devices/${encodeURIComponent(deviceId)}/stream`, {
+          method: 'POST',
+          body: {},
+        });
+        return {
+          deviceId,
+          watchUrl,
+          sessionId: session.sessionId,
+          reused: session.reused,
+          readOnly: session.readOnly,
+          aiTask: session.aiTask,
+        };
+      } catch {
+        // 本机 iOS 走 WDA 直连，没有投屏会话；控制页依然可以直接打开
+        return { deviceId, watchUrl };
+      }
+    },
+
+    setDeviceLock(input) {
+      return transport.json(
+        `/api/devices/${encodeURIComponent(input.deviceId)}`,
+        { method: 'PATCH', body: { locked: input.locked } },
+      );
+    },
   };
 }
 
@@ -103,10 +361,28 @@ export function createLocalBackend(
   deps: LocalBackendDeps,
   user: AuthUser,
   publicBaseUrl = '',
+  apiToken = '',
 ): McpBackend {
   const replay = (task: unknown): unknown => withReplayUrl(task, publicBaseUrl);
+  // 安装 / 截图 / 应用列表这类动作复用平台 REST，内部回环一次即可；
+  // 拿不到站点地址或 token 时给出明确报错，而不是静默失败。
+  const transport: RestTransport =
+    publicBaseUrl && apiToken
+      ? createFetchTransport(publicBaseUrl, apiToken)
+      : {
+          async json() {
+            throw new Error('该工具需要访问平台 REST 接口，当前请求缺少站点地址');
+          },
+          async binary() {
+            throw new Error('该工具需要访问平台 REST 接口，当前请求缺少站点地址');
+          },
+        };
 
   return {
+    ...createRestTools(transport, publicBaseUrl),
+    controlUrl(deviceId) {
+      return watchUrlFor(publicBaseUrl, deviceId);
+    },
     async listDevices(input) {
       const [devices, inUseIds] = await Promise.all([
         deps.queries.listDevices(),
@@ -154,6 +430,7 @@ export function createLocalBackend(
         brand: device.brand ?? undefined,
         resolution: device.resolution,
         locked: Boolean(device.locked),
+        watchUrl: watchUrlFor(publicBaseUrl, deviceId),
         control: control
           ? {
               userId: control.userId,
@@ -223,40 +500,67 @@ export interface HttpBackendOptions {
   apiKey: string;
 }
 
-/** 通过 HTTP 调用平台 API，供 stdio MCP 使用。 */
-export function createHttpBackend(options: HttpBackendOptions): McpBackend {
-  const baseUrl = options.baseUrl.replace(/\/+$/, '');
+/** 用 API Key（或登录 token）访问平台 REST 接口。 */
+function createFetchTransport(baseUrl: string, token: string): RestTransport {
+  const root = baseUrl.replace(/\/+$/, '');
 
-  async function call<T>(
+  async function request(
     path: string,
     init?: { method?: string; body?: unknown },
-  ): Promise<T> {
-    const response = await fetch(`${baseUrl}${path}`, {
+  ): Promise<Response> {
+    const response = await fetch(`${root}${path}`, {
       method: init?.method ?? 'GET',
       headers: {
-        authorization: `Bearer ${options.apiKey}`,
+        authorization: `Bearer ${token}`,
         ...(init?.body === undefined
           ? {}
           : { 'content-type': 'application/json' }),
       },
       body: init?.body === undefined ? undefined : JSON.stringify(init.body),
     });
+    if (response.ok) return response;
 
-    const text = await response.text();
-    if (!response.ok) {
-      let message = `ADH API ${response.status}`;
-      try {
-        const parsed = JSON.parse(text) as ApiError;
-        if (parsed.error) message = parsed.error;
-      } catch {
-        if (text) message = text.slice(0, 500);
-      }
-      throw new Error(message);
+    const raw = await response.text();
+    let message = `ADH API ${response.status}`;
+    try {
+      const parsed = JSON.parse(raw) as ApiError;
+      if (parsed.error) message = parsed.error;
+    } catch {
+      if (raw) message = raw.slice(0, 500);
     }
-    return (text ? JSON.parse(text) : {}) as T;
+    throw new Error(message);
   }
 
   return {
+    async json<T>(
+      path: string,
+      init?: { method?: string; body?: unknown },
+    ) {
+      const response = await request(path, init);
+      const raw = await response.text();
+      return (raw ? JSON.parse(raw) : {}) as T;
+    },
+    async binary(path: string) {
+      const response = await request(path);
+      const data = Buffer.from(await response.arrayBuffer());
+      return {
+        data,
+        mimeType: response.headers.get('content-type') ?? 'image/png',
+      };
+    },
+  };
+}
+
+/** 通过 HTTP 调用平台 API，供 stdio MCP 使用。 */
+export function createHttpBackend(options: HttpBackendOptions): McpBackend {
+  const baseUrl = options.baseUrl.replace(/\/+$/, '');
+  const transport = createFetchTransport(options.baseUrl, options.apiKey);
+  const call = transport.json;
+
+  return {
+    controlUrl(deviceId) {
+      return watchUrlFor(baseUrl, deviceId);
+    },
     async listDevices(input) {
       const devices = await call<
         Array<{
@@ -325,6 +629,7 @@ export function createHttpBackend(options: HttpBackendOptions): McpBackend {
         brand: device.brand,
         resolution: device.resolution,
         locked: Boolean(device.locked),
+        watchUrl: watchUrlFor(baseUrl, deviceId),
         control: device.control ?? null,
       };
     },
@@ -390,5 +695,6 @@ export function createHttpBackend(options: HttpBackendOptions): McpBackend {
         method: 'POST',
       });
     },
+    ...createRestTools(transport, baseUrl),
   };
 }

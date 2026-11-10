@@ -3,9 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
-import { isAdminRole } from '../auth/service.js';
 import { maskKey } from '../db/queries.js';
-import type { SettingsService } from '../settings/service.js';
+import type { ApiKeyService } from '../auth/api-keys.js';
 
 /** 直连 APK 的候选路径，按优先级排列。 */
 function apkCandidates(): string[] {
@@ -73,23 +72,24 @@ function isLoopbackHost(host: string): boolean {
 }
 
 export interface PortalRoutesDeps {
-  settings: SettingsService;
+  apiKeys: ApiKeyService;
   port: number;
   basePath: string;
   /** 读不到 APK 元数据时的版本兜底。 */
   version: string;
 }
 
-/** 设备直连：全局 Key、配对地址与 APK 下载。 */
+/** 设备直连：用当前用户自己的 API Key 配对，地址里带上这把 Key。 */
 export function registerPortalRoutes(
   app: FastifyInstance,
   deps: PortalRoutesDeps,
 ): void {
   app.get('/api/portal/info', async (request, reply) => {
-    if (!request.user || !isAdminRole(request.user.role)) {
-      return reply.code(403).send({ error: '需要管理员权限' });
-    }
-    const key = await deps.settings.getPortalKey();
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: '请先登录' });
+    // 直连用的是登录用户自己的 Key，谁连的手机在节点 / 设备列表里就能看出来
+    const current = await deps.apiKeys.ensureForUser(user.id);
+    const key = current.key;
     const forwardedHost = String(
       request.headers['x-forwarded-host'] ?? '',
     )

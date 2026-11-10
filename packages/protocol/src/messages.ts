@@ -179,6 +179,8 @@ export const AgentSummarySchema = z.object({
   kind: z.enum(['host', 'portal']).default('host'),
   /** agent 上报的宿主机名称，只读。 */
   hostName: z.string().optional(),
+  /** 直连节点的归属用户（用谁的 API Key 连上来的）。 */
+  ownerUsername: z.string().optional(),
   os: z.string(),
   arch: z.string(),
   version: z.string(),

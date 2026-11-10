@@ -517,12 +517,7 @@ private fun tabs(): ViewGroup {
 
     private fun toggleConnection() {
         if (PortalState.connected) {
-            PortalService.stop(this)
-            PortalState.connected = false
-            PortalState.status = "已断开"
-            connecting = false
-            renderStatus()
-            toast("已断开")
+            confirmDisconnect()
             return
         }
         if (!Config.setAddress(addressInput.text.toString())) {
@@ -540,6 +535,28 @@ private fun tabs(): ViewGroup {
         PortalState.status = "正在连接…"
         renderStatus()
         PortalService.start(this)
+    }
+
+    /**
+     * 断开要二次确认：这是 App 里唯一会真正停止连接和后台保活的入口，
+     * 误点后设备会从控制台消失。
+     */
+    private fun confirmDisconnect() {
+        AlertDialog.Builder(this)
+            .setTitle("断开连接")
+            .setMessage(
+                "断开后控制台将失去这台设备，投屏和后台保活也会一起停止。\n\n需要重新授权「共享屏幕」并再次连接才能恢复。",
+            )
+            .setPositiveButton("断开") { _, _ ->
+                PortalService.stop(this)
+                PortalState.connected = false
+                PortalState.status = "已断开"
+                connecting = false
+                renderStatus()
+                toast("已断开")
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     /** 清空已保存的地址和 Key，回到未配置状态。 */

@@ -16,7 +16,8 @@ import type { SqlDriver } from './driver.js';
 import type { AgentRow, DeviceRow } from './schema.js';
 
 const AGENT_COLUMNS = `
-  id, name, kind, instance_id AS instanceId, host_name AS hostName, os, arch, version, capabilities,
+  id, name, kind, instance_id AS instanceId, owner_user_id AS ownerUserId,
+  host_name AS hostName, os, arch, version, capabilities,
   token, last_seen AS lastSeen, created_at AS createdAt,
   tunnel_status AS tunnelStatus
 `;
@@ -107,12 +108,16 @@ function parseTunnelStatus(raw: string | null): IosTunnelStatus | undefined {
   }
 }
 
-export function rowToAgent(row: AgentRow, deviceCount = 0): AgentSummary {
+export function rowToAgent(
+  row: AgentRow & { ownerUsername?: string | null },
+  deviceCount = 0,
+): AgentSummary {
   return {
     id: row.id,
     name: row.name,
     kind: row.kind === 'portal' ? 'portal' : 'host',
     hostName: row.hostName ?? undefined,
+    ownerUsername: row.ownerUsername ?? undefined,
     os: row.os,
     arch: row.arch,
     version: row.version,
@@ -198,7 +203,36 @@ export function createQueries(db: SqlDriver) {
       const rows = await db.query<AgentRow>(
         `SELECT ${AGENT_COLUMNS} FROM adh_agents`,
       );
-      return rows.map((row) => rowToAgent(row, counts.get(row.id) ?? 0));
+      // 直连节点的归属用户：用谁的 API Key 连上来的，列表里直接显示
+      const ownerIds = [
+        ...new Set(
+          rows
+            .map((row) => row.ownerUserId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const owners = ownerIds.length
+        ? await db.query<{ id: string; username: string }>(
+            `SELECT id, username FROM adh_users WHERE id IN (${ownerIds
+              .map(() => '?')
+              .join(', ')})`,
+            ownerIds,
+          )
+        : [];
+      const ownerNames = new Map(
+        owners.map((owner) => [owner.id, owner.username]),
+      );
+      return rows.map((row) =>
+        rowToAgent(
+          {
+            ...row,
+            ownerUsername: row.ownerUserId
+              ? (ownerNames.get(row.ownerUserId) ?? null)
+              : null,
+          },
+          counts.get(row.id) ?? 0,
+        ),
+      );
     },
 
     async getAgentSummary(id: string): Promise<AgentSummary | undefined> {
@@ -231,16 +265,25 @@ export function createQueries(db: SqlDriver) {
     },
 
     /**
-     * 设备直连：全局只有一个配对 Key，但每台设备必须有自己的 agentId，
-     * 否则多台手机会互相顶掉连接。这里按 instanceId 复用 / 新建 agent 行。
+     * 设备直连：每台手机按 instanceId 复用 / 新建自己的 agent 行，
+     * 避免多台手机互相顶掉。ownerUserId 只记录最近一次是谁用自己的
+     * API Key 连上来的，用于日志和展示，不参与权限控制。
      */
     async ensurePortalAgent(
       instanceId: string,
       runtime: AgentRuntimeInfo,
+      ownerUserId: string,
     ): Promise<AgentRow> {
       const existing = await this.findPortalAgentByInstance(instanceId);
       if (existing) {
         await this.updateAgentRuntime(existing.id, runtime);
+        // 同一台手机换了账号连接：只更新「谁连的」，设备仍归全平台统一管理
+        if (existing.ownerUserId !== ownerUserId) {
+          await db.execute(
+            'UPDATE adh_agents SET owner_user_id = ? WHERE id = ?',
+            [ownerUserId, existing.id],
+          );
+        }
         return (await this.getAgent(existing.id)) ?? existing;
       }
 
@@ -250,6 +293,7 @@ export function createQueries(db: SqlDriver) {
         name: `直连 · ${runtime.name}`,
         kind: 'portal',
         instanceId,
+        ownerUserId,
         hostName: runtime.name,
         os: runtime.os,
         arch: runtime.arch,
@@ -262,13 +306,14 @@ export function createQueries(db: SqlDriver) {
       };
       await db.execute(
         `INSERT INTO adh_agents
-          (id, name, kind, instance_id, host_name, os, arch, version, capabilities, token, last_seen, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, name, kind, instance_id, owner_user_id, host_name, os, arch, version, capabilities, token, last_seen, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.id,
           row.name,
           row.kind,
           row.instanceId,
+          row.ownerUserId,
           row.hostName,
           row.os,
           row.arch,
@@ -306,6 +351,7 @@ export function createQueries(db: SqlDriver) {
         name,
         kind: 'host',
         instanceId: null,
+        ownerUserId: null,
         hostName: null,
         os: '',
         arch: '',
@@ -361,6 +407,7 @@ export function createQueries(db: SqlDriver) {
         name,
         kind: 'host',
         instanceId: null,
+        ownerUserId: null,
         hostName: name,
         os: process.platform === 'win32' ? 'windows' : process.platform,
         arch: process.arch,

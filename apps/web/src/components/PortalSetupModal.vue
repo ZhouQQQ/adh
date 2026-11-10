@@ -252,7 +252,9 @@ async function copyAddress(): Promise<void> {
                 </div>
                 <span class="step-note">
                   方式一：在 App 里粘贴地址，点「连接」。<br />
-                  方式二：点 App 里的「扫一扫」，扫描右侧二维码自动填入并连接。
+                  方式二：点 App 里的「扫一扫」，扫描右侧二维码自动填入并连接。<br />
+                  地址里的 key 就是你自己的 API Key：连上后在「设备管理」里全平台统一管理，
+                  并记录这台手机是谁连的。
                 </span>
               </div>
               <div class="qr-wrap connect-qr">

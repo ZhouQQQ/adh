@@ -14,7 +14,7 @@ import type { Queries } from '../db/queries.js';
 import type { AgentRegistry } from '../registry.js';
 import type { CommandBus } from '../command-bus.js';
 import type { ThumbnailStore } from '../storage/thumbnails.js';
-import type { SettingsService } from '../settings/service.js';
+import type { ApiKeyService } from '../auth/api-keys.js';
 import type { WebHub } from './web-hub.js';
 
 export interface AgentChannelDeps {
@@ -23,7 +23,7 @@ export interface AgentChannelDeps {
   hub: WebHub;
   thumbnails: ThumbnailStore;
   commands: CommandBus;
-  settings: SettingsService;
+  apiKeys: ApiKeyService;
   serverVersion: string;
   logger: Logger;
 }
@@ -72,19 +72,21 @@ export function registerAgentChannel(
       token: string,
       runtime: AgentRuntimeInfo,
     ): Promise<void> => {
-      // 普通宿主机 Agent 用独立 key；设备直连 App 用平台全局 key，
-      // 每台手机按 instanceId 复用/创建自己的 agent 行，避免互相顶掉。
+      // 普通宿主机 Agent 用自己的 key；设备直连 App 用当前用户自己的 API Key
+      // （adhk_），每台手机按 instanceId 复用/创建自己的 agent 行。
       let row = await queries.findAgentByToken(token);
+      let portalUsername: string | null = null;
       if (!row) {
-        const portalKey = await deps.settings.getPortalKey();
-        if (token !== portalKey) {
+        const portalUser = await deps.apiKeys.resolve(token);
+        if (!portalUser) {
           logger.warn({ host: runtime.name }, 'rejected agent: unknown key');
           send({ t: 'stop', reason: 'invalid key' });
           socket.close(4001, 'invalid key');
           return;
         }
         const instanceId = runtime.instanceId?.trim() || runtime.name;
-        row = await queries.ensurePortalAgent(instanceId, runtime);
+        row = await queries.ensurePortalAgent(instanceId, runtime, portalUser.id);
+        portalUsername = portalUser.username;
       }
 
       agentId = row.id;
@@ -121,6 +123,13 @@ export function registerAgentChannel(
       });
 
       void broadcastAgent(agentId, true);
+      if (portalUsername) {
+        // 直连节点全平台统一管理，日志里记录这台手机是谁用自己的 Key 连的
+        logger.info(
+          { agentId, instanceId: row.instanceId, user: portalUsername },
+          'portal device connected',
+        );
+      }
       logger.info(
         { agentId, name: runtime.name, os: runtime.os },
         'agent connected',

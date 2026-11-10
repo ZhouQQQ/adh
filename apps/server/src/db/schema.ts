@@ -9,6 +9,8 @@ export interface AgentRow {
   kind: string;
   /** 直连 App 的稳定实例 ID */
   instanceId: string | null;
+  /** 直连 App 的归属用户（用谁的 API Key 连上来的）。 */
+  ownerUserId: string | null;
   hostName: string | null;
   os: string;
   arch: string;

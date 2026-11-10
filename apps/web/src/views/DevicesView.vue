@@ -1089,7 +1089,6 @@ function resetFilters(): void {
       />
 
       <button
-        v-if="isSuper"
         type="button"
         class="direct-card"
         @click="portalShow = true"

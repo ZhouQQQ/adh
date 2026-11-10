@@ -224,6 +224,7 @@ export function registerMcpRoutes(
           },
           user,
           publicBaseUrl(request, deps.basePath),
+          token ?? '',
         ),
         deps.version,
       );

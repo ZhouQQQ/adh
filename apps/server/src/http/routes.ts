@@ -12,8 +12,10 @@ import { z } from 'zod';import {
   type SafeKeyboardLayout,
 } from '@adh/protocol';
 import {
+  captureScreenshot,
   ensureToolPath,
   installAgentTools,
+  launchAndroidApp,
   resetToolCommandCaches,
   runCommand,
   runCommandBuffer,
@@ -1026,12 +1028,21 @@ export async function registerHttpRoutes(
     if (device.locked) {
       return reply.code(403).send({ error: '设备已被管理员锁定' });
     }
-    // AI 任务执行期间不允许再建控制会话，提前返回明确提示
+    // AI 任务执行期间不允许抢控制权，但可以只读观看任务的实时画面
     const aiTask = deps.streams.getAiTask(id);
     if (aiTask) {
-      return reply.code(409).send({
-        error: `设备正在执行 AI 任务（${aiTask.displayName || aiTask.username}），请稍后再试`,
-      });
+      const running = deps.streams.findSessionByDevice(id);
+      if (!running) {
+        return reply.code(409).send({
+          error: `设备正在执行 AI 任务（${aiTask.displayName || aiTask.username}），请稍后再试`,
+        });
+      }
+      return {
+        sessionId: running.id,
+        reused: true,
+        readOnly: true,
+        aiTask,
+      };
     }
     // 同时控制设备数按角色限制，0 表示不限
     if (request.user) {
@@ -2976,6 +2987,86 @@ export async function registerHttpRoutes(
     }
     logDevice(request, device, 'app.uninstall', packageName);
     return { ok: true };
+  });
+
+  /** 启动设备上的应用（按包名）。iOS 不支持按包名启动。 */
+  app.post('/api/devices/:id/apps/launch', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { package?: string } | undefined;
+    const packageName = body?.package?.trim();
+    if (!packageName) return reply.code(400).send({ error: '缺少应用包名' });
+
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (device.platform === 'ios') {
+      return reply
+        .code(400)
+        .send({ error: 'iOS 暂不支持按包名启动应用，请手动点开' });
+    }
+
+    if (device.agentId === BUILTIN_AGENT_ID) {
+      const ok = await launchAndroidApp(device.udid, packageName);
+      if (!ok) {
+        return reply.code(400).send({ error: `应用启动失败：${packageName}` });
+      }
+      logDevice(request, device, 'app.launch', packageName);
+      return { ok: true };
+    }
+
+    const result = await deps.commands.send(
+      device.agentId,
+      'app.launch',
+      { udid: device.udid, package: packageName },
+      device.id,
+      20_000,
+    );
+    if (!result.ok) {
+      return reply
+        .code(400)
+        .send({ error: result.error ?? `应用启动失败：${packageName}` });
+    }
+    logDevice(request, device, 'app.launch', packageName);
+    return { ok: true };
+  });
+
+  /** 实时截图（PNG）：本机节点走 adb / WDA，远程节点走 agent 截图。 */
+  app.get('/api/devices/:id/screenshot', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+
+    let data: Buffer | null = null;
+    if (device.agentId === BUILTIN_AGENT_ID) {
+      if (device.platform === 'ios') {
+        data = (await wdaScreenshot(wdaPortFor(device.udid))) ?? null;
+      } else {
+        const shot = await captureScreenshot(device.udid);
+        data = shot?.data ?? null;
+      }
+    } else {
+      const result = await deps.commands.send(
+        device.agentId,
+        'screenshot',
+        { udid: device.udid, platform: device.platform },
+        device.id,
+        20_000,
+      );
+      if (!result.ok) {
+        return reply.code(400).send({ error: result.error ?? '设备截图失败' });
+      }
+      const base64 = (result.data as { base64?: unknown } | undefined)?.base64;
+      if (typeof base64 === 'string' && base64) {
+        data = Buffer.from(base64, 'base64');
+      }
+    }
+
+    if (!data || data.length === 0) {
+      return reply.code(404).send({ error: '截图失败，请确认设备在线并已解锁' });
+    }
+    return reply
+      .header('content-type', 'image/png')
+      .header('cache-control', 'no-store')
+      .send(data);
   });
 
   app.get('/api/devices/:id/thumbnail', async (request, reply: FastifyReply) => {

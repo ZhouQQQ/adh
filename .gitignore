@@ -13,3 +13,6 @@ Thumbs.db
 .opencode/
 selfIdentity.plist
 *.plist
+
+# 误把 Android SDK 装到仓库里时不要提交
+android-sdk/

@@ -1,5 +1,4 @@
 ﻿import fs from 'node:fs';
-import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { SqlDriver } from '../db/driver.js';
 
@@ -146,15 +145,6 @@ export class SettingsService {
   /** 控制者无操作自动断开的分钟数，0 表示不自动断开。 */
   getIdleTimeoutMinutes(): number {
     return this.idleTimeoutMinutes;
-  }
-
-  /** 设备直连全局配对 Key，首次访问时生成并持久化。 */
-  async getPortalKey(): Promise<string> {
-    const existing = (await this.getValue('portal.key'))?.trim();
-    if (existing) return existing;
-    const key = 'adh_' + randomBytes(16).toString('hex');
-    await this.setValue('portal.key', key);
-    return key;
   }
 
   async getValue(name: string): Promise<string | null> {

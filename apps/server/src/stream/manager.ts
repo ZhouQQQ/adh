@@ -745,15 +745,8 @@ export class StreamManager {
       return;
     }
 
-    // AI 任务独占设备，避免任务执行到一半被人接管
-    if (this.taskLocks.has(session.device.id)) {
-      sendJson(socket, {
-        t: 'error',
-        message: '设备正在执行 AI 任务，请稍后再试',
-      });
-      socket.close(4005, 'task running');
-      return;
-    }
+    // AI 任务独占控制权，但允许其他人以只读方式观看执行过程
+    const taskLocked = this.taskLocks.has(session.device.id);
 
     // 推流连接已经断了（App 掉线重连过）：viewer 进来时补请求一次，
     // 否则会一直卡在「正在连接设备」。
@@ -768,6 +761,7 @@ export class StreamManager {
     // iOS 的控制权由 ios/control 接口单独管理，会话里只负责推流
     // 同一用户刷新页面时，旧 socket 可能还没断，这里允许新连接直接接管。
     const becomesController =
+      !taskLocked &&
       session.device.platform !== 'ios' &&
       (!previousController || sameUser) &&
       (!session.controllerUserId || sameUser);
@@ -883,15 +877,8 @@ export class StreamManager {
       return;
     }
     const agent = await this.deps.queries.findAgentByToken(token);
-    // 设备直连 App 用平台全局 key 建流；普通 Agent 仍用各自的 token
-    let authorized = Boolean(agent && agent.id === session.device.agentId);
-    if (!agent) {
-      const portalKey = await this.deps.settings.getPortalKey();
-      if (token === portalKey) {
-        const owner = await this.deps.queries.getAgent(session.device.agentId);
-        authorized = owner?.kind === 'portal';
-      }
-    }
+    // 直连 App 用 welcome 下发的本行 token 建流，和宿主机 Agent 一样按行校验
+    const authorized = Boolean(agent && agent.id === session.device.agentId);
     if (!authorized) {
       sendJson(socket, { t: 'error', message: '无效的 agent 凭证' });
       socket.close();

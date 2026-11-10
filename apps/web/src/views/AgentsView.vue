@@ -36,7 +36,6 @@ const message = useMessage();
 const dialog = useDialog();
 
 const showCreate = ref(false);
-const kindFilter = ref<'all' | 'host' | 'portal'>('all');
 const keyShow = ref(false);
 const keyName = ref('');
 const keyValue = ref('');
@@ -120,9 +119,8 @@ function statusLabel(color: string, label: string) {
 }
 
 const filteredAgents = computed(() =>
-  kindFilter.value === 'all'
-    ? agents.value
-    : agents.value.filter((agent) => agent.kind === kindFilter.value),
+  // 节点管理只管宿主机 Agent，设备直连（portal）节点在设备管理里统一管理
+  agents.value.filter((agent) => agent.kind !== 'portal'),
 );
 
 const columns = computed<DataTableColumns<AgentSummary>>(() => [
@@ -142,13 +140,6 @@ const columns = computed<DataTableColumns<AgentSummary>>(() => [
                   NTag,
                   { size: 'tiny', type: 'info', bordered: false, round: true },
                   { default: () => '内置' },
-                )
-              : null,
-            row.kind === 'portal'
-              ? h(
-                  NTag,
-                  { size: 'tiny', type: 'success', bordered: false, round: true },
-                  { default: () => '直连' },
                 )
               : null,
           ],
@@ -501,19 +492,10 @@ function confirmDelete(row: AgentSummary): void {
     <div class="toolbar">
       <p class="hint">
         节点部署在设备宿主机上，负责发现本机连接的 Android / iOS 设备并上报。
-        新建后复制命令到宿主机执行即可接入。
+        新建后复制命令到宿主机执行即可接入。设备无线直连的节点在
+        「设备管理」里统一查看，不在这里管理。
       </p>
       <n-space>
-        <n-select
-          v-model:value="kindFilter"
-          size="small"
-          style="width: 132px"
-          :options="[
-            { label: '全部节点', value: 'all' },
-            { label: '宿主机节点', value: 'host' },
-            { label: '直连节点', value: 'portal' },
-          ]"
-        />
         <n-button quaternary size="small" @click="refresh">
           <template #icon>
             <n-icon :component="RefreshOutline" />
