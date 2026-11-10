@@ -39,6 +39,7 @@ import { api } from '../api';
 import { withBase } from '../base';
 import { APP_VERSION, BUILD_TIME } from '../utils/version';
 import FloatingPreviews from '../components/FloatingPreviews.vue';
+import ApiKeyModal from '../components/ApiKeyModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -63,12 +64,19 @@ function toggleSider(): void {
 }
 
 const userMenu = computed<DropdownOption[]>(() => [
+  { label: '个人 API Key', key: 'api-key' },
   { label: '修改密码', key: 'password' },
   { type: 'divider', key: 'divider' },
   { label: '退出登录', key: 'logout' },
 ]);
 
+const apiKeyShow = ref(false);
+
 function onUserMenu(key: string): void {
+  if (key === 'api-key') {
+    apiKeyShow.value = true;
+    return;
+  }
   if (key === 'password') {
     oldPassword.value = '';
     newPassword.value = '';
@@ -444,6 +452,8 @@ const buildTime = BUILD_TIME;
           </div>
         </template>
       </n-modal>
+
+      <ApiKeyModal v-model:show="apiKeyShow" />
 
       <n-layout-content
         :class="['app-content', { fullscreen: route.meta.fullscreen }]"

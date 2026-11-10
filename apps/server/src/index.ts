@@ -82,7 +82,11 @@ async function main(): Promise<void> {
   const auth = new AuthService(driver);
   const apiKeys = new ApiKeyService(driver);
   const createdDefaultAdmin = await auth.ensureDefaultAdmin();
-  const registry = new AgentRegistry();
+  // 每个用户出厂就该有一把默认 API Key，MCP 配置页才能直接复制
+  const createdApiKeys = await apiKeys.ensureAllUsers();
+  if (createdApiKeys > 0) {
+    console.log(`[auth] 已为 ${createdApiKeys} 个用户初始化默认 API Key`);
+  }  const registry = new AgentRegistry();
   const hub = new WebHub();
   const oss = config.oss ? new OssStore(config.oss) : null;
   const thumbnails = new ThumbnailStore(config.thumbnailDir, oss);

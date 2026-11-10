@@ -5,7 +5,7 @@ export interface ApiKeyRouteDeps {
   apiKeys: ApiKeyService;
 }
 
-/** 外部 agent / MCP 使用的长期 Key，所有登录用户都可以生成自己的。 */
+/** 外部 agent / MCP 使用的长期 Key，每个登录用户只能看和操作自己的。 */
 export function registerApiKeyRoutes(
   app: FastifyInstance,
   deps: ApiKeyRouteDeps,
@@ -13,14 +13,10 @@ export function registerApiKeyRoutes(
   app.get('/api/api-keys', async (request, reply) => {
     const user = request.user;
     if (!user) return reply.code(401).send({ error: '未登录' });
-    // 首次进入自动补一把；响应里的 key 只在这次创建时出现
-    const auto = await deps.apiKeys.ensureForUser(user.id);
-    // 超级管理员看全部，普通用户只看自己的
-    const keys =
-      user.role === 'superadmin'
-        ? await deps.apiKeys.listAll()
-        : await deps.apiKeys.list(user.id);
-    return { keys, key: auto?.key };
+    // 没有就补一把；明文随 Key 一起存，所以总能回显给本人
+    const current = await deps.apiKeys.ensureForUser(user.id);
+    const keys = await deps.apiKeys.list(user.id);
+    return { keys, key: current.key };
   });
 
   app.post('/api/api-keys/reset', async (request, reply) => {
@@ -43,11 +39,8 @@ export function registerApiKeyRoutes(
     const user = request.user;
     if (!user) return reply.code(401).send({ error: '未登录' });
     const { id } = request.params as { id: string };
-    if (user.role === 'superadmin') {
-      await deps.apiKeys.remove(id);
-    } else {
-      await deps.apiKeys.remove(id, user.id);
-    }
+    // 只能删自己的 Key，superadmin 也一样
+    await deps.apiKeys.remove(id, user.id);
     return { ok: true };
   });
 }
