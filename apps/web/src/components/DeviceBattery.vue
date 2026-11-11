@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { NIcon } from 'naive-ui';
-import { FlashOutline } from '@vicons/ionicons5';
 import { api, type DeviceRuntime } from '../api';
 
 const props = defineProps<{ deviceId: string; online: boolean }>();
@@ -45,7 +43,6 @@ const temperatureText = computed(() =>
     ? ''
     : `${Number(temperature.value.toFixed(1))}°C`,
 );
-const temperatureHot = computed(() => (temperature.value ?? 0) >= 40);
 
 const tone = computed(() => {
   const value = level.value ?? 0;
@@ -54,9 +51,9 @@ const tone = computed(() => {
   return 'high';
 });
 
-const fillWidth = computed(() => {
+const fillRatio = computed(() => {
   const value = Math.min(100, Math.max(0, level.value ?? 0));
-  return `${value}%`;
+  return value / 100;
 });
 </script>
 
@@ -69,16 +66,12 @@ const fillWidth = computed(() => {
       `${charging ? '充电中' : '电量'} · ${level}%${temperatureText ? ` · 电池 ${temperatureText}` : ''}`
     "
   >
-    <span class="shell">
-      <span class="fill" :style="{ width: fillWidth }" />
-      <span class="value" :class="{ 'with-bolt': charging }">{{ level }}%</span>
-      <n-icon v-if="charging" class="bolt" :size="10">
-        <FlashOutline />
-      </n-icon>
-    </span>
-    <span class="tip" />
-    <span v-if="temperatureText" class="temp" :class="{ hot: temperatureHot }">
-      {{ temperatureText }}
+    <span class="icon">
+      <span class="shell">
+        <span class="fill" :style="{ transform: `scaleX(${fillRatio})` }" />
+        <span class="value">{{ level }}%</span>
+      </span>
+      <span class="nub" />
     </span>
   </span>
 </template>
@@ -87,98 +80,79 @@ const fillWidth = computed(() => {
 .battery {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 5px;
   padding: 0;
+  line-height: 1;
+  white-space: nowrap;
+  flex: none;
 }
 
 .battery.low {
-  --tone: #ef4444;
+  --tone: #ff3b30;
 }
 
 .battery.mid {
-  --tone: #f59e0b;
+  --tone: #ff9f0a;
 }
 
 .battery.high {
-  --tone: #22c55e;
+  --tone: #34c759;
+}
+
+/* 苹果风格：圆角电池外框 + 右侧小正极 */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
 }
 
 .shell {
   position: relative;
-  width: 46px;
-  height: 16px;
+  width: 36px;
+  min-width: 36px;
+  height: 15px;
+  flex: none;
   padding: 1.5px;
   box-sizing: border-box;
-  border: 1px solid #d4d4d8;
+  border: 1.2px solid #71717a;
   border-radius: 4px;
-  /* 未填充区域用浅灰，白字也有底可依 */
-  background: #e4e4e7;
+  /* 未填充部分给一层浅灰，避免白色底和卡片背景融在一起显得图标变小 */
+  background: rgba(15, 23, 42, 0.06);
   overflow: hidden;
 }
 
 .fill {
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 0;
-  background: var(--tone, #22c55e);
-  background-image: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.3),
-    rgba(255, 255, 255, 0)
-  );
-  transition: width 0.3s ease, background-color 0.3s ease;
+  inset: 1px;
+  border-radius: 2px;
+  background: var(--tone, #34c759);
+  transform-origin: left center;
+  transition: transform 0.3s ease, background-color 0.3s ease;
+}
+
+.nub {
+  width: 2px;
+  min-width: 2px;
+  height: 5px;
+  flex: none;
+  margin-left: -0.5px;
+  border-radius: 0 2px 2px 0;
+  background: #71717a;
 }
 
 .value {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
-  display: block;
-  text-align: center;
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
   font-weight: 600;
-  line-height: 12px;
-  color: #ffffff;
-  text-shadow: 0 1px 1px rgba(9, 9, 11, 0.35);
+  line-height: 1;
+  color: #27272a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
-}
-
-/* 充电时给内部闪电留位置 */
-.value.with-bolt {
-  padding-left: 7px;
-}
-
-/* 电池正极：紧贴电池体，看起来连在一起 */
-.tip {
-  width: 3px;
-  height: 7px;
-  margin-left: -1px;
-  border-radius: 0 2px 2px 0;
-  background: #d4d4d8;
-}
-
-.bolt {
-  position: absolute;
-  left: 1px;
-  top: 50%;
-  z-index: 2;
-  transform: translateY(-50%);
-  color: #ffffff;
-}
-
-.temp {
-  margin-left: 3px;
-  font-size: 10px;
-  line-height: 1;
-  color: #71717a;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.temp.hot {
-  color: #dc2626;
-  font-weight: 600;
 }
 </style>

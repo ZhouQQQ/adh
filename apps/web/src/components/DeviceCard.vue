@@ -27,9 +27,10 @@ import {
 } from '@vicons/ionicons5';
 import type { DeviceSummary } from '@adh/protocol';
 import DeviceBattery from './DeviceBattery.vue';
-import { api } from '../api';
+import { api, thumbnailUrl } from '../api';
 import { useAuth } from '../stores/auth';
 import { BRAND_META, deviceBrand } from '../utils/brand';
+import { clearDarkBackgroundCached } from '../utils/thumbnail';
 import {
   formatMemory,
   formatAgo,
@@ -155,6 +156,35 @@ const brandMeta = computed(() => {
   const key = deviceBrand(props.device);
   return key ? BRAND_META[key] : null;
 });
+
+/** 手动上传过设备图时，在品牌 logo 旁边一起展示。 */
+const manualThumbnail = computed(
+  () =>
+    (props.device.thumbnailAt ?? 0) > 0 &&
+    props.device.thumbnailSource === 'manual',
+);
+const photoSrc = ref<string | null>(null);
+let photoTask = 0;
+
+watch(
+  () => [manualThumbnail.value, props.device.id, props.device.thumbnailAt] as const,
+  async () => {
+    const task = ++photoTask;
+    if (!manualThumbnail.value) {
+      photoSrc.value = null;
+      return;
+    }
+    const original = thumbnailUrl(props.device);
+    photoSrc.value = original;
+    try {
+      const cleaned = await clearDarkBackgroundCached(original);
+      if (task === photoTask) photoSrc.value = cleaned;
+    } catch {
+      /* 处理失败时保留原图 */
+    }
+  },
+  { immediate: true },
+);
 
 /** 卡片状态色：红=锁定，蓝=我在用，黄=别人在用，紫=AI 任务执行中。 */
 const usageTone = computed(() => {
@@ -335,17 +365,27 @@ const wifiTitle = computed(() => {
         <span v-if="selected" class="check">✓</span>
       </button>
 
-      <div class="placeholder" :class="device.platform">
+      <div
+        class="placeholder"
+        :class="[device.platform, { 'has-photo': manualThumbnail && photoSrc }]"
+      >
         <img
           v-if="brandMeta"
           :src="brandMeta.logo"
           :alt="brandMeta.label"
           class="brand-logo"
+          :class="{ compact: manualThumbnail }"
         />
         <n-icon v-else :size="48">
           <LogoAndroid v-if="device.platform === 'android'" />
           <LogoApple v-else />
         </n-icon>
+        <img
+          v-if="manualThumbnail && photoSrc"
+          :src="photoSrc"
+          class="device-photo"
+          alt=""
+        />
       </div>
 
       <div
@@ -583,6 +623,9 @@ const wifiTitle = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
   color: var(--border-strong);
 }
 
@@ -596,12 +639,32 @@ const wifiTitle = computed(() => {
   opacity: 0.8;
 }
 
+/* 有设备图时不要整体降低透明度，否则图片会发灰 */
+.placeholder.has-photo {
+  opacity: 1;
+}
+
 /* 品牌 logo：放在缩略图中央，覆盖 .thumb img 的 100% 规则 */
 .placeholder .brand-logo {
   width: 68px;
   height: 68px;
   object-fit: contain;
   opacity: 0.92;
+}
+
+.placeholder .brand-logo.compact {
+  width: 40px;
+  height: 40px;
+  opacity: 0.7;
+}
+
+/* 上传的设备图放在品牌 logo 右侧，透明背景直接透出卡片底色 */
+.placeholder .device-photo {
+  width: auto;
+  height: 150px;
+  max-width: 72%;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.14));
 }
 
 .thumb-badges {

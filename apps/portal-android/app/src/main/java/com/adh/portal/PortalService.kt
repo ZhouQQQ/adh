@@ -567,13 +567,23 @@ class PortalService : Service(), AgentClient.Listener {
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val network = connectivity.activeNetwork
         val capabilities = network?.let { connectivity.getNetworkCapabilities(it) }
-        val connected = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         val wifi = getSystemService(WifiManager::class.java)
+        val ssid = currentSsid(wifi, capabilities)
+        val wifiConnected =
+            ssid != null ||
+                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         val wifiInfo = JSONObject().apply {
-            put("connected", connected)
-            put("ssid", currentSsid(capabilities) ?: JSONObject.NULL)
+            put("connected", wifiConnected)
+            put("ssid", ssid ?: JSONObject.NULL)
             put("enabled", wifi.isWifiEnabled)
-            put("ip", localIpv4() ?: JSONObject.NULL)
+            put(
+                "ip",
+                if (wifiConnected) {
+                    wifiIpv4(connectivity, network, capabilities) ?: JSONObject.NULL
+                } else {
+                    JSONObject.NULL
+                },
+            )
         }
         return JSONObject().apply {
             put("battery", battery)
@@ -660,24 +670,64 @@ class PortalService : Service(), AgentClient.Listener {
     /**
      * 当前 WiFi 名称。Android 10+ 需要定位权限（Android 13+ 用 NEARBY_WIFI_DEVICES），
      * 并且系统定位开关要打开，否则系统只会返回 <unknown ssid>。
+     * 优先看当前默认网络；WiFi 不是默认网络时再问 WifiManager。
      */
-    private fun currentSsid(capabilities: NetworkCapabilities?): String? {
+    private fun currentSsid(wifi: WifiManager, capabilities: NetworkCapabilities?): String? {
+        fun clean(raw: String?): String? {
+            val ssid = raw?.trim('"')?.trim()
+            return if (ssid.isNullOrBlank() || ssid == "<unknown ssid>" || ssid == "0x") {
+                null
+            } else {
+                ssid
+            }
+        }
+
+        if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+            val info = capabilities.transportInfo as? WifiInfo
+            clean(info?.ssid)?.let { return it }
+        }
+
         return try {
-            if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) return null
-            val info = capabilities.transportInfo as? WifiInfo ?: return null
-            val ssid = info.ssid?.trim('"')?.trim()
-            if (ssid.isNullOrBlank() || ssid == "<unknown ssid>" || ssid == "0x") null else ssid
+            @Suppress("DEPRECATION")
+            val info = wifi.connectionInfo
+            clean(info?.ssid)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun localIpv4(): String? {
+    /**
+     * WiFi 的 IPv4 地址。
+     * 优先用当前默认网络的 LinkProperties；WiFi 不是默认网络时只扫 wlan* 网卡，
+     * 避免把蜂窝数据 / VPN 的地址当成 WiFi IP。
+     */
+    private fun wifiIpv4(
+        connectivity: ConnectivityManager,
+        network: android.net.Network?,
+        capabilities: NetworkCapabilities?,
+    ): String? {
+        if (network != null &&
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        ) {
+            try {
+                val address = connectivity.getLinkProperties(network)
+                    ?.linkAddresses
+                    ?.firstOrNull {
+                        it.address is Inet4Address && !it.address.isLoopbackAddress
+                    }
+                    ?.address
+                if (address != null) return address.hostAddress
+            } catch (_: Exception) {
+                /* 继续用网卡兜底 */
+            }
+        }
+
         return try {
             val networks = NetworkInterface.getNetworkInterfaces()
             while (networks.hasMoreElements()) {
-                val network = networks.nextElement()
-                val addresses = network.inetAddresses
+                val iface = networks.nextElement()
+                if (!iface.name.startsWith("wlan")) continue
+                val addresses = iface.inetAddresses
                 while (addresses.hasMoreElements()) {
                     val address = addresses.nextElement()
                     if (!address.isLoopbackAddress && address is Inet4Address) {

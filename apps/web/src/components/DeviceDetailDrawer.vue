@@ -21,6 +21,7 @@ import DeviceStats from './DeviceStats.vue';
 import { api, thumbnailUrl, type DeviceRuntime } from '../api';
 import { useAuth } from '../stores/auth';
 import { useFleet } from '../stores/fleet';
+import { clearDarkBackgroundCached } from '../utils/thumbnail';
 import {
   formatDateTime,
   formatMemory,
@@ -67,6 +68,35 @@ const manualThumbnail = computed(
     Boolean(props.device) &&
     (props.device?.thumbnailAt ?? 0) > 0 &&
     props.device?.thumbnailSource === 'manual',
+);
+
+/** 手动上传的图可能带纯黑背景，展示前把与边缘连通的黑色抠掉。 */
+const previewSrc = ref<string | null>(null);
+let previewTask = 0;
+
+watch(
+  () => [
+    manualThumbnail.value,
+    props.device?.id,
+    props.device?.thumbnailAt,
+  ] as const,
+  async () => {
+    const task = ++previewTask;
+    const current = props.device;
+    if (!manualThumbnail.value || !current) {
+      previewSrc.value = null;
+      return;
+    }
+    const original = thumbnailUrl(current);
+    previewSrc.value = original;
+    try {
+      const cleaned = await clearDarkBackgroundCached(original);
+      if (task === previewTask) previewSrc.value = cleaned;
+    } catch {
+      /* 图片处理失败时保留原图 */
+    }
+  },
+  { immediate: true },
 );
 
 const publishedAt = ref<number | null>(null);
@@ -298,7 +328,7 @@ async function onImageSelected(event: Event): Promise<void> {
           <div class="preview" :class="{ empty: !manualThumbnail }">
             <n-image
               v-if="manualThumbnail"
-              :src="thumbnailUrl(device)"
+              :src="previewSrc ?? thumbnailUrl(device)"
               object-fit="contain"
               :img-props="{ style: 'max-height: 100%; max-width: 100%; object-fit: contain' }"
               show-toolbar
@@ -505,7 +535,7 @@ async function onImageSelected(event: Event): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
