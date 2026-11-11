@@ -34,6 +34,31 @@ export const SafeKeyboardLayoutSchema = z.object({
 });
 export type SafeKeyboardLayout = z.infer<typeof SafeKeyboardLayoutSchema>;
 
+/** 设备性能采样点：CPU / 内存 / 实时帧率，用于控制页右侧图表。 */
+export const PerfSampleSchema = z.object({
+  /** 采样时间（毫秒时间戳）。 */
+  ts: z.number(),
+  /** CPU 占用百分比（0~100），拿不到时为 null。 */
+  cpu: z.number().nullable().default(null),
+  /** 已用物理内存（MB），拿不到时为 null。 */
+  memoryUsedMb: z.number().nullable().default(null),
+  /** 物理内存总量（MB），拿不到时为 null。 */
+  memoryTotalMb: z.number().nullable().default(null),
+  /** 当前屏幕实时帧率，拿不到时为 null。 */
+  fps: z.number().nullable().default(null),
+  /** 屏幕刷新率（Hz），拿不到时为 null。 */
+  refreshRate: z.number().nullable().default(null),
+  /** 电量百分比（0~100），拿不到时为 null。 */
+  batteryLevel: z.number().nullable().default(null),
+  /** 电池温度（摄氏度），拿不到时为 null。 */
+  batteryTemperature: z.number().nullable().default(null),
+  /** 下行网速（KB/s），拿不到时为 null。 */
+  networkRxKbps: z.number().nullable().default(null),
+  /** 上行网速（KB/s），拿不到时为 null。 */
+  networkTxKbps: z.number().nullable().default(null),
+});
+export type PerfSample = z.infer<typeof PerfSampleSchema>;
+
 /** 设备锁定信息，只有管理员能操作。 */
 export const DeviceLockSchema = z.object({
   locked: z.boolean().default(false),
@@ -303,6 +328,8 @@ export const DeviceActionSchema = z.enum([
   /** 设备直连：读取电量 / 运行状态（内存、存储、网络、开机时长）。 */
   'battery',
   'runtime',
+  /** 设备性能采样：CPU / 内存 / 实时帧率。 */
+  'perf',
   'app.install',
   'app.uninstall',
   'app.list',

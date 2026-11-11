@@ -5,10 +5,12 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { z } from 'zod';import {
   BUILTIN_AGENT_ID,
+  PerfSampleSchema,
   UpdateAgentBodySchema,
   type AgentSummary,
   type DeviceSummary,
   type IosTunnelStatus,
+  type PerfSample,
   type SafeKeyboardLayout,
 } from '@adh/protocol';
 import {
@@ -21,6 +23,8 @@ import {
   runCommandBuffer,
   resolveQuality,
   invalidateWdaCache,
+  sampleAndroidPerf,
+  sampleIosPerf,
   startTunnel,
   stopTunnel,
   wdaPortFor,
@@ -330,6 +334,33 @@ interface RuntimeStats {
 
 /** iOS 屏幕亮灭状态，用于电源键切换。 */
 const iosScreenUnlocked = new Map<string, boolean>();
+
+/** 性能采样缓存：多个标签页同时刷新时合并成一次 adb / agent 调用。 */
+const PERF_CACHE_MS = 1_200;
+const perfCache = new Map<string, { at: number; sample: PerfSample }>();
+const perfInflight = new Map<string, Promise<PerfSample>>();
+
+async function collectPerfSample(
+  deps: HttpDeps,
+  device: DeviceSummary,
+): Promise<PerfSample> {
+  if (device.agentId === BUILTIN_AGENT_ID) {
+    if (device.platform === 'android') {
+      return sampleAndroidPerf(device.udid);
+    }
+    return sampleIosPerf(device.udid, runIos);
+  }
+
+  const result = await deps.commands.send(
+    device.agentId,
+    'perf',
+    { udid: device.udid, platform: device.platform },
+    device.id,
+    20_000,
+  );
+  if (!result.ok) throw new Error(result.error ?? '读取性能数据失败');
+  return PerfSampleSchema.parse(result.data);
+}
 
 /** go-ios 的命令名兼容 ios / go-ios。 */
 let iosCliCache: { at: number; command: string | null } | null = null;
@@ -2350,6 +2381,40 @@ export async function registerHttpRoutes(
       uptimeSeconds: parseUptime(uptime.stdout),
     };
     return stats;
+  });
+
+  /** 设备性能采样：CPU / 内存 / 实时帧率，控制页右侧图表周期拉取。 */
+  app.get('/api/devices/:id/perf', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const device = await deps.queries.getDevice(id);
+    if (!device) return reply.code(404).send({ error: '设备不存在' });
+    if (device.status !== 'online') {
+      return reply.code(400).send({ error: '设备离线，无法读取性能数据' });
+    }
+
+    const cached = perfCache.get(device.id);
+    // iOS 需要跑两个 instruments 流式命令，缓存时间长一点，避免多标签页重复采样
+    const cacheMs = device.platform === 'ios' ? 5_000 : PERF_CACHE_MS;
+    if (cached && Date.now() - cached.at < cacheMs) {
+      return cached.sample;
+    }
+
+    const pending = perfInflight.get(device.id);
+    if (pending) return pending;
+
+    const task = collectPerfSample(deps, device);
+    perfInflight.set(device.id, task);
+    try {
+      const sample = await task;
+      perfCache.set(device.id, { at: Date.now(), sample });
+      return sample;
+    } catch (error) {
+      return reply.code(503).send({
+        error: error instanceof Error ? error.message : '读取性能数据失败',
+      });
+    } finally {
+      perfInflight.delete(device.id);
+    }
   });
 
   /* ---------------------------------------------------------------- */

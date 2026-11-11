@@ -15,6 +15,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.TrafficStats
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiInfo
 import android.net.Uri
@@ -54,6 +55,7 @@ class PortalService : Service(), AgentClient.Listener {
         Config.init(this)
         createChannel()
         ensureForeground(false)
+        FrameStats.start()
         KeepAlive.onServiceStarted(this)
         // 系统停止共享（用户点「停止共享」/ 被系统撤销）时立即断开，别让控制台继续显示在线
         ProjectionController.onStopped = {
@@ -189,6 +191,7 @@ class PortalService : Service(), AgentClient.Listener {
             "gallery.import" -> io.execute { importGallery(id, params) }
             "battery" -> io.execute { reply(id, true, JSONObject().put("battery", batteryStats())) }
             "runtime" -> io.execute { reply(id, true, runtimeStats()) }
+            "perf" -> io.execute { reply(id, true, perfStats()) }
             "device.reboot", "shell", "logcat.start", "logcat.stop" ->
                 reply(id, false, error = "直连模式不支持该操作，请使用带宿主机 Agent 的节点")
             else -> reply(id, false, error = "不支持的操作：$action")
@@ -581,6 +584,79 @@ class PortalService : Service(), AgentClient.Listener {
         }
     }
 
+    /** 控制页性能图表：CPU / 内存 / 实时帧率 / 电量 / 网络。 */
+    private fun perfStats(): JSONObject {
+        val manager = getSystemService(ActivityManager::class.java)
+        val info = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(info)
+        val battery = batteryStats()
+
+        val netStartedAt = SystemClock.elapsedRealtime()
+        val rxBefore = TrafficStats.getTotalRxBytes()
+        val txBefore = TrafficStats.getTotalTxBytes()
+        val cpu = cpuUsage()
+        val netElapsed = (SystemClock.elapsedRealtime() - netStartedAt) / 1000.0
+        val rxAfter = TrafficStats.getTotalRxBytes()
+        val txAfter = TrafficStats.getTotalTxBytes()
+
+        val refreshRate = getSystemService(android.hardware.display.DisplayManager::class.java)
+            .getDisplay(android.view.Display.DEFAULT_DISPLAY)
+            ?.refreshRate
+
+        return JSONObject().apply {
+            put("ts", System.currentTimeMillis())
+            if (cpu == null) put("cpu", JSONObject.NULL) else put("cpu", cpu)
+            put("memoryUsedMb", (info.totalMem - info.availMem) / 1024 / 1024)
+            put("memoryTotalMb", info.totalMem / 1024 / 1024)
+            put("fps", Math.round(FrameStats.fps() * 10.0) / 10.0)
+            if (refreshRate == null) put("refreshRate", JSONObject.NULL)
+            else put("refreshRate", Math.round(refreshRate * 10.0) / 10.0)
+
+            if (battery.isNull("level")) put("batteryLevel", JSONObject.NULL)
+            else put("batteryLevel", battery.optInt("level"))
+            if (battery.isNull("temperature")) put("batteryTemperature", JSONObject.NULL)
+            else put("batteryTemperature", battery.optDouble("temperature"))
+
+            put("networkRxKbps", netKbps(rxBefore, rxAfter, netElapsed))
+            put("networkTxKbps", netKbps(txBefore, txAfter, netElapsed))
+        }
+    }
+
+    /** TrafficStats 返回累计字节数，取差值换算成 KB/s。 */
+    private fun netKbps(before: Long, after: Long, elapsedSec: Double): Any {
+        if (before < 0 || after < 0 || after < before || elapsedSec <= 0) return JSONObject.NULL
+        return Math.round((after - before) / 1024.0 / elapsedSec * 10.0) / 10.0
+    }
+
+    /** 两次读取 /proc/stat 取差值，算出整机 CPU 占用。 */
+    private fun cpuUsage(): Double? {
+        val before = readProcStat() ?: return null
+        Thread.sleep(300)
+        val after = readProcStat() ?: return null
+        val total = after.first - before.first
+        val idle = after.second - before.second
+        if (total <= 0) return null
+        val percent = (total - idle) * 100.0 / total
+        return Math.round(percent.coerceIn(0.0, 100.0) * 10.0) / 10.0
+    }
+
+    /** 返回 (总时间, 空闲时间)。 */
+    private fun readProcStat(): Pair<Long, Long>? {
+        return runCatching {
+            val line = File("/proc/stat")
+                .readLines()
+                .firstOrNull { it.startsWith("cpu ") } ?: return@runCatching null
+            val parts = line.trim()
+                .split(Regex("\\s+"))
+                .drop(1)
+                .map { it.toLong() }
+            if (parts.size < 4) return@runCatching null
+            val idle = parts[3] + (parts.getOrNull(4) ?: 0L)
+            val total = parts.take(8).sum()
+            total to idle
+        }.getOrNull()
+    }
+
     /**
      * 当前 WiFi 名称。Android 10+ 需要定位权限（Android 13+ 用 NEARBY_WIFI_DEVICES），
      * 并且系统定位开关要打开，否则系统只会返回 <unknown ssid>。
@@ -715,6 +791,7 @@ class PortalService : Service(), AgentClient.Listener {
         stream?.stop("服务已停止")
         stream = null
         thumbnailTimer.removeCallbacksAndMessages(null)
+        FrameStats.stop()
         ProjectionController.release()
     }
 

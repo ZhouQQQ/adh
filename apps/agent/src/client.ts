@@ -13,6 +13,8 @@ import {
   launchAndroidApp,
   resetToolCommandCaches,
   runCommand,
+  sampleAndroidPerf,
+  sampleIosPerf,
   startTunnel,
   startWda,
   stopTunnel,
@@ -525,6 +527,30 @@ export class AgentClient {
             error: error instanceof Error ? error.message : String(error),
           });
         });
+      return;
+    }
+
+    if (message.action === 'perf' && params.udid) {
+      const udid = params.udid;
+      const platform = params.platform === 'ios' ? 'ios' : 'android';
+      void (async () => {
+        try {
+          const sample =
+            platform === 'ios'
+              ? await sampleIosPerf(udid, (args, timeoutMs) =>
+                  this.runIosCommand(args, timeoutMs),
+                )
+              : await sampleAndroidPerf(udid);
+          this.send({ t: 'cmd.result', id: message.id, ok: true, data: sample });
+        } catch (error) {
+          this.send({
+            t: 'cmd.result',
+            id: message.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
       return;
     }
 

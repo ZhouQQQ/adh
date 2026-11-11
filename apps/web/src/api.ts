@@ -4,6 +4,7 @@
   CreateAgentResponse,
   DeviceSummary,
   IosTunnelStatus,
+  PerfSample,
   SafeKeyboardLayout,
 } from '@adh/protocol';
 import { withBase } from './base';
@@ -626,6 +627,11 @@ export const api = {
   /** 设备实时运行状态（电量 / 内存 / 存储 / WiFi）。 */
   getDeviceRuntime(deviceId: string): Promise<DeviceRuntime> {
     return request(`/api/devices/${deviceId}/runtime`);
+  },
+
+  /** 设备性能采样：CPU / 内存 / 实时帧率。 */
+  getDevicePerf(deviceId: string): Promise<PerfSample> {
+    return request(`/api/devices/${deviceId}/perf`);
   },
 
   /** 只看电量，设备卡片用。 */

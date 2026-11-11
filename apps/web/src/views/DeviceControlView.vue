@@ -61,6 +61,7 @@ import DeviceFileBrowser from '../components/DeviceFileBrowser.vue';
 import DevicePlayer from '../components/DevicePlayer.vue';
 import DeviceAppsDrawer from '../components/DeviceAppsDrawer.vue';
 import DeviceStats from '../components/DeviceStats.vue';
+import DevicePerfPanel from '../components/DevicePerfPanel.vue';
 import InstallAppModal from '../components/InstallAppModal.vue';
 import SafeKeyboardOverlay from '../components/SafeKeyboardOverlay.vue';
 import CopyValue from '../components/CopyValue.vue';
@@ -166,6 +167,7 @@ const sessionId = ref<string | null>(null);
 const aiOpen = ref(localStorage.getItem('adh.ai.open') === '1');
 const infoOpen = ref(localStorage.getItem('adh.info.open') !== '0');
 const sideOpen = ref(localStorage.getItem('adh.side.open') !== '0');
+const perfOpen = ref(localStorage.getItem('adh.perf.open') === '1');
 
 /** 画面上叠加元素的开关，全部可按需关掉。 */
 function flag(key: string, fallback: boolean): Ref<boolean> {
@@ -220,6 +222,11 @@ function toggleSider(): void {
 function toggleSidebar(): void {
   sideOpen.value = !sideOpen.value;
   localStorage.setItem('adh.side.open', sideOpen.value ? '1' : '0');
+}
+
+function togglePerf(): void {
+  perfOpen.value = !perfOpen.value;
+  localStorage.setItem('adh.perf.open', perfOpen.value ? '1' : '0');
 }
 
 async function toggleFullscreen(): Promise<void> {
@@ -383,9 +390,9 @@ const pipActive = ref(false);
 let docPip: Window | null = null;
 
 /** 画中画窗口的等比缩放百分比（1~100），记在本地。 */
-const PIP_ZOOM_KEY = 'adh.pip.zoom';
+const PIP_ZOOM_KEY = 'adh.pip.zoom.v2';
 const pipZoom = ref(
-  Math.min(100, Math.max(1, Number(localStorage.getItem(PIP_ZOOM_KEY)) || 50)),
+  Math.min(100, Math.max(1, Number(localStorage.getItem(PIP_ZOOM_KEY)) || 100)),
 );
 
 /**
@@ -1651,6 +1658,9 @@ onBeforeUnmount(() => {
             <n-checkbox :checked="sideOpen" @update:checked="toggleSidebar">
               操作栏
             </n-checkbox>
+            <n-checkbox :checked="perfOpen" @update:checked="togglePerf">
+              性能数据
+            </n-checkbox>
             <n-checkbox
               :checked="aiOpen"
               :disabled="!controller"
@@ -1831,6 +1841,16 @@ onBeforeUnmount(() => {
             {{ device?.status === 'online' ? '在线' : device?.status === 'offline' ? '离线' : '未授权' }}
           </span>
         </div>
+      </aside>
+
+      <aside v-if="perfOpen" class="perf-col">
+        <div class="section-title perf-title">
+          <span>设备性能数据</span>
+        </div>
+        <DevicePerfPanel
+          :device-id="device?.id ?? ''"
+          :platform="isIos ? 'ios' : 'android'"
+        />
       </aside>
 
       <div ref="stageRef" class="stage">
@@ -2580,6 +2600,10 @@ onBeforeUnmount(() => {
   display: none;
 }
 
+.control-page.web-fullscreen .perf-col {
+  display: none;
+}
+
 /* 网页全屏：保留顶部工具栏，AI 开关仍可用 */
 .control-page.web-fullscreen .body {
   padding: 8px;
@@ -2862,8 +2886,13 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: var(--surface);
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.10) transparent;
+  scrollbar-width: none;
+}
+
+/* 设备信息列内容较多，隐藏滚动条，仍可用滚轮滚动 */
+.info-col::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 /* 常驻 AI 对话栏：作为 body 的第三列，不再用抽屉浮层 */
@@ -2882,12 +2911,6 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
 }
-
-.info-col:hover {
-  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
-}
-
-
 
 .info-row {
   display: flex;
@@ -3307,6 +3330,10 @@ onBeforeUnmount(() => {
   display: none;
 }
 
+.control-page:fullscreen .perf-col {
+  display: none;
+}
+
 .control-page:fullscreen .ai-col {
   width: min(380px, 32vw);
 }
@@ -3557,6 +3584,35 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+/* 设备性能数据列：PerfDog 风格的实时 CPU / 内存 / 帧率图表 */
+.perf-col {
+  width: 252px;
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow-y: auto;
+  /* 图表列内容紧凑，不显示滚动条，避免和设备信息列一样出现竖条 */
+  scrollbar-width: none;
+}
+
+.perf-col::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.perf-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .side {
   width: 260px;
   flex: none;
@@ -3680,6 +3736,20 @@ onBeforeUnmount(() => {
     flex-direction: column;
     padding: 10px;
     gap: 10px;
+  }
+
+  .perf-col {
+    width: 100%;
+    max-height: 42vh;
+  }
+
+  .perf-col :deep(.metrics) {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .perf-col :deep(.metric) {
+    flex: 1 1 150px;
   }
 
   .side {
